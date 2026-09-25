@@ -13,50 +13,77 @@
  *   overpay        market value given <= value got, except CAP-1C: exactly 2 for 1, neither given
  *                  player 83+ or pinned, at most +12%, and the step carries a confirmed rise in
  *                  lineup points AND title odds (step.depth_premium.confirmed, CAP-1C #382's field).
- *   no_olave       Chris Olave is never a get, a target, a suggestion or a flip.
- *   no_reversal    no step with a manager moves back a player that moved between Nick and that
- *                  manager in a trade this season (Nick gets back one he sent, or sends back one he got).
+ *   no_olave       Chris Olave is never a get, a give, a target, a suggestion or a flip.
+ *   no_buyback     no get, from any team, of a player Nick sent away in any trade this season (whole
+ *                  season, no price-fall exception).
+ *   no_undo        no step with a manager both takes back from him a player Nick sent him and gives him
+ *                  back a player he sent Nick, in one trade this season between the two.
+ *   beats_no_trade every served deck card and backup beats doing nothing on the confirm dice:
+ *                  confirm.verdict is not 'failed' and the confirm-dice expected gain is > 0.
+ *
+ * Surfaces covered (offersOf): best plan; every deck card, each of its playbooks' opening, walk-away,
+ * ladder packages, reply-table next moves and negotiation.alt_package (#386); backups; the risk-mode
+ * sheet's first steps; flip legs; catch-up items that name a deal (plan_key: desperate, swing);
+ * LADDER-01 cards' rungs and each rung's on_no move (#394); suggestions and targets. A surface a PR
+ * adds that is not listed here is NOT checked.
  */
 import { NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID, BLUE_CHIP } from './rule-fuzz-league.mjs';
 
-export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_reversal']);
+export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade']);
 export const DEPTH_PREMIUM = 0.12;
 const EPS = 1e-9;
 const S = x => String(x);
 
-/**
- * Every offer the result shows Nick: plan steps (best, deck, backups, risk-mode sheet), each step's
- * opening, walk-away and ladder packages, and flip legs. { surface, team, give, get, step }.
- */
+/** A catch-up item's plan_key (paths.js#dealKey: 'team|give+ids|get+ids') back to a deal, or null. */
+export function dealOfKey(key) {
+  const parts = typeof key === 'string' ? key.split('|') : [];
+  if (parts.length !== 3 || !parts[1] || !parts[2]) return null;
+  return { team: parts[0], give: parts[1].split('+'), get: parts[2].split('+') };
+}
+
+/** Every offer the result shows Nick: { surface, team, give, get, step, final }, plus the plans. */
 export function offersOf(res) {
   const out = [];
   const plans = [];
+  const add = (surface, team, give, get, step = null, extra = {}) => {
+    if (Array.isArray(give) && Array.isArray(get) && give.length && get.length) out.push({ surface, team, give, get, step, ...extra });
+  };
+  const playbookOffers = (name, pb, st) => {
+    if (!pb || !st) return;
+    const L = pb.ladder ?? {};
+    const priced = [['opening', L.opening ?? pb.opening], ['walk_away', L.walk_away ?? pb.walk_away],
+      ...(L.ladder ?? []).map((l, i) => [`ladder[${i}]`, l])];
+    for (const [k, x] of priced) if (x?.give) add(`${name}.${k}`, st.team, x.give, st.get, st);
+    for (const r of pb.replies ?? []) if (r.next) add(`${name}.replies.${r.kind}`, r.next.partner, r.next.give, r.next.get);
+    const alt = pb.negotiation?.alt_package;
+    if (alt) add(`${name}.negotiation.alt_package`, st.team, alt.give, alt.get ?? st.get, st);
+  };
   if (res.best) plans.push(['best', res.best]);
   for (const [j, c] of (res.deck ?? []).entries()) {
-    if (c.plan) plans.push([`deck[${j}]`, c.plan]);
-    for (const pb of c.playbooks ?? [c.playbook]) {
-      const st = c.plan?.steps?.[pb?.step_index ?? 0];
-      if (!pb || !st) continue;
-      const priced = [['opening', pb.ladder?.opening ?? pb.opening], ['walk_away', pb.ladder?.walk_away ?? pb.walk_away],
-        ...(pb.ladder?.ladder ?? []).map((l, i) => [`ladder[${i}]`, l])];
-      for (const [name, x] of priced) if (x?.give) out.push({ surface: `deck[${j}].${name}`, team: st.team, give: x.give, get: st.get, step: st });
-    }
+    if (!c.plan) continue;
+    plans.push([`deck[${j}]`, c.plan]);
+    for (const pb of c.playbooks ?? [c.playbook]) playbookOffers(`deck[${j}].playbook[${pb?.step_index ?? 0}]`, pb, c.plan.steps[pb?.step_index ?? 0]);
   }
-  for (const pb of res.playbook ?? []) {
-    const st = res.best?.steps?.[pb.step_index];
-    if (!st) continue;
-    for (const [name, x] of [['opening', pb.ladder?.opening], ['walk_away', pb.ladder?.walk_away]]) {
-      if (x?.give) out.push({ surface: `playbook[${pb.step_index}].${name}`, team: st.team, give: x.give, get: st.get, step: st });
-    }
-  }
-  for (const [i, b] of (res.backups ?? []).entries()) if (b?.step) out.push({ surface: `backup[${i}]`, team: b.step.team, give: b.step.give, get: b.step.get, step: b.step });
-  for (const m of res.risk_modes ?? []) if (m.first_step) out.push({ surface: `risk_modes.${m.mode}`, team: m.first_step.team, give: m.first_step.give, get: m.first_step.get, step: m.first_step });
-  for (const [name, p] of plans) for (const [i, st] of p.steps.entries()) out.push({ surface: `${name}.step[${i}]`, team: st.team, give: st.give, get: st.get, step: st });
+  for (const pb of res.playbook ?? []) playbookOffers(`playbook[${pb.step_index}]`, pb, res.best?.steps?.[pb.step_index]);
+  for (const [i, b] of (res.backups ?? []).entries()) if (b?.step) add(`backup[${i}]`, b.step.team, b.step.give, b.step.get, b.step);
+  for (const m of res.risk_modes ?? []) if (m.first_step) add(`risk_modes.${m.mode}`, m.first_step.team, m.first_step.give, m.first_step.get, m.first_step);
+  for (const [name, p] of plans) for (const [i, st] of p.steps.entries()) add(`${name}.step[${i}]`, st.team, st.give, st.get, st);
   for (const f of res.flip?.realised ?? []) {
     if (!f.legs) continue;
     const gx = f.legs.give_a_ids ?? [f.legs.give_a], gy = f.legs.get_b_ids ?? [f.legs.get_b];
-    out.push({ surface: `flip ${f.player} leg 1`, team: f.a, give: gx, get: [f.player], step: null });
-    out.push({ surface: `flip ${f.player} leg 2`, team: f.b, give: [f.player], get: gy, step: null, final: true });
+    add(`flip ${f.player} leg 1`, f.a, gx, [f.player]);
+    add(`flip ${f.player} leg 2`, f.b, [f.player], gy, null, { final: true });
+  }
+  for (const [i, it] of (res.catch_up ?? []).entries()) {
+    const d = dealOfKey(it?.plan_key);
+    if (d) add(`catch_up[${i}].${it.kind}`, d.team, d.give, d.get);
+  }
+  for (const [j, card] of (res.ladders?.cards ?? []).entries()) {
+    const rungs = card.rungs ?? [];
+    for (const [i, r] of rungs.entries()) {
+      add(`ladders[${j}].rung[${i}]`, r.partner, r.give, r.get, null, { final: i === rungs.length - 1 });
+      if (r.on_no?.give) add(`ladders[${j}].rung[${i}].on_no`, r.on_no.partner, r.on_no.give, r.on_no.get);
+    }
   }
   return { offers: out, plans };
 }
@@ -72,28 +99,31 @@ export function finalGets(plan, startIds) {
   return [...held].filter(id => !start.has(id));
 }
 
-/** Nick's season trades with one manager: { sent: Set (Nick -> him), got: Set (him -> Nick) }. */
-function seasonMoves(ledger, me, team) {
-  const sent = new Set(), got = new Set();
-  for (const t of ledger?.trades ?? []) {
-    for (const m of t.moves) {
-      if (S(m.from) === S(me) && S(m.to) === S(team)) sent.add(S(m.player));
-      if (S(m.from) === S(team) && S(m.to) === S(me)) got.add(S(m.player));
-    }
-  }
-  return { sent, got };
+/** Every player Nick sent away in any trade this season. */
+export function soldThisSeason(ledger, me) {
+  return new Set((ledger?.trades ?? []).flatMap(t => t.moves).filter(m => S(m.from) === S(me)).map(m => S(m.player)));
+}
+
+/** Nick's season trades with one manager, one entry per trade: { sent: Set (Nick -> him), got: Set (him -> Nick) }. */
+function tradesWith(ledger, me, team) {
+  return (ledger?.trades ?? []).map(t => ({
+    sent: new Set(t.moves.filter(m => S(m.from) === S(me) && S(m.to) === S(team)).map(m => S(m.player))),
+    got: new Set(t.moves.filter(m => S(m.from) === S(team) && S(m.to) === S(me)).map(m => S(m.player))),
+  })).filter(t => t.sent.size && t.got.size);
 }
 
 /** Every rule break in one planner result: [{ rule, surface, detail }]. */
 export function ruleViolations(adapter, res) {
   const me = adapter.league.me;
   const P = adapter.players;
-  const val = id => Math.max(0, Number(P.get(Number(id))?.value ?? P.get(id)?.value) || 0);
+  const player = id => P.get(Number(id)) ?? P.get(id);
+  const val = id => Math.max(0, Number(player(id)?.value) || 0);
   const score = id => Number(adapter.scoreOf(id)?.score);
   const blue = id => score(id) >= BLUE_CHIP;
   const consistent = id => !!adapter.scoreOf(id)?.consistent;
-  const isOlave = id => S(id) === S(OLAVE_ID) || (P.get(Number(id)) ?? P.get(id))?.name === 'Chris Olave';
+  const isOlave = id => S(id) === S(OLAVE_ID) || player(id)?.name === 'Chris Olave';
   const pinned = new Set([NICO_COLLINS, CHASE_BROWN, AJ_BROWN].map(S));
+  const sold = soldThisSeason(adapter.tradeLedger, me);
   const sum = ids => ids.reduce((s, id) => s + val(id), 0);
   const out = [];
   const bad = (rule, surface, detail) => out.push({ rule, surface, detail });
@@ -114,17 +144,30 @@ export function ruleViolations(adapter, res) {
     }
     if (get.some(isOlave) || give.some(isOlave)) bad('no_olave', o.surface, tag);
     if (o.final) for (const id of get) if (!blue(id)) bad('final_get', o.surface, `${id} scores ${score(id)}`);
-    const moved = seasonMoves(adapter.tradeLedger, me, o.team);
-    const back = [...get.filter(id => moved.sent.has(id)), ...give.filter(id => moved.got.has(id))];
-    if (back.length) bad('no_reversal', o.surface, `${tag} moves back ${back.join('+')}`);
+    const back = get.filter(id => sold.has(id));
+    if (back.length) bad('no_buyback', o.surface, `${tag} buys back ${back.join('+')}`);
+    const undo = tradesWith(adapter.tradeLedger, me, o.team).find(t => get.some(id => t.sent.has(id)) && give.some(id => t.got.has(id)));
+    if (undo) bad('no_undo', o.surface, `${tag} undoes a trade with team ${o.team}`);
   }
   const start = adapter.rosters.get(me);
   for (const [name, p] of plans) for (const id of finalGets(p, start)) if (!blue(id)) bad('final_get', name, `${id} scores ${score(id)}`);
+  for (const [j, c] of (res.deck ?? []).entries()) {
+    if (!c.plan) continue;
+    if (c.confirm?.verdict === 'failed') bad('beats_no_trade', `deck[${j}]`, 'confirm verdict failed');
+    if (!(Number(c.plan.expected) > 0)) bad('beats_no_trade', `deck[${j}]`, `confirm-dice expected ${c.plan.expected}`);
+  }
+  for (const [i, b] of (res.backups ?? []).entries()) {
+    if (b?.step && !(Number(b.expected) > 0)) bad('beats_no_trade', `backup[${i}]`, `expected ${b.expected}`);
+  }
   for (const s of res.suggestions ?? []) {
     if (!blue(s.player)) bad('final_get', 'suggestions', `${s.player} scores ${score(s.player)}`);
     if (isOlave(s.player)) bad('no_olave', 'suggestions', S(s.player));
+    if (sold.has(S(s.player))) bad('no_buyback', 'suggestions', S(s.player));
   }
-  for (const t of res.targets ?? []) if (isOlave(t)) bad('no_olave', 'targets', S(t));
+  for (const t of res.targets ?? []) {
+    if (isOlave(t)) bad('no_olave', 'targets', S(t));
+    if (sold.has(S(t))) bad('no_buyback', 'targets', S(t));
+  }
   return out;
 }
 

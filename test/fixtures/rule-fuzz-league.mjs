@@ -3,7 +3,7 @@
  * No real data: team ids are small integers, every player but Nick's pinned four is "P<id>", values,
  * powers and board scores are drawn from the seed. The pinned four carry their real NFL names and the
  * ids Nick's rules name (ONE-PLAN 10b): Nico Collins 160, Chase Brown 80 and A.J. Brown 277 on
- * Nick's roster; Chris Olave (a made-up id, OLAVE_ID) on someone else's.
+ * Nick's roster; Chris Olave (290, the id #394 pins) on someone else's.
  *
  * One seed -> one league, byte for byte: the RNG is mulberry32, the world's dice are a hash of the
  * seed and the state (the same shape as test/fixtures/campaign-league.mjs). A failing seed printed by
@@ -21,8 +21,8 @@
 export const NICO_COLLINS = 160;
 export const CHASE_BROWN = 80;
 export const AJ_BROWN = 277;
-/** Made-up: the real planner id is whatever the Olave rule's PR pins; the oracle also matches the name. */
-export const OLAVE_ID = 9001;
+/** The planner id #394 pins for Olave; the oracle also matches the name. */
+export const OLAVE_ID = 290;
 export const BLUE_CHIP = 83;
 const DAY = 864e5;
 const NOW = Date.parse('2026-09-24T12:00:00Z');

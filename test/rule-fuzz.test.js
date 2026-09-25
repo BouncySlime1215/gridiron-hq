@@ -23,7 +23,7 @@ const { normaliseObjective } = await import('../server/services/campaign/objecti
 const { rankPlans, tolerancesFor, MODES } = await import('../server/services/campaign/modes.js');
 const { nickOverpays } = await import('../server/services/campaign/search.js');
 const { makeFuzzLeague, rng, NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID } = await import('./fixtures/rule-fuzz-league.mjs');
-const { ruleViolations, countByRule, finalGets, RULES } = await import('./fixtures/nick-rules.mjs');
+const { ruleViolations, countByRule, finalGets, dealOfKey, RULES } = await import('./fixtures/nick-rules.mjs');
 
 const CORPUS = JSON.parse(readFileSync(new URL('./fixtures/rule-fuzz-seeds.json', import.meta.url), 'utf8'));
 const envInt = (k, d) => (Number.isInteger(Number(process.env[k])) && process.env[k] !== '' && process.env[k] != null ? Number(process.env[k]) : d);
@@ -42,11 +42,13 @@ const ENFORCED = [
   { rule: 'overpay', name: 'no overpay beyond the 1c exception' },
 ];
 const PENDING = [
-  { rule: 'never_give', name: '160 and 80 never given (notes missing)', when: a => !a.draw.notes, todo: 'pinned by id in #381 (never-give.js)' },
-  { rule: 'aj_brown', name: 'A.J. Brown only for a consistent Blue chip', todo: '#381 pins 277 as never-give until a consistency read exists' },
-  { rule: 'final_get', name: 'every final get scores 83+', todo: '#381 GETS-FLOOR, and only once GRIDIRON_GETS_FLOOR=1 is served' },
-  { rule: 'no_olave', name: 'Chris Olave never offered or targeted', todo: '#379 excludes him only inside its 28-day sold window; no PR pins him by id' },
-  { rule: 'no_reversal', name: 'no trade made this season is reversed', todo: '#379 blocks two-way undo and recent sells only; one-way move-backs are open' },
+  { rule: 'never_give', name: '160 and 80 never given (notes missing)', when: a => !a.draw.notes, todo: '#381 / #398 never-give.js pins 160 and 80 by id' },
+  { rule: 'aj_brown', name: 'A.J. Brown only for a consistent Blue chip', todo: '#381 / #398 pin 277 as never-give until a consistency read exists' },
+  { rule: 'final_get', name: 'every final get scores 83+', todo: '#381 GETS-FLOOR; #398 keeps GRIDIRON_GETS_FLOOR off on the served path, so it stays open until #398 serves the floor' },
+  { rule: 'no_olave', name: 'Chris Olave never offered or targeted', todo: '#394 pins 290; #398 blocks him as sold this season' },
+  { rule: 'no_buyback', name: 'no buy-back of a player sold this season', todo: '#398 trade memory is whole-season, but BUYBACK_FALL lets a player back in after a 10% price fall' },
+  { rule: 'no_undo', name: 'no trade made this season is undone', todo: '#379 / #398 trade memory (c)' },
+  { rule: 'beats_no_trade', name: 'every served card and backup beats doing nothing on the confirm dice', todo: '#398 NO-TRADE-SHRINK confirm pass' },
 ];
 
 /* One planner run per (seed, mode), shared by every test below. */
@@ -79,10 +81,12 @@ test('the oracle catches each rule on a hand-built result', () => {
   const other = [...a.rosters.keys()].find(t => t !== me);
   const cheap = a.rosters.get(other).filter(id => id !== OLAVE_ID && a.scoreOf(id).score < 83)
     .sort((x, y) => a.players.get(x).value - a.players.get(y).value)[0];
-  const sold = a.tradeLedger.trades.flatMap(t => t.moves).find(m => m.from === me && m.player !== OLAVE_ID)
-    ?? a.tradeLedger.trades.flatMap(t => t.moves).find(m => m.from === me);
+  const moves = a.tradeLedger.trades.flatMap(t => t.moves);
+  const sold = moves.find(m => m.from === me && m.player !== OLAVE_ID) ?? moves.find(m => m.from === me);
+  const elsewhere = [...a.rosters.keys()].find(t => t !== me && t !== sold.to);
+  const twoWay = a.tradeLedger.trades.find(t => t.moves.some(m => m.from === me) && t.moves.some(m => m.to === me));
   const step = (team, give, get) => ({ team, give, get, p: 0.5, delta: 0.01 });
-  const plan = steps => ({ steps, target: steps.at(-1).get[0] });
+  const plan = steps => ({ steps, target: steps.at(-1).get[0], expected: 0.01 });
   const res = { deck: [], suggestions: [], targets: [], flip: { realised: [] }, best: null };
   const cases = [
     ['never_give', plan([step(other, [NICO_COLLINS], [cheap])])],
@@ -90,18 +94,58 @@ test('the oracle catches each rule on a hand-built result', () => {
     ['final_get', plan([step(other, [mine.find(id => id > 999)], [cheap])])],
     ['overpay', plan([step(other, [CHASE_BROWN], [cheap])])],
     ['no_olave', plan([step(a.draw.olave_team, [mine[0]], [OLAVE_ID])])],
-    ['no_reversal', plan([step(sold.to, [mine[0]], [sold.player])])],
+    // Sold to one team, now bought from another: still a buy-back.
+    ['no_buyback', plan([step(elsewhere, [mine[0]], [sold.player])])],
+    ['no_undo', plan([step(twoWay.moves.find(m => m.from === me).to, [twoWay.moves.find(m => m.to === me).player],
+      [twoWay.moves.find(m => m.from === me).player])])],
   ];
   for (const [rule, p] of cases) {
     if (rule === 'aj_brown' && !mine.includes(AJ_BROWN)) continue;
     const got = countByRule(ruleViolations(a, { ...res, best: p }));
     assert.ok(got[rule] > 0, `${rule} not caught: ${JSON.stringify(got)}`);
   }
+  // Sending back a player Nick got is not itself a rule break (only the two-way undo is).
+  const gotBack = moves.find(m => m.to === me);
+  const oneWay = countByRule(ruleViolations(a, { ...res, best: plan([step(gotBack.from, [gotBack.player], [cheap])]) }));
+  assert.equal(oneWay.no_undo, 0);
+  assert.equal(oneWay.no_buyback, 0);
+  // beats_no_trade: a failed confirm verdict, and a card that does not gain on the confirm dice.
+  const card = (verdict, expected) => ({ plan: { ...plan([step(other, [mine[0]], [cheap])]), expected }, confirm: { verdict } });
+  assert.equal(countByRule(ruleViolations(a, { ...res, deck: [card('failed', 0.01)] })).beats_no_trade, 1);
+  assert.equal(countByRule(ruleViolations(a, { ...res, deck: [card('holds', 0)] })).beats_no_trade, 1);
+  assert.equal(countByRule(ruleViolations(a, { ...res, deck: [card('holds', 0.01)] })).beats_no_trade, 0);
+  assert.equal(countByRule(ruleViolations(a, { ...res, backups: [{ step: step(other, [mine[0]], [cheap]), expected: -0.001 }] })).beats_no_trade, 1);
   // A clean even 1-for-1 for a Blue chip, not Olave, not a move-back, breaks nothing.
-  const blueOut = a.rosters.get(other).find(id => a.scoreOf(id).score >= 83 && id !== OLAVE_ID);
-  const moved = new Set(a.tradeLedger.trades.flatMap(t => t.moves.map(m => m.player)));
+  const moved = new Set(moves.map(m => m.player));
+  const blueOut = a.rosters.get(other).find(id => a.scoreOf(id).score >= 83 && id !== OLAVE_ID && !moved.has(id));
   const giveIt = blueOut && mine.find(id => id > 999 && !moved.has(id) && a.players.get(id).value >= a.players.get(blueOut).value && a.scoreOf(id).score < 83);
   if (blueOut && giveIt) assert.deepEqual(ruleViolations(a, { ...res, best: plan([step(other, [giveIt], [blueOut])]) }), []);
+});
+
+test('every listed surface is read: catch-up, playbooks, replies, alt_package, ladders', () => {
+  const a = makeFuzzLeague(7, { notes: false, ledger: true });
+  const other = [...a.rosters.keys()].find(t => t !== a.league.me);
+  const theirs = a.rosters.get(other).find(id => id !== OLAVE_ID);
+  const base = { deck: [], suggestions: [], targets: [], flip: { realised: [] }, best: null };
+  const st = { team: other, give: [1001], get: [theirs], p: 0.5, delta: 0.01 };
+  const bad = { partner: other, give: [NICO_COLLINS], get: [theirs] };
+  const pb = extra => ({ step_index: 0, ladder: { opening: null, walk_away: null, ladder: [] }, ...extra });
+  const surfaces = {
+    'catch_up desperate': { ...base, catch_up: [{ kind: 'desperate', plan_key: `${other}|${NICO_COLLINS}|${theirs}` }] },
+    'catch_up swing': { ...base, catch_up: [{ kind: 'swing', plan_key: `${other}|${CHASE_BROWN}+1001|${theirs}` }] },
+    'reply table': { ...base, deck: [{ plan: { steps: [st], expected: 0.01 }, playbook: pb({ replies: [{ kind: 'decline', next: bad }] }) }] },
+    'deck playbooks': { ...base, deck: [{ plan: { steps: [st, { ...st, give: [1002] }], expected: 0.01 },
+      playbooks: [pb({}), pb({ step_index: 1, ladder: { walk_away: { give: [NICO_COLLINS] }, ladder: [] } })] }] },
+    'negotiation.alt_package': { ...base, deck: [{ plan: { steps: [st], expected: 0.01 },
+      playbook: pb({ negotiation: { alt_package: { give: [CHASE_BROWN], get: [theirs] } } }) }] },
+    'ladder rung': { ...base, ladders: { cards: [{ rungs: [{ ...bad }, { partner: other, give: [1001], get: [theirs] }] }] } },
+    'ladder on_no': { ...base, ladders: { cards: [{ rungs: [{ partner: other, give: [1001], get: [theirs], on_no: { kind: 'backup', ...bad } }] }] } },
+  };
+  for (const [name, res] of Object.entries(surfaces)) {
+    assert.ok(countByRule(ruleViolations(a, res)).never_give > 0, `${name} not read`);
+  }
+  assert.deepEqual(dealOfKey(`3|160+80|1004`), { team: '3', give: ['160', '80'], get: ['1004'] });
+  assert.equal(dealOfKey('none'), null);
 });
 
 test('the 1c exception: only a confirmed depth-only 2-for-1 up to +12% passes', () => {
@@ -158,11 +202,24 @@ for (const mode of MODES) {
     const rs = runMode(mode);
     const offers = rs.reduce((s, r) => s + r.res.candidates_scored, 0);
     const withDeck = rs.filter(r => r.res.deck.length > 0).length;
-    t.diagnostic(`${rs.length} leagues, ${rs.reduce((s, r) => s + r.a.rosters.size, 0)} rosters, ${offers} candidate plans, ${withDeck} with a deck`);
-    // A sweep where the planner found nothing would pass every rule vacuously.
-    assert.ok(withDeck >= rs.length / 2, `${mode}: only ${withDeck} of ${rs.length} leagues produced a deck`);
+    const keep = rs.filter(r => r.res.deck.length === 0 && noTradePick(r.res, mode)).length;
+    t.diagnostic(`${rs.length} leagues, ${rs.reduce((s, r) => s + r.a.rosters.size, 0)} rosters, ${offers} candidate plans, ${withDeck} with a deck, ${keep} with an explicit no-trade pick`);
+    // A league counts as searched when it serves a deck or explicitly picks keeping the roster on the
+    // confirm dice (#398); a sweep with neither would pass every rule vacuously.
+    assert.ok(withDeck + keep >= rs.length / 2, `${mode}: only ${withDeck} decks and ${keep} explicit no-trade picks in ${rs.length} leagues`);
   });
 }
+
+/** The mode's own row on the risk-mode sheet picks keeping the roster (#398 NO-TRADE-SHRINK's no_trade row). */
+function noTradePick(res, mode) {
+  return (res.risk_modes ?? []).find(m => m.mode === mode)?.no_trade?.pick === 'no_trade';
+}
+
+test('fuzz: at least one risk mode serves decks in half the leagues', t => {
+  const decks = Object.fromEntries(MODES.map(mode => [mode, runMode(mode).filter(r => r.res.deck.length > 0).length]));
+  t.diagnostic(`leagues with a deck: ${JSON.stringify(decks)} of ${SEEDS.length}`);
+  assert.ok(Object.values(decks).some(n => n >= SEEDS.length / 2), `no mode serves decks: ${JSON.stringify(decks)}`);
+});
 
 /* ------------------------------------- random offers at the planner's gates */
 
@@ -196,5 +253,5 @@ test('finalGets: a chip picked up and spent is not final; one kept is', () => {
   const steps = [{ give: [1], get: [50] }, { give: [50, 2], get: [99] }];
   assert.deepEqual(finalGets({ steps }, [1, 2, 3]), ['99']);
   assert.deepEqual(finalGets({ steps: [{ give: [1], get: [50] }, { give: [2], get: [99] }] }, [1, 2, 3]).sort(), ['50', '99']);
-  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_reversal']);
+  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade']);
 });

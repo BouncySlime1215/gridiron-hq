@@ -48,6 +48,7 @@ const ENFORCED = [
   { rule: 'no_olave', name: 'Chris Olave never offered or targeted' },
   { rule: 'no_buyback', name: 'no buy-back, from any team, of a player sold this season' },
   { rule: 'no_undo', name: 'no trade made this season is undone' },
+  { rule: 'stranded_hold', name: 'every holding between legs scores 83+ (FLIP-STRANDED)' },
   { rule: 'beats_no_trade', name: 'every served card, backup, catch-up deal, ladder and second package beats doing nothing on the confirm dice' },
 ];
 /** Rules whose enforcement is not on main yet: { rule, name, todo: 'the PR that enforces it' }. None today. */
@@ -111,6 +112,9 @@ test('the oracle catches each rule on a hand-built result', () => {
     ['no_olave', plan([step(a.draw.olave_team, [mine[0]], [OLAVE_ID])])],
     // Sold to one team, now bought from another: still a buy-back.
     ['no_buyback', plan([step(elsewhere, [mine[0]], [sold.player])])],
+    // Leg 1 picks up a sub-83 piece that leg 2 spends: Nick is stranded with it if leg 2 is turned down.
+    ['stranded_hold', plan([step(other, [mine.find(id => id > 999)], [cheap]),
+      step(other, [cheap, mine.filter(id => id > 999)[1]], [a.rosters.get(other).find(id => id !== cheap && a.scoreOf(id).score >= 83) ?? cheap])])],
     ['no_undo', plan([step(twoWay.moves.find(m => m.from === me).to, [twoWay.moves.find(m => m.to === me).player],
       [twoWay.moves.find(m => m.from === me).player])])],
   ];
@@ -297,5 +301,5 @@ test('finalGets: a chip picked up and spent is not final; one kept is', () => {
   const steps = [{ give: [1], get: [50] }, { give: [50, 2], get: [99] }];
   assert.deepEqual(finalGets({ steps }, [1, 2, 3]), ['99']);
   assert.deepEqual(finalGets({ steps: [{ give: [1], get: [50] }, { give: [2], get: [99] }] }, [1, 2, 3]).sort(), ['50', '99']);
-  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade']);
+  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade', 'stranded_hold']);
 });

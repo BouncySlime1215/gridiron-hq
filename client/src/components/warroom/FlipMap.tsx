@@ -4,6 +4,7 @@ import { namer, teamLabel } from './types';
 import { FieldBlock, Val } from './FieldState';
 import { pct, pts, whole } from './format';
 import { usePager } from './Panel';
+import Avatar from './Avatar';
 
 /** One player's flips: the best leg (first with fair legs, else the producer's first) and the rest. */
 export interface FlipGroup { player: string; best: Flip; rows: Flip[]; actionable: boolean }
@@ -68,7 +69,7 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
               <tbody>
                 {shown.slice(pg.a, pg.b).map(({ best: f, ...g }) => (
                   <tr key={g.player} data-flip-player={g.player}>
-                    <td><b>{n.one(f.player).name}</b>{g.rows.length > 1 && <span className="wr-muted"> ×{g.rows.length}</span>}{f.legs && <div>{legText(f)}</div>}</td>
+                    <td><Avatar id={f.player} name={n.one(f.player).name} size={32} /><b>{n.one(f.player).name}</b>{g.rows.length > 1 && <span className="wr-muted"> ×{g.rows.length}</span>}{f.legs && <div>{legText(f)}</div>}</td>
                     <td>{teamLabel(f.buy_from)}</td><td>{teamLabel(f.sell_to)}</td>
                     <td className="wr-num"><Val f={f.spread} fmt={pts} showSe /></td>
                     <td className="wr-num"><Val f={f.price_a} fmt={whole} /> vs <Val f={f.price_b} fmt={whole} /></td>
@@ -83,7 +84,7 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
                 const f = g.best;
                 return (
                   <li key={g.player} data-flip-player={g.player}>
-                    <div className="wr-row"><b>{n.one(f.player).name}</b><span className="wr-sp" /><span className="wr-num">gap <Val f={f.spread} fmt={pts} /></span></div>
+                    <div className="wr-row"><Avatar id={f.player} name={n.one(f.player).name} size={32} /><b>{n.one(f.player).name}</b><span className="wr-sp" /><span className="wr-num">gap <Val f={f.spread} fmt={pts} /></span></div>
                     <div className="wr-sub">
                       Buy {teamLabel(f.buy_from)} → sell {teamLabel(f.sell_to)} · {f.legs ? <>both yes <Val f={f.legs.p_both} fmt={v => pct(v)} /></> : <span title={whyNot(f)}>no fair legs yet</span>}{more(g)}
                     </div>

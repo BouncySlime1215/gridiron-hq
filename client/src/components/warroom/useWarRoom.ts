@@ -20,3 +20,12 @@ export function useNegotiations(leagueId: number | null) {
 export function useHisScreen(path: string | null) {
   return useApi<HisScreenData>(path);
 }
+
+/**
+ * WAR-ROOM-UI v2: player pictures. The plans contract carries app player ids only, so the
+ * page reads the app's existing player list (GET /api/players, read-only, unchanged) once
+ * and keeps id -> headshot. Presentation only; nothing about a trade is read from it.
+ */
+export function usePlayerHeadshots() {
+  return useApi<{ id: number | string; headshot?: string | null }[]>('/players');
+}

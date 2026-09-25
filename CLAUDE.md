@@ -58,11 +58,15 @@ takes `defaultExport`. The wrong key was accepted in silence, the mocked
 module's default became an empty object, and the SDK reported its own
 `TypeError` as a connection failure. It was never the key.
 
-**The live task list is on `main`.** `TASKS.md` was added to `main` by
-`d9b4a90d` on 2026-09-19 and is tracked there — a fresh clone of `main` has
-it. It also exists on `cursor/betting-model-audit-fixes-1c85` (PR #6); as of
-`654ff93` the two copies are byte-identical, not one behind the other. Don't
-assume the two have diverged without diffing them.
+**The one plan is `docs/handoff/local/ONE-PLAN.md`** on the branch
+`claude/handoff-package-2026-09-22` (read it with `git fetch origin
+claude/handoff-package-2026-09-22 && git show
+origin/claude/handoff-package-2026-09-22:docs/handoff/local/ONE-PLAN.md`).
+It superseded every earlier plan on 2026-09-24. **Stale, do not follow:**
+`TASKS.md`, `docs/FANTASY-ENGINE-MASTER-PLAN.md`, `docs/CLAUDE-NEXT-STEPS.md`,
+and the historical records under `docs/evidence/`, `docs/tdd/` and
+`docs/betting-model/` (read them only when a task names one). The product is
+the local app; the hosted Fly deploy is not maintained.
 
 **Run `npm ci` before trusting any suite number.** A fresh clone has no
 `node_modules`, and the offline-guard tests fail with `ERR_MODULE_NOT_FOUND`

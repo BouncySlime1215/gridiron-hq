@@ -255,6 +255,10 @@ test('V5: Go get: target -> paths -> the offer composer; a picked deck card logs
   const ui = await open();
   const p = await go(ui, 'goget');
   const targets = L4.targets.value;
+  const shown = byAttr(p, 'data-target-player').map(e => e.getAttribute('data-target-player'));
+  assert.deepEqual(shown, targets.slice(0, Math.max(3, shown.length)).map(t => String(t.player)).slice(0, shown.length), 'the first cards, the producer order');
+  if (targets.length > shown.length) click(one(p, 'data-testid', 'targets-more'));
+  await waitFor(() => byAttr(p, 'data-target-player').length === targets.length, 2000, 'every target after Show more');
   const cards = byAttr(p, 'data-target-player').map(e => e.getAttribute('data-target-player'));
   assert.deepEqual(cards, targets.map(t => String(t.player)), 'one card per suggested target, the producer order');
   // It opens on the plan's moves (or the plan target's paths); a target with no path says so.
@@ -269,7 +273,11 @@ test('V5: Go get: target -> paths -> the offer composer; a picked deck card logs
   await waitFor(() => byAttr(p, 'data-path').length > 0, 2000, 'paths');
   const paths = byAttr(p, 'data-path');
   const withPath = targets.find(hasPath);
-  if (!withPath) assert.deepEqual(paths.map(e => e.getAttribute('data-path')), L4.alternatives.value.map(m => m.move_id), 'every plan move, best first');
+  if (!withPath) {
+    if (one(p, 'data-testid', 'paths-more')) click(one(p, 'data-testid', 'paths-more'));
+    await waitFor(() => byAttr(p, 'data-path').length === L4.alternatives.value.length, 2000, 'every plan move');
+    assert.deepEqual(byAttr(p, 'data-path').map(e => e.getAttribute('data-path')), L4.alternatives.value.map(m => m.move_id), 'every plan move, best first');
+  }
   const firstPath = L4.alternatives.value.find(m => m.move_id === paths[0].getAttribute('data-path'));
   assert.ok(firstPath, 'a path is a plan move');
   const tl = all(paths[0], e => e.localName === 'li');
@@ -298,6 +306,8 @@ test('V5: Go get: target -> paths -> the offer composer; a picked deck card logs
   }
   // Approve on a target that is not in the plan posts one target.approve.
   const p3 = one(ui.container, 'data-screen-panel', 'goget');
+  if (one(p3, 'data-testid', 'targets-more')) click(one(p3, 'data-testid', 'targets-more'));
+  await new Promise(r => setTimeout(r, 10));
   const free = targets.find(t => !t.is_plan_target && !t.approved);
   if (free) {
     click(button(one(p3, 'data-target-player', free.player), 'Approve'));
@@ -447,4 +457,27 @@ test('V11: WATCHING lists at most five served items, red first', async () => {
   const lis = all(w, e => e.localName === 'li');
   assert.ok(lis.length <= WATCH_MAX);
   assert.deepEqual(lis.map(textOf), watchItems(v4, null).map(i => i.text));
+});
+
+test('V12: no move clears: a calm hero, the closest misses folded, friendly mode names', async () => {
+  const { closestMissLine, MODE_LABEL } = await wr.mod('NoMoveHero');
+  assert.equal(closestMissLine('None of the 68 paths clears. Nothing clears without overpaying; the closest is A (WR) + B (TE) + C (RB) for D (TE) at +1% market value (your cap: +0%). Try another.'),
+    'Closest miss: 3-for-1 for D (TE), +1% over value.');
+  assert.equal(closestMissLine('The planner found no trade path worth sending this week.'), null);
+  assert.equal(MODE_LABEL.all_in, 'All-in');
+  const view = structuredClone(v4);
+  view.league = 8; view.league_id = 8;
+  view.next_move = { status: 'unknown', source: 'plan.path', reason: 'None of the 68 paths searched clears. Nothing clears without overpaying; the closest is A (WR) + B (TE) + C (RB) for D (TE) at +1% market value (your cap: +0%). Try another target or risk mode.' };
+  view.alternatives = { status: 'ok', source: 'plan.path', value: [] };
+  globalThis.__warRoomApi['/trades/8/war-room'] = view;
+  const ui = await open(8);
+  const hero = await waitFor(() => one(ui.container, 'data-testid', 'no-move-hero'), 2000, 'the no-move hero');
+  const t = textOf(hero);
+  assert.ok(t.startsWith('Keep your roster this week'), t.slice(0, 60));
+  assert.ok(t.includes('Closest miss: 3-for-1 for D (TE), +1% over value.'));
+  assert.ok(button(hero, 'Why is nothing clearing?') && button(hero, 'Show me the all-in plan'), 'the two questions stay');
+  const more = all(hero, e => e.localName === 'details')[0];
+  assert.equal(more.hasAttribute('open'), false, 'the closest misses start folded');
+  assert.ok(one(more, 'data-testid', 'near-miss') && one(more, 'data-testid', 'all-in'), 'both cards are inside');
+  assert.doesNotMatch(textOf(one(ui.container, 'data-fact', 'risk')), /Fuck it/);
 });

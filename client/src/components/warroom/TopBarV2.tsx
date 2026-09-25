@@ -5,7 +5,7 @@ import { pct, NOT_COMPUTED, isOk } from './format';
 import { railOrder, TARGET_LEAGUE_ID, type LeagueChoice } from './LeagueRail';
 import Icon from './icons';
 
-const MODES: Record<string, string> = { safe: 'Safe', balanced: 'Balanced', all_in: "Fuck it, let's go" };
+import { MODE_LABEL as MODES } from './NoMoveHero';
 
 /** The page explainer the app mounts on every page; inside the War Room it lives in this menu only. */
 const EXPLAINER = 'button[aria-label="What am I looking at?"], button[aria-label="Close page explainer"]';

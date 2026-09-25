@@ -10,7 +10,7 @@ import Avatar from './Avatar';
 import { MoveDetails } from './HeroCard';
 import type { CurrentMove } from './NextMoveDeck';
 import { isGuess } from './heroStatus';
-import { EmptyState } from './icons';
+import Icon, { EmptyState } from './icons';
 import BlueChipBoard from './BlueChipBoard';
 
 const FIT: Record<string, string> = { fits: 'fits your mode', needs_all_in: 'needs all-in', too_risky_for_safe: 'too risky for safe' };
@@ -58,6 +58,15 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
     return () => { window.cancelAnimationFrame(id); if (t) clearTimeout(t); };
   }, []);
 
+  // Three target cards at first; the rest behind "Show more" (always including the one picked).
+  const [allTargets, setAllTargets] = useState(false);
+  const selIdx = sel ? targets.findIndex(t => t.player === sel) : -1;
+  const shownTargets = allTargets || selIdx >= 3 ? targets : targets.slice(0, 3);
+  // Two plans side by side on a wide screen, one on a phone; the rest behind "Show more".
+  const [allPaths, setAllPaths] = useState(false);
+  const [phone] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 699px)').matches);
+  const shownPaths = allPaths ? paths : paths.slice(0, phone ? 1 : 2);
+
   const [asked, setAsked] = useState<Record<string, 'saving' | 'saved'>>({});
   const [error, setError] = useState<string | null>(null);
   const approve = (player: string) => {
@@ -79,13 +88,18 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
           {() => (
             <>
               <div className="wr-tgrid wr-stagger" role="listbox" aria-label="Targets">
-                {targets.map(t => (
+                {shownTargets.map(t => (
                   <TargetCard key={t.player} t={t} name={n.one(t.player).name} on={t.player === sel}
                     onPick={() => { setPicked(t.player); setPathId(null); }}
                     state={t.is_plan_target ? 'plan' : t.approved || asked[t.player] === 'saved' ? 'approved' : asked[t.player] === 'saving' ? 'saving' : null}
                     onApprove={onRequest ? () => approve(t.player) : undefined} />
                 ))}
               </div>
+              {shownTargets.length < targets.length && (
+                <button type="button" className="wr-more" onClick={() => setAllTargets(true)} data-testid="targets-more">
+                  Show {targets.length - shownTargets.length} more target{targets.length - shownTargets.length === 1 ? '' : 's'}
+                </button>
+              )}
               {!targets.length && <EmptyState icon="target" title="No suggested targets in this run." />}
               {hiddenUt.length > 0 && (
                 <div className="wr-hint" data-testid="targets-untouchable" title={hiddenUt.map(h => `${n.one(h.player).name}: ${h.label}`).join('\n')}>
@@ -109,7 +123,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
             </EmptyState>
           ) : (
             <div className="wr-paths wr-stagger">
-              {paths.map(m => (
+              {shownPaths.map(m => (
                 <div key={m.move_id} role="button" tabIndex={0} className={`wr-path${path?.move_id === m.move_id ? ' wr-on' : ''}`}
                   aria-pressed={path?.move_id === m.move_id} onClick={() => setPathId(m.move_id)} data-path={m.move_id}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPathId(m.move_id); } }}>
@@ -138,6 +152,11 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
               ))}
             </div>
           )}
+        {paths.length > shownPaths.length && (
+          <button type="button" className="wr-more" onClick={() => setAllPaths(true)} data-testid="paths-more">
+            Show {paths.length - shownPaths.length} more plan{paths.length - shownPaths.length === 1 ? '' : 's'}
+          </button>
+        )}
       </section>
 
       {!rest && <div className="wr-card2 wr-defer" aria-hidden><span className="wr-skel wr-skel-line" /><span className="wr-skel wr-skel-line wr-skel-short" /></div>}
@@ -151,15 +170,17 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
       )}
 
       {rest && view.blue_chips && isOk(view.blue_chips) && (
-        <section className="wr-card2" data-panel="blue_chips" aria-label="Blue chips">
+        <details className="wr-card2 wr-fold" data-panel="blue_chips" aria-label="Blue chips">
+          <summary><span className="wr-card2-h">Blue chips</span><span className="wr-h-note">who to go get, risers, your protected players</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
           <BlueChipBoard field={view.blue_chips} big />
-        </section>
+        </details>
       )}
 
-      {rest && <section className="wr-card2" data-panel="stops" aria-label="Your plan">
-        <h3 className="wr-card2-h">Your plan, stop by stop</h3>
+      {rest && <details className="wr-card2 wr-fold" data-panel="stops" aria-label="Your plan">
+        <summary><span className="wr-card2-h">Your plan, stop by stop</span>
+          <span className="wr-h-note">{isOk(view.itinerary) ? `${view.itinerary.value.stops_left} left` : ''}</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
         <Itinerary field={view.itinerary} big />
-      </section>}
+      </details>}
     </div>
   );
 }

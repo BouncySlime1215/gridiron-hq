@@ -112,39 +112,59 @@ export function MoveDetails({ move, view, leagueId, onReply, negotiating }: {
   const n = namer(view.names);
   const s = move.steps[0];
   const partner = teamLabel(s.partner);
-  const target = move.target != null ? n.one(move.target) : null;
+  // The path card above already names the target and the steps; the composer starts at the message.
+  // Reasoning rows that are not computed are not drawn one by one: one line says how many wait.
+  const rv = isOk(move.reasoning) ? move.reasoning.value : null;
+  const ready = rv ? REASONING_SLOTS.filter(([k]) => rv[k]) : [];
+  const waiting = REASONING_SLOTS.length - ready.length;
   return (
     <div className="wr-move-details" data-testid="move-details">
-      <p className="wr-sub">
-        {target && <>Step 1 of {move.steps.length} toward <b>{target.name}</b>{move.target_owner ? ` (${teamLabel(move.target_owner)})` : ''}. </>}
-        When to send: <Val f={s.send_when} fmt={v => v} />
-      </p>
       {!negotiating && (
         <CopyBlock label={isOk(s.message) ? messageLabel(s) : 'Copy the deal'} text={messageOf(s, partner, n)}
           note={isOk(s.message) ? undefined : (s.message.reason ?? `Message ${NOT_COMPUTED}.`)} />
       )}
-      <h3 className="wr-cap">Walk-away</h3>
-      <Ladder s={s} text={n.text} />
-      {!negotiating && <>
-        <h3 className="wr-cap">If he says… {onReply ? '(tap what happened)' : ''}</h3>
-        <ReplyTable replies={s.reply_table} onLog={onReply} />
-      </>}
-      <h3 className="wr-cap">Why this move</h3>
-      <ul className="wr-reasoning">
-        {REASONING_SLOTS.map(([k, label]) => (
-          <li key={k}><span className="wr-k">{label}</span>
-            {isOk(move.reasoning) ? <span>{move.reasoning.value[k]}</span> : <Val f={move.reasoning} fmt={() => ''} />}
-          </li>
-        ))}
-      </ul>
-      <p className="wr-sub">
-        Whole path: <Val f={move.expected} fmt={pts} showSe /> expected
-        {' · '}finishes <Val f={move.p_complete} fmt={v => pct(v)} /> of the time
-        {' · '}finder&apos;s best single offer <Val f={view.finder_best_expected} fmt={pts} />
-      </p>
-      <HisScreenToggle leagueId={leagueId} offer={{ partner: String(s.partner), give: s.give.map(String), get: s.get.map(String) }} />
+      <div className="wr-acc">
+        <details className="wr-acc-i" data-acc="when">
+          <summary><span className="wr-acc-t">When to send</span><span className="wr-acc-h"><Val f={s.send_when} fmt={v => v.split(':')[0]} /></span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+          <div className="wr-acc-b"><p className="wr-sub"><Val f={s.send_when} fmt={v => v} showReason /></p></div>
+        </details>
+        <details className="wr-acc-i" data-acc="walk">
+          <summary><span className="wr-acc-t">Walk-away</span><span className="wr-acc-h"><WalkHint s={s} text={n.text} /></span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+          <div className="wr-acc-b"><Ladder s={s} text={n.text} /></div>
+        </details>
+        {!negotiating && (
+          <details className="wr-acc-i" data-acc="replies">
+            <summary><span className="wr-acc-t">If he says…</span><span className="wr-acc-h">{onReply ? 'tap what happened' : 'accept, decline, counter, silence'}</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+            <div className="wr-acc-b"><ReplyTable replies={s.reply_table} onLog={onReply} /></div>
+          </details>
+        )}
+        <details className="wr-acc-i" data-acc="why">
+          <summary><span className="wr-acc-t">Why this move</span>
+            <span className="wr-acc-h">{waiting ? `${waiting} check${waiting === 1 ? '' : 's'} not ready yet` : 'all checks ready'}</span>
+            <Icon name="down" size={16} className="wr-acc-chev" /></summary>
+          <div className="wr-acc-b">
+            {ready.length > 0 && rv && (
+              <ul className="wr-reasoning">
+                {ready.map(([k, label]) => <li key={k}><span className="wr-k">{label}</span><span>{rv[k]}</span></li>)}
+              </ul>
+            )}
+            {waiting > 0 && <p className="wr-sub" data-testid="checks-waiting">{waiting} check{waiting === 1 ? '' : 's'} not ready yet{!isOk(move.reasoning) && move.reasoning.reason ? `: ${move.reasoning.reason}` : '.'}</p>}
+            <p className="wr-sub">
+              Whole path: <Val f={move.expected} fmt={pts} showSe /> expected
+              {' · '}finishes <Val f={move.p_complete} fmt={v => pct(v)} /> of the time
+              {' · '}finder&apos;s best single offer <Val f={view.finder_best_expected} fmt={pts} />
+            </p>
+            <HisScreenToggle leagueId={leagueId} offer={{ partner: String(s.partner), give: s.give.map(String), get: s.get.map(String) }} />
+          </div>
+        </details>
+      </div>
     </div>
   );
+}
+
+/** The walk-away in the accordion header, so it reads without opening. */
+function WalkHint({ s, text }: { s: Step; text: (ids: string[]) => string }) {
+  return isOk(s.walk_away) ? <span>{text(s.walk_away.value.max_give)} for {text(s.get)}</span> : <Val f={s.walk_away} fmt={() => ''} />;
 }
 
 function Side({ label, ids, n, side }: { label: string; ids: string[]; n: Namer; side: 'give' | 'get' }) {

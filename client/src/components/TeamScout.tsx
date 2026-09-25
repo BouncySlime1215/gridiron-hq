@@ -30,9 +30,6 @@ export default function TeamScout({ data: s, loading }: { data: any; loading?: b
           <Stat label="Projected lineup strength"
             value={<>{s.lineup.points}<span className="ml-1 text-sm font-normal text-slate-500">ppg</span></>}
             foot={<Chip tone={s.rank <= 3 ? 'good' : s.rank > s.of - 3 ? 'bad' : 'warn'}>{s.rank}{ord(s.rank)} of {s.of}</Chip>} />
-          {s.spread?.floor != null && (
-            <Stat label="Weekly range" value={<><span className="text-crit">{s.spread.floor}</span><span className="mx-1 opacity-30">–</span><span className="text-good">{s.spread.ceiling}</span></>} />
-          )}
         </div>
         <div className="mt-5 space-y-2 ds-stagger">
           {s.league_lineups.map((l: any) => (

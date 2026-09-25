@@ -65,6 +65,11 @@ export function nextMove(entry, ledger, section) {
   return moveClaims(entry, ledger, section, nm.value, { isNext: true });
 }
 
+/** The producer's template writes "all N step(s)"; Coach says "the step" or "all N steps". */
+const plainSteps = text => (typeof text === 'string'
+  ? text.replace(/\ball 1 step\(s\) land\b/g, 'the step lands').replace(/\b1 step\(s\)/g, '1 step').replace(/step\(s\)/g, 'steps')
+  : text);
+
 /**
  * The claims for one served move (the next move, or an alternative in the deck),
  * told from step k: the offer, where it sits in the move, the title-odds change,
@@ -84,7 +89,7 @@ export function moveClaims(entry, ledger, section, move, { k = 0, isNext = false
     delta: val(step.title_odds_delta) ?? null, title_after: val(step.title_after) ?? null,
     delta_final: val(move.delta_final) ?? null, p_complete: val(move.p_complete) ?? null, expected: val(move.expected) ?? null,
     send_when: val(step.send_when) ?? null,
-    case_for: namedTeams(entry, val(move.reasoning)?.case_for ?? val(step.reasoning)?.case_for ?? null),
+    case_for: plainSteps(namedTeams(entry, val(move.reasoning)?.case_for ?? val(step.reasoning)?.case_for ?? null)),
     changed: changed?.changed === true, changed_reason: namedTeams(entry, changed?.reason ?? null)
   };
   const c = record(ledger, 'plan_read', [row]);
@@ -647,7 +652,7 @@ function flipLegClaims(entry, ledger, section, roster, flip) {
     out.push({ section, cites: [t(0, 'nick_after'), t(0, 'clears')],
       text: `If both land, your title odds change ${pts(val(legs.nick_after))}${legs.nick_after.clears_2se ? ', past the noise bar' : ', inside the noise'}.` });
   }
-  const caseFor = namedTeams(entry, val(flip.reasoning)?.case_for ?? null);
+  const caseFor = plainSteps(namedTeams(entry, val(flip.reasoning)?.case_for ?? null));
   if (caseFor) {
     const labels = [roster, other, String(entry.me)].flatMap(x => [`Team ${x}`, teamOf(entry, x)]).concat(players.map(x => x.name));
     out.push({ section, strict: true, labels, text: `Why: ${caseFor}`, cites: [t(0, 'spread'), t(0, 'p_both'), t(0, 'nick_after')] });
@@ -655,7 +660,41 @@ function flipLegClaims(entry, ledger, section, roster, flip) {
   return out;
 }
 
-const CHAT_LABEL = s2 => String(s2).replace(/_/g, ' ').replace(':', ' ');
+/* The partners read carries engine labels ('activity read (receptiveness 1.30)');
+ * Coach says the basis in plain words, or drops it. The chat labels are not
+ * shown: Coach is not a second chat labeller (coach-brief.test.js pins that). */
+const BASIS_PHRASE = [
+  [/^activity read\b/, 'based on how active he has been lately'],
+  [/^checked out\b/, 'he has gone quiet lately'],
+  [/^no manager read\b/, 'there is no read on him yet, so this is a cautious guess'],
+  [/^marked as never trading\b/, 'he is marked as never trading'],
+  [/^Nick: unreachable\b/, 'you marked him as unreachable'],
+  [/^Nick: not trading\b/, 'you marked him as not trading'],
+  [/^Nick: active\b/, 'you marked him as active']
+];
+const basisPhrase = basis => (typeof basis === 'string' ? BASIS_PHRASE.find(([re]) => re.test(basis))?.[1] ?? null : null);
+/**
+ * The flip to pitch with one roster: only flips that raise Nick's title odds
+ * if both legs land (flip_map is not filtered on the confirm dice), past the
+ * noise bar first, then ones the catch-up list also names, then producer order.
+ */
+export function bestFlipWith(entry, roster) {
+  const id = String(roster);
+  const names = entry.names ?? {};
+  const catchUp = (val(entry.catch_up) ?? []).filter(c => c?.kind === 'flip');
+  const core = pid => String(names[pid] ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const sides = f => [String(f.buy_from), String(f.sell_to)];
+  const mentions = (text, t) => text.includes(`Team ${t}`) || text.includes(teamOf(entry, t));
+  const inCatchUp = f => !!core(f.player) && catchUp.some(c => {
+    const text = String(c.text ?? '');
+    return text.includes(core(f.player)) && (sides(f).includes(String(c.partner)) || sides(f).every(t => mentions(text, t)));
+  });
+  return (val(entry.flip_map) ?? [])
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => f?.legs && (String(f.buy_from) === id || String(f.sell_to) === id) && (val(f.legs.nick_after) ?? 0) > 0)
+    .sort((a, b) => (b.f.legs.nick_after?.clears_2se === true) - (a.f.legs.nick_after?.clears_2se === true)
+      || inCatchUp(b.f) - inCatchUp(a.f) || a.i - b.i)[0]?.f ?? null;
+}
 
 /** The partners read of one roster, and the honest "nothing clears with him". */
 function partnerReadClaims(entry, ledger, section, roster) {
@@ -663,7 +702,7 @@ function partnerReadClaims(entry, ledger, section, roster) {
   const label = teamOf(entry, roster);
   const h = record(ledger, 'plan_partner', [{ partner: roster, partner_label: label }]);
   out.push({ section, cites: [h(0, 'partner'), h(0, 'partner_label')],
-    text: `No fair trade with ${label} clears your rules right now: no served plan or flip leg goes through him.` });
+    text: `No fair trade with ${label} clears your rules right now: no served plan or winning flip leg goes through him.` });
   const pa = ok(entry.partners) ? entry.partners.value.find(x => String(x.team) === roster) : null;
   if (!pa) {
     out.push({ section, cites: [h(0, 'partner_label')], text: `The plans file has no partner read for ${label}.` });
@@ -671,10 +710,9 @@ function partnerReadClaims(entry, ledger, section, roster) {
     const names = entry.names ?? {};
     const wants = (pa.reason_chain ?? []).filter(r => r?.feature === 'wants_player' && r.player != null)
       .map(r => names[r.player] ?? `player ${r.player}`);
-    const row = { p_responds: typeof pa.p_responds === 'number' ? pa.p_responds : null, basis: pa.basis ?? null,
-      edge: val(pa.edge) ?? null, holes: Array.isArray(pa.roster_holes) && pa.roster_holes.length ? pa.roster_holes.join(', ') : null,
+    const row = { p_responds: typeof pa.p_responds === 'number' ? pa.p_responds : null, basis: basisPhrase(pa.basis),
+      holes: Array.isArray(pa.roster_holes) && pa.roster_holes.length ? pa.roster_holes.join(', ') : null,
       wants: wants.length ? wants.join(' + ') : null,
-      chat: Array.isArray(pa.chat_labels) && pa.chat_labels.length ? pa.chat_labels.map(CHAT_LABEL).join(', ') : null,
       offers_logged: typeof pa.offers_logged === 'number' ? pa.offers_logged : null,
       blocked: pa.blocked === true, checked_out: pa.checked_out === true };
     const c = record(ledger, 'plan_partners', [row]);
@@ -684,12 +722,10 @@ function partnerReadClaims(entry, ledger, section, roster) {
     }
     if (row.p_responds != null) {
       out.push({ section, cites: [c(0, 'p_responds'), ...(row.basis ? [c(0, 'basis')] : [])],
-        text: `${pct(row.p_responds)} chance he responds${row.basis ? `; basis: ${row.basis}` : ''}.` });
+        text: `${pct(row.p_responds)} chance he responds${row.basis ? `, ${row.basis}` : ''}.` });
     }
     if (row.holes) out.push({ section, cites: [c(0, 'holes')], text: `He needs ${row.holes}.` });
     if (row.wants) out.push({ section, cites: [c(0, 'wants')], text: `He wants a player you have: ${row.wants}.` });
-    if (row.chat) out.push({ section, cites: [c(0, 'chat')], text: `Approach: the chat reads ${row.chat}.` });
-    if (row.edge != null) out.push({ section, cites: [c(0, 'edge')], text: `The plan's edge with him is ${pts(row.edge)}.` });
     if (row.offers_logged) out.push({ section, cites: [c(0, 'offers_logged')], text: `Offers logged with him: ${row.offers_logged}.` });
   }
   const nm = entry.next_move;
@@ -723,7 +759,7 @@ export function partnerClaims(entry, ledger, roster) {
     const k = any.steps.findIndex(s2 => String(s2.partner) === id);
     return { source: 'plan_any_step', move_id: String(any.move_id), claims: servedMoveClaims(entry, ledger, section, any, k) };
   }
-  const flip = (val(entry.flip_map) ?? []).find(f => f?.legs && (String(f.buy_from) === id || String(f.sell_to) === id));
+  const flip = bestFlipWith(entry, id);
   if (flip) {
     const h = record(ledger, 'plan_partner', [{ partner: id, partner_label: teamOf(entry, id) }]);
     return { source: 'flip_leg', claims: [

@@ -189,6 +189,59 @@ test('nothing with him at all: his partners read and an honest "nothing clears w
   } finally { writePlans(plans()); }
 });
 
+/* ---------------------------------------- review 5825030366 (batch B) */
+
+const RAW_LABEL = /receptiveness|basis:|\b[a-z]+(_[a-z]+)*:[a-z]|step\(s\)|\bM6\b|edge with him/;
+
+test('the partners read speaks plain words: no engine labels, no chat tags, no edge line', async () => {
+  const file = plans();
+  const e = file.leagues.find(x => x.league === 4);
+  e.flip_map.value = e.flip_map.value.filter(f => f.buy_from !== '2' && f.sell_to !== '2');
+  const pa = e.partners.value.find(x => String(x.team) === '2');
+  pa.chat_labels = ['engagement:high', 'tone:friendly', 'open_to_trade:high', 'no_holds:yes', 'mystery_key:odd'];
+  pa.basis = 'activity read (receptiveness 0.30); ranked x1.10 by the partner kernel';
+  writePlans(file);
+  try {
+    const body = await ask('any trade I can send to Barnaby?');
+    const t = texts(body);
+    assert.match(t, /15% chance he responds, based on how active he has been lately\./);
+    assert.doesNotMatch(t, /chat reads|engagement|friendly/, 'chat labels are not shown');
+    assert.doesNotMatch(t, RAW_LABEL);
+    assert.doesNotMatch(t, /mystery|odd/);
+    grounded(body);
+  } finally { writePlans(plans()); }
+  for (const q of ['gimme a trade to send to Quincy', 'gimme a trade to send to Delphine', 'any trade I can send to Barnaby?']) {
+    assert.doesNotMatch(texts(await ask(q)), RAW_LABEL, q);
+  }
+});
+
+test('a flip that loses title odds, or was never priced, is never pitched', async () => {
+  const withFlips = mutate => {
+    const file = plans();
+    const e = file.leagues.find(x => x.league === 4);
+    mutate(e.flip_map.value.filter(f => f.buy_from === '4' || f.sell_to === '4'));
+    writePlans(file);
+  };
+  try {
+    // Every priced flip with him loses: none is pitched, the partners read answers.
+    withFlips(fs2 => fs2.forEach(f => { if (f.legs?.nick_after) f.legs.nick_after.value = -0.02; }));
+    let body = await ask('gimme a trade to send to Delphine');
+    assert.doesNotMatch(texts(body), /flip leg with him/);
+    assert.match(texts(body), /No fair trade with Delphine Oakes \(Oakes Owls\) clears your rules right now/);
+    grounded(body);
+    // The first priced flip loses and a later one wins: the winning one is pitched.
+    withFlips(fs2 => { const p22 = fs2.find(f => String(f.player) === '22' && f.legs?.nick_after); p22.legs.nick_after.value = -0.02; });
+    body = await ask('gimme a trade to send to Delphine');
+    assert.match(texts(body), /Best flip leg with him: .*P32/);
+    assert.doesNotMatch(texts(body), /change -/);
+    grounded(body);
+    // A flip past the noise bar outranks one inside it, whatever the producer order.
+    withFlips(fs2 => { fs2.find(f => String(f.player) === '22' && f.legs?.nick_after).legs.nick_after.clears_2se = false; });
+    body = await ask('gimme a trade to send to Delphine');
+    assert.match(texts(body), /Best flip leg with him: .*P32/);
+  } finally { writePlans(plans()); }
+});
+
 test('naming him without asking for a trade idea goes the ordinary way, not to his plan', async () => {
   for (const q of ['why did Quincy reject my trade', "is Quincy's offer to me fair", 'what did Delphine say about my deal']) {
     const body = await ask(q);

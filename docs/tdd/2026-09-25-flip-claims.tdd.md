@@ -86,3 +86,12 @@ the confirm-dice expected is <= 0, so a failed verdict is counted as `claim_stra
 
 League 4 (snapshot copy, live env + `GRIDIRON_SEARCH_WIDE=1`): see the PR. 57 flip claims built,
 22 scored, 0 kept (21 `claim_stranded`, 1 `premium_gate`); the next move is unchanged.
+
+### Budget fix (coordinator, #435)
+
+SEARCH-WIDE's rescore budget was league-wide while candidates were split per target, so the first
+targets spent it and the rest stopped unreported (`budget_hit` said `candidates`). Now both budgets are
+split per target (floor(left / targets left)), `search_wide.per_target` and `budget_hits` record what
+bound, and every built claim path is scored or counted by reason (`budget`, `lateral` added):
+built = kept + sum(dropped_by_reason), tested at rescore budgets 1, 40 and 100,000.
+League 4 re-measured: 57 built, 36 scored, 4 kept (shadow); 6 of 8 targets bound on rescores; next move unchanged.

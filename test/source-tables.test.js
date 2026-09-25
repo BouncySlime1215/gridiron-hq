@@ -246,8 +246,9 @@ test('settle: nothing before the week is final; then gains on paired seeds, none
   assert.equal(P.dueRows(db).length, 0, 'settled once');
   const live = E4.live(db);
   assert.equal(live.n, 1);
-  assert.equal(live.needs_n, 3);
-  assert.match(live.needs_text, /needs 3 more weeks/);
+  assert.equal(live.needs_n, 7);
+  assert.equal(live.status, 'not_enough_data', 'one week is reported, never graded');
+  assert.match(live.needs_text, /early number, not a grade: over 1 graded week .* graded after 7 more weeks/);
 });
 
 test('settle: a move whose players left the rosters, or a failed capture, is NULL with the reason, and not graded', () => {

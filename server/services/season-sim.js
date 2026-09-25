@@ -35,6 +35,7 @@ import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
+import { IS_TITLE_THETA, tiltShifts, weightsOf, weightedRunMean, isTitleSummary } from './is-title.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -105,7 +106,7 @@ function fixtures(lg, rules) {
  * previous implementation sorted on `drawn`, which let every manager see the
  * future and retroactively start the highest-scoring bench players each week.
  */
-function lineupPoints(roster, slots, drawn, expected, kdst = null) {
+function lineupPoints(roster, slots, drawn, expected, kdst = null, started = null) {
   // SIM-KDST: a K / D/ST scores his projected points that week (`kdst`, absent on a
   // bye); without `kdst` he is not in the pool and his slot plays empty.
   const pool = roster
@@ -132,6 +133,8 @@ function lineupPoints(roster, slots, drawn, expected, kdst = null) {
     const pick = pool.find(p => !used.has(p.id) && ok.includes(p.position));
     if (pick) { used.add(pick.id); total += pick.pts; }
   }
+  // IS-TITLE: who started, for a caller that needs the lineup itself (the tilt's starters).
+  if (started) for (const id of used) started.add(id);
   return total;
 }
 
@@ -1112,4 +1115,107 @@ export function tradeImpact(lg, {
       ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     ...(worldMode() === 'week' ? { world_id: pairedSeed, world_reused: reused } : {}),
     me: delta(me.roster_id), them: delta(them.roster_id) };
+}
+
+/* ------------------------------------------------------ IS-TITLE (shadow) */
+
+/**
+ * IS-TITLE: tradeImpactWorld's world (same seed, prep, outcome pools and copula),
+ * with the target team's expected starters' draws shifted up in every simulated
+ * week (is-title.js#tiltShifts, correlation.js sample.tilted) and each run's log
+ * likelihood ratio kept. Lineups, seeding and the bracket are the plain world's
+ * code, so title odds read off it with the weights are the same model's odds,
+ * importance-sampled. Shadow: no served number reads it (is-title.js header).
+ */
+export function titleWorldIS(lg, {
+  teamId = lg.my_team_id, runs = TRADE_IMPACT_RUNS, scoring = null, fromWeek: requestedWeek = null, seed = null,
+  universe = [], projections = null, theta = IS_TITLE_THETA
+} = {}) {
+  scoring = scoring ?? scoringFor(lg);
+  projections = projections ?? buildProjections({ through: SEASON - 1, scoring });
+  const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
+  const universeIds = [...new Set([...universe].map(Number))].sort((a, b) => a - b);
+  const prep = withRandomSeed(pairedSeed, () => prepareSeason(lg, { requestedWeek, scoring, projections,
+    universe: universeIds, worldId: worldMode() === 'week' ? pairedSeed : null }));
+  if (prep.fail) return { fail: prep.fail };
+  const target = prep.teams.find(t => t.roster_id === String(teamId));
+  if (!target) return { fail: { error: `team ${teamId} is not in league ${lg.id}` } };
+
+  // The target's starters each week by pre-kickoff expectation, the same pick lineupPoints makes.
+  const tilt = tiltShifts(prep.simWeeks.map(week => {
+    const wd = prep.weekData.get(week);
+    const starters = new Set();
+    lineupPoints(target.players, prep.slots, wd.expected, wd.expected, wd.kdst, starters);
+    return { week, ids: wd.ids, starters };
+  }), theta);
+  const logw = new Float64Array(runs);
+  const draws = new Map();
+  for (const week of prep.simWeeks) {
+    const wd = prep.weekData.get(week);
+    const index = new Map(wd.ids.map((id, i) => [id, i]));
+    const shift = tilt.shifts.get(week);
+    const byRun = new Array(runs);
+    for (let run = 0; run < runs; run++) {
+      const d = wd.draw.tilted(run, shift);
+      logw[run] += d.logw;
+      byRun[run] = new RunDraws(d.vals, index);
+    }
+    draws.set(week, { byRun, expected: wd.expected, kdst: wd.kdst });
+  }
+  const w = {
+    key: { league: lg.id, fetched_at: lg.fetched_at ?? null, runs, seed: pairedSeed, target: target.roster_id, theta },
+    prep, draws, runs, projections, universe: universeIds,
+    weights: weightsOf(logw), tilt: { delta: tilt.delta, tilted: tilt.tilted }
+  };
+  w.points = new Map(prep.teams.map(t => [t.roster_id, teamPoints(w, t.players)]));
+  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points));
+  return w;
+}
+
+/** One team's importance-sampled title odds off an IS world, with the plain result's odds beside them. */
+export function titleOddsIS(w, teamId = w.key.target) {
+  const id = String(teamId);
+  const per = w.base.per_run.get(id);
+  if (!per) return { error: `team ${id} is not in this world` };
+  return {
+    roster_id: id, target: w.key.target,
+    ...isTitleSummary({ titleRuns: per.title, w: w.weights, runs: w.runs, theta: w.key.theta,
+      delta: w.tilt.delta, tilted: w.tilt.tilted })
+  };
+}
+
+/**
+ * A deal's paired title delta off an IS world: both arms play the same shifted
+ * draws, so each run's difference carries the same weight. Deal players must be
+ * in the world's copula (pass them in `universe` when it is built), for the same
+ * reason tradeImpact's world must hold them.
+ */
+export function tradeImpactIS(w, { myTeamId, theirTeamId, iGive = [], iGet = [] }) {
+  const me = w.prep.teams.find(t => t.roster_id === String(myTeamId));
+  const them = w.prep.teams.find(t => t.roster_id === String(theirTeamId));
+  if (!me || !them) return { error: 'both teams required' };
+  const give = new Set(iGive.map(Number)), get = new Set(iGet.map(Number));
+  const outside = [...give, ...get].filter(id => {
+    const p = w.prep.assets.get(id);
+    return p && SCORED.has(p.position) && !w.prep.rosterIds.has(id);
+  });
+  if (outside.length) return { error: `deal names players outside this IS world: ${outside.join(', ')}` };
+  const overrides = new Map([
+    [me.roster_id, [...me.players.filter(p => !give.has(p.id)).map(p => p.id), ...get]],
+    [them.roster_id, [...them.players.filter(p => !get.has(p.id)).map(p => p.id), ...give]]
+  ]);
+  const afterTeams = applyOverrides(w.prep.teams, overrides, w.prep.assets);
+  const points = new Map(w.points);
+  for (const t of afterTeams) if (overrides.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
+  const after = playSeasons(w.prep, afterTeams, w.runs, true, pointsReader(w, points));
+  const side = id => {
+    const b = w.base.per_run.get(id).title, a = after.per_run.get(id).title;
+    const diff = Float64Array.from(a, (x, i) => x - b[i]);
+    const before = weightedRunMean(b, w.weights), afterEst = weightedRunMean(a, w.weights);
+    const d = weightedRunMean(diff, w.weights);
+    return { roster_id: id, title_before: before.value, title_after: afterEst.value,
+      title_delta: d.value, title_delta_se: d.se };
+  };
+  return { status: 'shadow', runs: w.runs, seed: w.key.seed, target: w.key.target, theta: w.key.theta,
+    me: side(me.roster_id), them: side(them.roster_id) };
 }

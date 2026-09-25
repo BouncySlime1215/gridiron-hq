@@ -216,8 +216,8 @@ export function correlatedSampler(players, sortedSamples, keys = null) {
   // player i the independent normal keyedNormal(keys[i], counter) before the Cholesky
   // mix, so the same player in the same counter gets the same football however the
   // list around him changes. Without keys, draws come off the shared stream as before.
-  const sample = (counter = 0) => {
-    const z = correlatedNormals(L, keys ? keys.map(k => keyedNormal(k, counter)) : null);
+  // Each correlated normal indexes its player's sorted outcomes at its quantile.
+  const outcomes = z => {
     const out = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const s = sortedSamples[i];
@@ -227,9 +227,30 @@ export function correlatedSampler(players, sortedSamples, keys = null) {
     }
     return out;
   };
+  const sample = (counter = 0) =>
+    outcomes(correlatedNormals(L, keys ? keys.map(k => keyedNormal(k, counter)) : null));
   // True when the correlation matrix could not be factorised and the draws are
   // silently independent. Callers that report spreads or odds should surface it.
   sample.uncorrelated = Boolean(L.fallbackIdentity);
+  /*
+   * IS-TITLE: the same keyed draw with player i's independent normal moved by
+   * shift[i] before the Cholesky mix (a mean-shifted proposal, N(shift, I)), and the
+   * log likelihood ratio of that draw under the real model N(0, I):
+   *   log w = sum_i ( -shift[i] * e_i - shift[i]^2 / 2 ),  e_i the unshifted normal.
+   * Weighting any outcome by exp(log w) gives its expectation under the unshifted
+   * copula (importance sampling). Keys are required: the shift is only meaningful
+   * against the identity-addressed normal the plain draw would have used.
+   */
+  sample.tilted = (counter, shift) => {
+    if (!keys) throw new Error('correlatedSampler.tilted needs identity keys');
+    let logw = 0;
+    const iid = keys.map((k, i) => {
+      const e = keyedNormal(k, counter), d = shift?.[i] ?? 0;
+      if (d) logw += -d * e - d * d / 2;
+      return e + d;
+    });
+    return { vals: outcomes(correlatedNormals(L, iid)), logw };
+  };
   return sample;
 }
 

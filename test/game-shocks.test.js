@@ -146,3 +146,29 @@ test('measurement helper: shocks raise simulated joint upper-decile exceedance a
   assert.ok(Math.abs(g - 0.024) < 0.004, `gaussian ${g}`);
   assert.ok(t > g * 1.1, `t ${t} vs gaussian ${g}`);
 });
+
+test('M1 helpers: empirical co-exceedance from same-game residuals, and the pre-registered bar', () => {
+  // Two games, 10 weeks; QB 1 and WR 2 on KC boom together in week 9, the BUF WR alone in week 3.
+  const games = new Map();
+  for (let w = 0; w < 10; w++) {
+    const row = (player_id, position, team, opponent, z) => ({ player_id, position, team, opponent, season: 2024, week: w, z });
+    games.set(`2024|${w}|BUF-KC`, [
+      row(1, 'QB', 'KC', 'BUF', w === 9 ? 3 : w / 10),
+      row(2, 'WR', 'KC', 'BUF', w === 9 ? 3 : (9 - w) / 10),
+      row(3, 'WR', 'BUF', 'KC', w === 3 ? 3 : w / 20)
+    ]);
+  }
+  games.set('2019|1|BUF-KC', [{ player_id: 1, position: 'QB', team: 'KC', opponent: 'BUF', season: 2019, week: 1, z: 9 },
+    { player_id: 2, position: 'WR', team: 'KC', opponent: 'BUF', season: 2019, week: 1, z: 9 }]);
+  const e = C.tailCoexceedance(games, { q: 0.9, since: 2021 });
+  // 10 QB-WR pairs, one both-top week (week 9); the 2019 game is out.
+  assert.equal(e.qb_wr_team.pairs, 10);
+  assert.equal(e.qb_wr_team.rate, 0.1);
+  assert.equal(e.same_game.pairs, 30);
+  assert.equal(e.same_game.rate, 1 / 30);
+
+  assert.equal(C.gameShockVerdict({ empirical: 0.04, off: 0.024, on: 0.035 }).pass, true);
+  assert.equal(C.gameShockVerdict({ empirical: 0.04, off: 0.024, on: 0.052 }).pass, false, 'overshoot > 25%');
+  assert.equal(C.gameShockVerdict({ empirical: 0.02, off: 0.024, on: 0.03 }).pass, false, 'farther');
+  assert.equal(C.gameShockVerdict({ empirical: null, off: 0.024, on: 0.03 }).pass, false);
+});

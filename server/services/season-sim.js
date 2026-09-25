@@ -22,7 +22,7 @@ import { rows } from '../db/index.js';
 import { PPR, scoringFor } from './scoring.js';
 import { SENSE_CHECK_SIM_RUNS } from './trade-verify.js';
 import { buildProjections, sampleWeeks } from './projections.js';
-import { correlatedSampler } from './correlation.js';
+import { correlatedSampler, GAME_SHOCK_NU, GAME_SHOCKS_ENV, gameShocksFlag, gameShockFields } from './correlation.js';
 import { gameMultiplier, matchupModel } from './matchups.js';
 import { leagueRules, seedStandings, simRulesProblem } from './league-rules.js';
 import { deriveFormat } from './format.js';
@@ -327,7 +327,7 @@ function teamOffsets(world, ids, run, sd) {
   return new Map(ids.map(id => [id, sd * keyedNormal(keyedSeed(world, 'team-mean', id), run)]));
 }
 
-export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale, teamOffsets, playSeasons };
+export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale, teamOffsets, playSeasons, gameShockFor };
 // FIX-322-1: the E3-ESPN grader replays brackets with the sim's own rules (a named export, not __test).
 export { playBracket, addMedianResults };
 
@@ -511,6 +511,19 @@ export function simKdstFlag() {
 const kdstKey = flag => (flag.on ? 'kdst' : 'skill');
 
 /**
+ * GAME-SHOCKS (ONE-PLAN §4d block 1): the sampler's shock options for one simulated
+ * week, null when the flag is off. Keyed by (world, week) here and by fixture and run
+ * inside the sampler, never by roster, so both arms of a paired trade share it.
+ */
+function gameShockFor(world, week, flag) {
+  return flag.on ? { nu: GAME_SHOCK_NU, key: keyedSeed(world, 'game-shock', week) } : null;
+}
+
+// GAME-SHOCKS: the flag lives beside the copula (correlation.js) so league-world.js can
+// read it without importing this module; re-exported here for the sim's callers.
+export { GAME_SHOCKS_ENV, gameShocksFlag, gameShockFields };
+
+/**
  * ESPN's projections for every rostered player in an ESPN league payload, by ESPN
  * player id: `weeks` (NFL week -> projected points) and `perGame` (season
  * projection per game). statSourceId 1 = projection; statSplitTypeId 1 = one
@@ -621,7 +634,7 @@ export function simulateSeason(lg, {
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
   basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag(),
-  horizonFlag = availHorizonFlag() }) {
+  horizonFlag = availHorizonFlag(), shockFlag = gameShocksFlag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -691,7 +704,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       // Keyed by (world, player, week); the run index is the counter, so a player's
       // week-w outcome in run r is the same wherever he is rostered.
       draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples),
-        active.map(e => keyedSeed(world, 'copula', e.p.id, week))),
+        active.map(e => keyedSeed(world, 'copula', e.p.id, week)), { gameShock: gameShockFor(world, week, shockFlag) }),
       ids: active.map(e => e.p.id), expected, kdst: kdstFlag.on ? kdst.byWeek.get(week) : null,
       // The sorted pools themselves: a page's range.week is read off these (EA-07).
       pools: new Map(active.map(e => [e.p.id, e.samples]))
@@ -704,6 +717,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     rosterIds: new Set(roster.map(p => p.id)), basisFields: basis.fields,
     kdstIds: new Set(everyone.filter(p => KDST.has(p.position)).map(p => p.id)),
     kdstFields: kdst.fields,
+    shockFields: gameShockFields(shockFlag),
     // AVAIL-HORIZON-2 change B: 0 = no team-mean term.
     teamMeanSd: teamMeanSd(horizonFlag),
     teamMeanFields: horizonFlag.on ? { team_mean_sd: TEAM_MEAN_SD, ...availHorizonPreviewFields(horizonFlag) } : null
@@ -862,6 +876,7 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     ...(prep.basisFields ?? {}),
     ...(prep.kdstFields ?? {}),
     ...(prep.teamMeanFields ?? {}),
+    ...(prep.shockFields ?? {}),
     // Both on only under preview: name both reasons, not just the last one.
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),

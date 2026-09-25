@@ -47,6 +47,9 @@
  *   - availability-return.js#availHorizonFlag    return-to-play curve past next week + season-sim
  *                                                team-mean term (AVAIL-HORIZON-3; coordinator override,
  *                                                unconfirmed; GRIDIRON_AVAIL_HORIZON=0 vetoes preview)
+ *   - correlation.js#gameShocksFlag              GAME-SHOCKS: one shared shock per NFL game in the
+ *                                                season sim's copula (grouped-t, nu 6;
+ *                                                GRIDIRON_GAME_SHOCKS=0 vetoes preview)
  *   - scripts/campaign/league-adapter.mjs#producerFastEnabled  PRODUCER-FAST: fast lineups +
  *                                                rescore cache in the War Room producer
  *                                                (GRIDIRON_PRODUCER_FAST=0 vetoes preview)

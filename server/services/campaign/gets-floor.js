@@ -108,6 +108,8 @@ export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
  * already per step (search.js#nickOverpays per step, trade-memory.js#stepMemory per step, flip legs
  * both checked), so this adds only the floor on what he holds in between.
  *
+ * A waiver claim traded away later in the same path is exempt (isFlipPieceClaim, flip claims).
+ *
  * Flag GRIDIRON_FLIP_STRANDED: ON BY DEFAULT (a hard rule, as GRIDIRON_GETS_FLOOR). Unset or '1'
  * drops the path or flip; 'shadow' only counts; only an explicit '0' turns it off, with a loud warning.
  */
@@ -134,11 +136,27 @@ export function heldAfterEachLeg(steps) {
   });
 }
 
-/** Holdings after each leg but the last that fail `passes(id)`: [{ leg (0-based), player }]. */
+/**
+ * Flip claims (Nick 2026-09-25): a free agent got by a waiver claim (step.claim) may be held between legs
+ * only as a flip piece, i.e. every player the claim brings in is traded away in a later leg of the same
+ * path and so is never held at its end. The ONE rule for it: the claim side (SEARCH-WIDE claim steps)
+ * reads this too. A player got by trade is never a flip piece. Claims still obey every other rule
+ * (never-get, sold, protected drops, beats doing nothing); this only exempts them from the floor between legs.
+ */
+export function isFlipPieceClaim(step, path) {
+  if (step?.claim !== true || !step.get?.length) return false;
+  const i = (path ?? []).indexOf(step);
+  if (i < 0) return false;
+  const laterGives = new Set(path.slice(i + 1).flatMap(st => st.give.map(String)));
+  return step.get.every(id => laterGives.has(String(id)));
+}
+
+/** Holdings after each leg but the last that fail `passes(id)`, flip-piece claims exempt: [{ leg (0-based), player }]. */
 export function strandedHolds(steps, passes) {
   const after = heldAfterEachLeg(steps);
+  const exempt = new Set((steps ?? []).filter(st => isFlipPieceClaim(st, steps)).flatMap(st => st.get.map(String)));
   const out = [];
-  for (const [i, held] of after.slice(0, -1).entries()) for (const id of held) if (!passes(id)) out.push({ leg: i, player: id });
+  for (const [i, held] of after.slice(0, -1).entries()) for (const id of held) if (!exempt.has(id) && !passes(id)) out.push({ leg: i, player: id });
   return out;
 }
 

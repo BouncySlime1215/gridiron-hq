@@ -324,7 +324,8 @@ test('wiring: the refresh loop runs the pulse after the chat step; the ticker ro
   const route = trades.slice(trades.indexOf("r.get('/:leagueId/people/pulse'"));
   assert.match(route.slice(0, 400), /league\(req, res\)/, 'the route checks league membership');
   // Trades → People shows each manager's recent chatter on their card (the pulse, per manager).
-  const board = fs.readFileSync(path.join(root, 'client/src/components/brain/ManagerBoard.tsx'), 'utf8');
+  const board = fs.readFileSync(path.join(root, 'client/src/components/brain/ManagerBoard.tsx'), 'utf8')
+    + fs.readFileSync(path.join(root, 'client/src/components/brain/ManagerCard.tsx'), 'utf8');
   assert.match(board, /useApi<[^>]+>\(`\/trades\/\$\{leagueId\}\/people\/pulse`/);
   assert.match(board, /data-testid="manager-chatter"/);
 });

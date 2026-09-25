@@ -12,6 +12,7 @@ import Avatar from './Avatar';
 import Icon from './icons';
 import { useSpotlight } from './spotlight';
 import CountUp from './CountUp';
+import ChanceStat from './ChanceStat';
 
 /**
  * WAR-ROOM-UI v2: the NEXT MOVE as one clean hero card. Only what decides the send is
@@ -65,9 +66,8 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
       </div>
 
       <div className="wr-hero-nums">
-        <Metric label="Chance he says yes" testid="hero-chance"
-          big={<BigVal f={s.p_yes} fmt={v => pct(v)} />}
-          pills={isGuess(s.p_yes) ? <span className="wr-pill2 wr-pill2-amber" title="Built on an unvalidated model: treat as a guess">guess</span> : null} />
+        <ChanceStat size="big" testid="hero-chance" value={isOk(s.p_yes) ? s.p_yes.value : null}
+          big={<BigVal f={s.p_yes} fmt={v => pct(v)} />} guess={isGuess(s.p_yes)} />
         <Metric label="Title odds if he says yes" testid="hero-odds"
           big={both
             ? <><BigVal f={titleNow} fmt={v => pct(v, 1)} /><span className="wr-hero-to"> → </span><BigVal f={s.title_after} fmt={v => pct(v, 1)} /></>

@@ -11,7 +11,8 @@ const code = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''
 const trades = read('client/src/pages/Trades.tsx');
 const lab = read('client/src/pages/TradeLab.tsx');
 const planner = read('client/src/components/warroom/TradesPlanner.tsx');
-const board = read('client/src/components/brain/ManagerBoard.tsx');
+// Part 2: the manager card is its own shared component (ManagerCard); People renders it.
+const board = read('client/src/components/brain/ManagerBoard.tsx') + read('client/src/components/brain/ManagerCard.tsx');
 const slate = read('client/src/components/brain/ProposalSlate.tsx');
 
 test('1. no nested app: the planner draws inside the Trades frame, with no War Room shell', () => {

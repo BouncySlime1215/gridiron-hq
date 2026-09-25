@@ -38,6 +38,7 @@ import { basis02Flag, applyBasis02, poolBasisFor } from './sim-basis.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
 import { rbTitleMode, conditionalTitle, meanInterval } from './rb-title.js';
 import { standingsCheckField } from './standings-reconcile.js';
+import { espnProjections } from './espn-league-projections.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -543,38 +544,9 @@ function gameShockFor(world, week, flag) {
 // read it without importing this module; re-exported here for the sim's callers.
 export { GAME_SHOCKS_ENV, gameShocksFlag, gameShockFields };
 
-/**
- * ESPN's projections for every rostered player in an ESPN league payload, by ESPN
- * player id: `weeks` (NFL week -> projected points) and `perGame` (season
- * projection per game). statSourceId 1 = projection; statSplitTypeId 1 = one
- * scoring period, 0 = the season. appliedTotal / appliedAverage are already in the
- * league's scoring.
- */
-export function espnProjections(lg) {
-  const out = new Map();
-  let payload;
-  try { payload = JSON.parse(lg.payload ?? 'null'); } catch { return out; }
-  const season = Number(payload?.seasonId ?? lg.season);
-  for (const t of payload?.teams ?? []) {
-    for (const e of t.roster?.entries ?? []) {
-      const pl = e.playerPoolEntry?.player;
-      if (pl?.id == null) continue;
-      const rec = { weeks: new Map(), perGame: null };
-      for (const st of pl.stats ?? []) {
-        if (st.statSourceId !== 1 || Number(st.seasonId) !== season) continue;
-        const total = Number(st.appliedTotal);
-        if (st.statSplitTypeId === 1 && st.scoringPeriodId > 0 && Number.isFinite(total)) {
-          rec.weeks.set(Number(st.scoringPeriodId), total);
-        } else if (st.statSplitTypeId === 0 && st.scoringPeriodId === 0) {
-          const avg = Number(st.appliedAverage);
-          rec.perGame = Number.isFinite(avg) ? avg : (Number.isFinite(total) ? total / 17 : null);
-        }
-      }
-      out.set(String(pl.id), rec);
-    }
-  }
-  return out;
-}
+// ESPN's per-player projections from the league payload live in espn-league-projections.js
+// (trade-engine.js reads them too, PROJ-ESPN); re-exported here for existing callers.
+export { espnProjections };
 
 /**
  * Each K / D/ST's projected points per simulated week (week -> Map<id, pts>); a

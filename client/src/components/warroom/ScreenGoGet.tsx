@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Move, Target, WarRoomView } from './types';
+import type { BuyLow, Move, Target, WarRoomView } from './types';
 import { namer, teamLabel } from './types';
 import { FieldBlock, Val } from './FieldState';
 import { pct, pts, isOk } from './format';
@@ -224,6 +224,17 @@ function Faces({ ids, n }: { ids: string[]; n: ReturnType<typeof namer> }) {
   );
 }
 
+/** BUY-LOW: served only with its flag on; the War Room's own pill (as "in the plan"), a plain-words title, no numbers on the card. */
+export function BuyLowChip({ b }: { b: BuyLow }) {
+  const role = b.role === 'confirmed' ? `usage up in ${b.games} recent games, `
+    : b.role === 'detected' ? 'usage up in his latest game, ' : '';
+  return (
+    <span className="wr-tcard-bl" data-testid="target-buy-low">
+      <span className="wr-pill2 wr-pill2-green" title={`Buy-low (a guess): ${role}scoring about ${b.points_below_expected} pts/game below what his usage predicts over his last ${b.games} games.`}>Buy-low</span>
+    </span>
+  );
+}
+
 function TargetCard({ t, name, on, onPick, state, onApprove }: {
   t: Target; name: string; on: boolean; onPick: () => void;
   state: 'plan' | 'approved' | 'saving' | null; onApprove?: () => void;
@@ -236,6 +247,7 @@ function TargetCard({ t, name, on, onPick, state, onApprove }: {
         <span className="wr-tcard-t">
           <b className="wr-tcard-n" title={name}>{name}</b>
           <span className="wr-tcard-o">{teamLabel(t.owner)}</span>
+          {isOk(t.buy_low) && t.buy_low.value && <BuyLowChip b={t.buy_low.value} />}
         </span>
       </button>
       <div className="wr-tcard-nums">

@@ -130,16 +130,16 @@ export default function App() {
             was dismissed for this sitting; the modal itself otherwise. */}
         <EspnConnectGate />
         <DataFreshnessBanner />
-        <header className="app-header sticky top-0 z-30 flex h-14 items-center gap-3 px-4 sm:px-6">
+        <header className="app-header sticky top-0 z-30 flex h-14 items-center gap-2 px-4 sm:gap-3 sm:px-6">
           <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? (isMobile ? 'Open menu' : 'Expand sidebar') : (isMobile ? 'Close menu' : 'Collapse sidebar')} className="ds-icon-btn shrink-0">
             <Icon name="panel" size={18} />
           </button>
           <span className="app-crumb hidden min-w-0 truncate sm:block">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 opacity-40">/</span> <b>{pageLabel}</b></span>
           {/* On a phone the league select gives up width to the buttons instead of pushing them off-screen. */}
-          {!inBetting && <div className="min-w-0 flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
+          {!inBetting && <div className="min-w-[8rem] flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
           <div className="ml-auto flex shrink-0 items-center gap-2"><HeaderFacts /><span className="hidden xl:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden lg:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /><MoreMenu /></div>
         </header>
-        <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
+        <main className="app-main min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
           {/* The seven areas (docs/ui/CONSOLIDATION-MAP.md). */}
           <Route path="/" element={<Today />} />
           <Route path="/trades" element={<Trades />} />

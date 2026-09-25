@@ -201,3 +201,10 @@ button.ds-chip:active { transform: scale(.97); }
 .today-skel-rows > * { min-height: 217px; }
 @media (min-width: 700px) { .today-skel-hero { min-height: 540px; } }
 @media (min-width: 900px) { .today-skel-rows { grid-template-columns: 1fr 1fr; } .today-skel-rows > * { min-height: 240px; } }
+
+/* The header's league picker: a long name truncates with an ellipsis instead of clipping to nothing. */
+.league-select { text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+
+/* The page area is at least a screen tall, so the data credit under it starts below the fold and a
+   page filling in never drags it (and everything above it) around on first draw. */
+.app-main { min-height: calc(100dvh - 3.5rem); }

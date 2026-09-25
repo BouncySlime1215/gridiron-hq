@@ -17,7 +17,7 @@ import { isOk } from './warroom/format';
  * keep the War Room styles without its full-screen frame.
  */
 export function AppCoachProvider({ children }: { children: ReactNode }) {
-  const { leagues, activeId, setActiveId } = useLeague();
+  const { leagues, activeId, setActiveId, loading: leaguesLoading } = useLeague();
   const wr = useWarRoom(activeId);
   const view = wr.data?.enabled === true ? wr.data : null;
   const leagueIds = useMemo(() => leagues.map(l => l.id), [leagues]);
@@ -33,7 +33,8 @@ export function AppCoachProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openCoach = useCallback((q?: string) => { if (q) setAutoAsk(q); setOpen(true); }, []);
-  const loading = activeId != null && wr.loading && !wr.data;
+  // Also while the leagues list itself loads (the first ~100 ms), so the chips never pop in.
+  const loading = (leaguesLoading && !leagues.length) || (activeId != null && wr.loading && !wr.data);
   const api = useMemo(() => ({ enabled: coach.enabled !== false, open: openCoach, openHealth: () => setHealth(true), view, loading }),
     [coach.enabled, openCoach, view, loading]);
 

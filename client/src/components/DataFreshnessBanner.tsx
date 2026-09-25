@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useApi } from '../api';
 
 interface TableFreshness {
@@ -96,12 +96,23 @@ function behindSentence(t: TableFreshness): string {
     : 'This table does not hold current data.';
 }
 
+const BAR_KEY = 'gh:freshness-bar-h';
+
 export default function DataFreshnessBanner() {
   const { data: report, error } = useApi<FreshnessReport>('/data-freshness');
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     try { return sessionStorage.getItem('data-freshness-dismissed') === '1'; } catch { return false; }
   });
+
+  // No first-draw jump: the bar sits above the header, so arriving ~100 ms after the page it pushed
+  // everything down. Its last height is remembered per browser and held while the check runs.
+  const [reserved] = useState(() => { try { return Number(localStorage.getItem(BAR_KEY)) || 0; } catch { return 0; } });
+  // Stable, so it runs when the bar mounts (detail closed), not on every re-render.
+  const remember = useCallback((el: HTMLDivElement | null) => { if (el) try { localStorage.setItem(BAR_KEY, String(el.offsetHeight)); } catch { /* private mode */ } }, []);
+  useEffect(() => {
+    if (report && (report.all_fresh || dismissed)) try { localStorage.setItem(BAR_KEY, '0'); } catch { /* private mode */ }
+  }, [report, dismissed]);
 
   const close = () => {
     try { sessionStorage.setItem('data-freshness-dismissed', '1'); } catch { /* private mode */ }
@@ -115,7 +126,7 @@ export default function DataFreshnessBanner() {
   // so the failure gets said out loud instead of swallowed.
   if (error && !dismissed) {
     return (
-      <div className="w-full border-b border-slate-300 bg-slate-100 text-slate-800">
+      <div ref={remember} className="w-full border-b border-slate-300 bg-slate-100 text-slate-800">
         <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
           <span aria-hidden>●</span>
           <span className="font-semibold">Data freshness could not be checked.</span>
@@ -129,6 +140,9 @@ export default function DataFreshnessBanner() {
     );
   }
 
+  if (!report && !error && !dismissed && reserved > 0) {
+    return <div className="w-full border-b border-amber-200 bg-amber-50" style={{ height: reserved }} aria-hidden="true" data-testid="freshness-bar-placeholder" />;
+  }
   if (!report || report.all_fresh || dismissed) return null;
 
   // Counted apart, because they are different problems: `behind` is data that
@@ -144,7 +158,7 @@ export default function DataFreshnessBanner() {
     ? `, and ${unchecked.length} more could not be checked`
     : '';
   return (
-    <div className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
+    <div ref={remember} className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
       <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
         <span aria-hidden>⚠</span>
         <span className="font-semibold">{headline}{tail}</span>

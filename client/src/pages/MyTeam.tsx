@@ -11,7 +11,7 @@ import { PageError, PageLoading } from '../components/PageState';
 import { sanitizedAlert } from '../lib/errorSanitize';
 import MedianGameNotice from '../components/MedianGameNotice';
 import { leagueGate } from '../state/leagueGate';
-import { Button, Card, Chip, EmptyState, Fold, PageHeader, Stat, Tabs, type Tone } from '../components/ui/DesignSystem';
+import { Button, Card, Chip, EmptyState, Fold, PageHeader, Skeleton, Stat, Tabs, type Tone } from '../components/ui/DesignSystem';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -81,7 +81,7 @@ export default function MyTeam() {
   // into one place before. Championship odds existed only buried in Fantasy Lab,
   // for the whole league, with no way to jump straight to your own team's numbers.
   const simUrl = active && synced ? `/model/${active.id}/simulate?runs=1500` : null;
-  const { data: sim } = useApi<any>(simUrl);
+  const { data: sim, loading: simLoading } = useApi<any>(simUrl);
   const myTwin = sim?.teams?.find((t: any) => String(t.roster_id) === String(myTeamId));
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
@@ -176,11 +176,13 @@ export default function MyTeam() {
       <PageHeader eyebrow="My team" title="My Team"
         description={`${active?.name ?? `${active?.platform} league`}${leagues.length > 1 ? ' · switch leagues from the picker up top' : ''}`}
         actions={<>
-          {teamOptions.length > 0 && (
-            <select className="input" aria-label="Which team is yours" value={myTeamId ?? ''} onChange={e => setMyTeam(e.target.value)}>
+          {/* A fixed width, with a same-size placeholder while the league loads, so the header row
+              never re-wraps when the team list arrives. */}
+          {teamOptions.length > 0 ? (
+            <select className="input league-select h-9 w-[12rem] max-w-full" aria-label="Which team is yours" value={myTeamId ?? ''} onChange={e => setMyTeam(e.target.value)}>
               {teamOptions.map((t: any) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
-          )}
+          ) : lgLoading && <Skeleton className="h-9 w-[12rem] max-w-full" />}
           <Button icon="refresh" onClick={sync} disabled={syncing} title={lg?.fetched_at ? `Last synced ${lg.fetched_at}` : 'Pull rosters from the platform'}>
             {syncing ? 'Syncing…' : 'Sync'}
           </Button>
@@ -201,6 +203,16 @@ export default function MyTeam() {
       )}
 
       {view === 'overview' && <>
+        {/* The simulation takes a moment: hold the card's place so nothing below it moves when it lands. */}
+        {synced && !sim && simLoading && (
+          <Card className="mb-4 min-h-[245px] sm:min-h-[219px] lg:min-h-[203px]" aria-busy="true" data-testid="odds-skeleton">
+            <h3 className="ds-h mb-4">Your title odds right now</h3>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[0, 1, 2, 3].map(i => <div key={i}><Skeleton className="h-4 w-24" /><Skeleton className="mt-2 h-9 w-20" /></div>)}
+            </div>
+            <Skeleton className="mt-4 h-4 w-full max-w-lg" />
+          </Card>
+        )}
         {synced && myTwin && (
           <Card className="mb-4">
             <h3 className="ds-h mb-4">Your title odds right now</h3>

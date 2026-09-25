@@ -1,7 +1,8 @@
 /**
  * SEARCH-WIDE (ONE-PLAN s5 night 6): a node budget, a wider depth-3 beam, laterals only toward the
  * Blue chip floor, and free-agent claims as steps, all inside the one planner, behind
- * GRIDIRON_SEARCH_WIDE (default off). Pre-registration: docs/tdd/2026-09-25-search-wide.tdd.md (W1-W8).
+ * GRIDIRON_SEARCH_WIDE (default off). Pre-registration: docs/tdd/2026-09-25-search-wide.tdd.md (W1-W8);
+ * W5 / W8 follow FLIP-CLAIMS (docs/tdd/2026-09-25-flip-claims.tdd.md): a claim is only a flip piece.
  * Made-up four-team league (test/fixtures/campaign-league.mjs); no DB, no simulation.
  */
 import test from 'node:test';
@@ -183,46 +184,50 @@ test('W5: makeDropOk: only scored depth, never untouchable or pinned', () => {
 });
 
 const claimsOf = plans => plans.filter(p => p.steps.some(st => st.claim));
+/** FLIP-CLAIMS: a free-agent WR worth flipping (FC 2500, ros 7), and the claim step of a path. */
+const FA45 = { id: 45, name: 'P45', position: 'WR', value: 2500, power: 7, ros_ppg: 7, injury: 0, bye: null, trend_kind: null };
+const flipAdapter = (over = {}) => claimAdapter({ pool: ['41', '45'], extraPlayers: [FA45], extraFa: [{ id: 45, name: 'P45', position: 'WR', ros_ppg: 7 }], ...over });
+const claimStep = p => p.steps.find(st => st.claim);
 
-test('W5: a claim ends a 1- or 2-trade path, drops same-position depth with lower ros_ppg', () => {
-  const a = claimAdapter();
+test('W5 (FLIP-CLAIMS): a claim is a flip piece: step 1, given away by a later trade, never held at the end', async () => {
+  const { heldAtEnd } = await import('../server/services/campaign/gets-floor.js');
+  const a = flipAdapter();
   const pool = a.freeAgents.filter(f => a.claimUniverse.has(String(f.id)));
   const o = wideOpts(a, { claimPool: pool, dropOk: makeDropOk({ scoreOf: a.scoreOf, floor: 83, untouchable: new Set() }) });
   const plans = [11, 21, 31].flatMap(t => searchOne(a, t, o).plans);
   const cl = claimsOf(plans);
-  assert.ok(cl.length > 0, 'claim paths found');
+  assert.ok(cl.length > 0, 'flip-claim paths found');
   for (const p of cl) {
-    const i = p.steps.findIndex(st => st.claim);
-    assert.equal(i, p.steps.length - 1, 'the claim is the last step');
-    assert.ok(i >= 1 && p.steps.length <= 3, 'after 1 or 2 trades');
-    const st = p.steps[i];
+    assert.equal(p.steps.filter(st => st.claim).length, 1, 'one claim per path');
+    assert.ok(p.steps[0].claim, 'the claim is step 1');
+    assert.ok(p.steps.length >= 2 && !p.steps.at(-1).claim, 'never the last step');
+    const st = p.steps[0];
     assert.equal(st.team, FREE_AGENT);
     assert.equal(st.p, CLAIM_P, 'the league\'s waiver-win rate, never 1');
     assert.equal(st.give.length, 1); assert.equal(st.get.length, 1);
-    const drop = a.players.get(st.give[0]), add = a.players.get(st.get[0]);
-    assert.equal(drop.position, add.position);
-    assert.ok(add.ros_ppg > drop.ros_ppg);
-    assert.ok(DEPTH.has(String(st.give[0])));
-    const acquired = new Set(p.steps.slice(0, i).flatMap(s => s.get.map(String)));
-    assert.ok(!acquired.has(String(st.give[0])), 'never drops a player acquired on the path');
-    assert.notEqual(String(st.get[0]), '42', 'TE 42 (ros 4) beats no droppable TE');
+    assert.ok(p.steps.slice(1).some(s => s.give.map(String).includes(String(st.get[0]))), 'the claimed player is traded away later');
+    assert.ok(!heldAtEnd(p.steps).has(String(st.get[0])), 'never held at the end');
+    assert.ok(DEPTH.has(String(st.give[0])), 'the drop is scored depth');
   }
   assert.ok(o.sink.claims.built > 0);
 });
 
-test('W5: no claim without a pool, a droppable piece, or a better free agent; never a pinned never-get', () => {
-  const a = claimAdapter();
+test('W5: no claim without a pool, a droppable piece, or a priced free agent; never a pinned never-get', () => {
+  const a = flipAdapter();
   const noPool = wideOpts(a, { claimPool: [], dropOk: () => true });
   assert.equal(claimsOf([11, 21].flatMap(t => searchOne(a, t, noPool).plans)).length, 0);
   const pool = a.freeAgents.filter(f => a.claimUniverse.has(String(f.id)));
   const noDrop = wideOpts(a, { claimPool: pool, dropOk: () => false });
   assert.equal(claimsOf([11, 21].flatMap(t => searchOne(a, t, noDrop).plans)).length, 0);
-  const worse = wideOpts(a, { claimPool: [{ id: 42, position: 'TE', ros_ppg: 4 }], dropOk: () => true });
-  assert.equal(claimsOf([11, 21].flatMap(t => searchOne(a, t, worse).plans)).length, 0, 'TE 42 beats no TE');
-  const olave = { id: 290, name: 'P290', position: 'WR', value: 900, power: 12, ros_ppg: 12, injury: 0, bye: null, trend_kind: null };
-  const b = claimAdapter({ pool: ['290'], extraPlayers: [olave], extraFa: [{ id: 290, name: 'P290', position: 'WR', ros_ppg: 12 }] });
-  const res = planLeague(b, { objective: OBJ, env: ON });
-  const steps = [...(res.deck ?? []).flatMap(c => c.plan.steps), ...Object.values(res.risk_modes ?? {}).flatMap(m => m?.best?.steps ?? [])];
+  const b = flipAdapter();
+  b.players.set(45, { ...FA45, value: null });
+  b.players.set(41, { ...b.players.get(41), value: null });
+  const unpriced = wideOpts(b, { claimPool: pool, dropOk: () => true });
+  assert.equal(claimsOf([11, 21].flatMap(t => searchOne(b, t, unpriced).plans)).length, 0, 'no FantasyCalc value: never claimed');
+  const olave = { id: 290, name: 'P290', position: 'WR', value: 2500, power: 12, ros_ppg: 12, injury: 0, bye: null, trend_kind: null };
+  const c = claimAdapter({ pool: ['290'], extraPlayers: [olave], extraFa: [{ id: 290, name: 'P290', position: 'WR', ros_ppg: 12 }] });
+  const res = planLeague(c, { objective: OBJ, env: ON });
+  const steps = [...(res.deck ?? []).flatMap(x => x.plan.steps), ...Object.values(res.risk_modes ?? {}).flatMap(m => m?.best?.steps ?? [])];
   assert.ok(!steps.some(st => st.get.map(String).includes('290')), 'pinned never-get is never claimed');
   assert.equal(res.search_wide.claims.pool, 0, '290 is removed from the pool before search');
 });
@@ -264,10 +269,8 @@ const produce = async (env, adapterFn, objectives = {}) => {
     { generated_at: AS_OF, clock: () => 0, env, objectives });
   return file;
 };
-/** A strong free-agent TE (ros 14) over Nick's depth TE 5 (ros 9): a claim worth serving in all-in. */
-const claimTeAdapter = () => claimAdapter({ pool: ['44'],
-  extraPlayers: [{ id: 44, name: 'P44', position: 'TE', value: 800, power: 14, ros_ppg: 14, injury: 0, bye: null, trend_kind: null }],
-  extraFa: [{ id: 44, name: 'P44', position: 'TE', ros_ppg: 14 }], scoreOf: scoreFrom(new Set([...DEPTH, '5'])) });
+/** FLIP-CLAIMS: a free agent (FC 2500) Nick can claim for his depth WR 7 and flip for P21. */
+const claimTeAdapter = () => flipAdapter();
 const stepsIn = entry => {
   const out = [];
   const walk = x => {
@@ -281,7 +284,7 @@ const stepsIn = entry => {
 };
 
 test('W8 (#406 finding 3): flag on, the file passes its contract and NO served step is a claim; the best claim is shadow', async () => {
-  const file = await produce(ON, claimTeAdapter, { 99: { risk_mode: 'all_in' } });
+  const file = await produce(ON, claimTeAdapter, { 99: { risk_mode: 'balanced' } });
   assert.deepEqual(validatePlans(file).errors ?? [], []);
   const entry = file.leagues[0];
   assert.ok(!entry.error, entry.error);
@@ -294,7 +297,8 @@ test('W8 (#406 finding 3): flag on, the file passes its contract and NO served s
   assert.ok(sw.claims.kept > 0, 'claims were still found and kept by the hard filters');
   assert.equal(sw.claims.served, false);
   assert.ok(sw.claims.shadow_best?.steps.some(st => st.claim && st.partner === FREE_AGENT), 'the best claim path is reported as shadow');
-  assert.ok(sw.claims.shadow_best.steps.at(-1).p < 1);
+  assert.ok(sw.claims.shadow_best.steps.find(st => st.claim).p < 1);
+  assert.equal(sw.claims.shadow_best.dice, 'confirm', 'FLIP-CLAIMS: the shadow best is priced on the confirm dice');
 });
 
 test('W8: flag off, the producer writes no search_wide key', async () => {
@@ -321,15 +325,15 @@ test('claim P(yes): the league\'s waiver-win rate, smoothed; too few claims or n
 
 test('claim P(yes) < 1 is what the path\'s expected value is priced on', async () => {
   const { pathExpectation } = await import('../server/services/campaign/paths.js');
-  const a = claimAdapter();
+  const a = flipAdapter();
   const pool = a.freeAgents.filter(f => a.claimUniverse.has(String(f.id)));
   const drop = makeDropOk({ scoreOf: a.scoreOf, floor: 83, untouchable: new Set() });
   const half = claimsOf([11, 21, 31].flatMap(t => searchOne(a, t, wideOpts(a, { claimPool: pool, dropOk: drop, claimP: 0.5 })).plans));
   assert.ok(half.length > 0);
   for (const p of half) {
-    assert.equal(p.steps.at(-1).p, 0.5);
+    assert.equal(claimStep(p).p, 0.5);
     assert.equal(p.expected, pathExpectation(p.steps).expected);
-    const sure = pathExpectation(p.steps.map((st, i) => (i === p.steps.length - 1 ? { ...st, p: 1 } : st))).expected;
+    const sure = pathExpectation(p.steps.map(st => (st.claim ? { ...st, p: 1 } : st))).expected;
     assert.notEqual(p.expected, sure, 'the chance of losing the claim moves the path\'s value');
   }
 });
@@ -356,10 +360,10 @@ test('a claim step\'s P(yes) is never labelled an acceptance model\'s, even if i
   assert.equal(stepPSource({ p_basis: 'activity_baseline' }), 'activity.accept');
   assert.equal(stepPSource({}), 'clone.accept');
   // And the search never gives a claim step a blend basis or a gate p (so LIVE-BLEND cannot re-blend it).
-  const a = claimAdapter();
+  const a = flipAdapter();
   const pool = a.freeAgents.filter(f => a.claimUniverse.has(String(f.id)));
   const o = wideOpts(a, { claimPool: pool, dropOk: makeDropOk({ scoreOf: a.scoreOf, floor: 83, untouchable: new Set() }) });
-  const claimSteps = claimsOf([11, 21, 31].flatMap(t => searchOne(a, t, o).plans)).map(p => p.steps.at(-1));
+  const claimSteps = claimsOf([11, 21, 31].flatMap(t => searchOne(a, t, o).plans)).map(claimStep);
   assert.ok(claimSteps.length > 0);
   for (const st of claimSteps) assert.deepEqual([st.p_basis, st.p_gate, st.probe], [undefined, undefined, undefined]);
 });

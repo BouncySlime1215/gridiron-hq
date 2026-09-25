@@ -149,8 +149,10 @@ export function settleObservedOutcomes(leagueId, season) {
     return { ...result, state: 'raw_table_absent', reason: RAW_ABSENT_REASON };
   }
 
+  // member_id tells ESPN's expiry close (TradeTaskProcessor) from a withdrawal; decided-offers reads it as optional.
+  const memberCol = rows(`PRAGMA table_info(${RAW_TABLE})`).some(c => c.name === 'member_id') ? 'member_id' : 'NULL AS member_id';
   const tx = rows(
-    `SELECT league_id, season, tx_id, type, execution_type, team_id, member_id, related_tx_id, proposed_at, items_json
+    `SELECT league_id, season, tx_id, type, execution_type, team_id, ${memberCol}, related_tx_id, proposed_at, items_json
      FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?`, leagueId, season);
 
   const proposals = tx.filter(t => t.type === PROPOSAL && t.execution_type === EXECUTED);

@@ -229,7 +229,11 @@ export function weekKeyedTableMutationRisk() {
     if (s.distinct_stamps === 1) return 'single_capture_low_risk';
     return 'revision_evidence_present';
   };
-  const injuries = rows(`SELECT season, COUNT(*) rows, COUNT(DISTINCT modified_at) distinct_stamps
+  // `available_stamped` (BITEMPORAL, migration 100): rows carrying this machine's
+  // availability clock. Reported beside the verdict, not folded into it: the verdict
+  // is about the SOURCE's event clock, and our capture time is not evidence of that.
+  const injuries = rows(`SELECT season, COUNT(*) rows, COUNT(DISTINCT modified_at) distinct_stamps,
+      COUNT(available_at) available_stamped
     FROM nfl_injuries GROUP BY season ORDER BY season`).map(s => ({ ...s, verdict: verdictFor(s) }));
   const depth = rows(`SELECT season, COUNT(*) rows, COUNT(DISTINCT captured) distinct_stamps
     FROM nfl_depth GROUP BY season ORDER BY season`).map(s => ({ ...s, verdict: verdictFor(s) }));

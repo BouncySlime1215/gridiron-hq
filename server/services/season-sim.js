@@ -36,6 +36,7 @@ import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
 import { rbTitleMode, conditionalTitle, meanInterval } from './rb-title.js';
+import { standingsCheckField } from './standings-reconcile.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -876,6 +877,8 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     ...(prep.basisFields ?? {}),
     ...(prep.kdstFields ?? {}),
     ...(prep.teamMeanFields ?? {}),
+    // BITEMPORAL: the carried-in record vs ESPN's official one; {} unless flagged.
+    ...standingsCheckField(lg, startingRecords, fromWeek, medianGame),
     // Both on only under preview: name both reasons, not just the last one.
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),

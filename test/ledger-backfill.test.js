@@ -90,7 +90,7 @@ test('a second settle over the same rows writes and updates nothing', () => {
   assert.deepEqual(outcomesFor(L, S), before);
 });
 
-test('closed with no answer: ESPN expiry and a proposer withdrawal both leave pending, and say which', () => {
+test('closed with no answer: ESPN expiry is expired, a proposer withdrawal is withdrawn, and each says which', () => {
   raw({ tx_id: 'p-exp', team_id: 1, proposed_at: '2025-10-03T12:00:00Z' });
   raw({ tx_id: 'c-exp', execution_type: 'CANCEL', status: 'CANCELED', team_id: 1, member_id: 'TradeTaskProcessor-1',
     related_tx_id: 'p-exp', proposed_at: '2025-10-05T12:00:00Z' });
@@ -102,7 +102,8 @@ test('closed with no answer: ESPN expiry and a proposer withdrawal both leave pe
   assert.equal(t['p-exp'].status, 'expired');
   assert.equal(t['p-exp'].resolved_at, '2025-10-05T12:00:00Z');
   assert.match(t['p-exp'].settle_reason, /expired/);
-  assert.equal(t['p-wd'].status, 'expired', 'the ledger CHECK has no withdrawn status; the reason carries it');
+  assert.equal(t['p-wd'].status, 'withdrawn', 'the proposer took it back: not the other manager\'s silence (#409 finding 1)');
+  assert.equal(t['p-wd'].resolved_at, '2025-10-03T20:00:00Z');
   assert.match(t['p-wd'].settle_reason, /withdrawn/);
   assert.equal(t['c-exp'], undefined, 'a CANCEL row is a close, never an offer of its own');
 });
@@ -124,7 +125,7 @@ test("an ACCEPT row from the proposer's own team is not the counterparty's answe
   assert.equal(byTx()['p-self'].status, 'proposed');
 });
 
-test('a row already settled is never re-settled, and app rows are untouched', () => {
+test('a row the OLD settler got wrong is re-settled from E1\'s pairing; hand-set rows and app rows are untouched', () => {
   raw({ tx_id: 'p-fixed', team_id: 1, proposed_at: '2025-10-09T12:00:00Z' });
   run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
          status, espn_tx_id, resolved_at, created_at)
@@ -133,9 +134,37 @@ test('a row already settled is never re-settled, and app rows are untouched', ()
          model_p_accept, model_basis, status, idea_id, created_at)
        VALUES (?, ?, 'app_proposed', '1', '2', '2025-10-09T12:00:00Z', 0.4, 'heuristic_anchored', 'proposed', 'idea-1', 'x')`, L, S);
   raw({ tx_id: 'a-fixed', type: 'TRADE_ACCEPT', team_id: 2, related_tx_id: 'p-fixed', proposed_at: '2025-10-10T13:00:00Z' });
-  const before = outcomesFor(L, S).filter(o => o.espn_tx_id === 'p-fixed' || o.source === 'app_proposed');
-  settleObservedOutcomes(L, S);
-  assert.deepEqual(outcomesFor(L, S).filter(o => o.espn_tx_id === 'p-fixed' || o.source === 'app_proposed'), before);
+  // A hand-set row (a reason that is not the settler's) is never overwritten.
+  raw({ tx_id: 'p-hand', team_id: 1, proposed_at: '2025-10-09T14:00:00Z', items_json: items(1, 3) });
+  run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
+         status, espn_tx_id, resolved_at, created_at, settle_reason)
+       VALUES (?, ?, 'observed', '1', '3', '2025-10-09T14:00:00Z', 'declined', 'p-hand', '2025-10-09T15:00:00Z', 'x', 'fixed by hand')`, L, S);
+  raw({ tx_id: 'a-hand', type: 'TRADE_ACCEPT', team_id: 3, related_tx_id: 'p-hand', proposed_at: '2025-10-10T15:00:00Z' });
+  const app = () => outcomesFor(L, S).filter(o => o.source === 'app_proposed');
+  const appBefore = app();
+  const hand = () => outcomesFor(L, S).find(o => o.espn_tx_id === 'p-hand');
+  const handBefore = hand();
+  const r = settleObservedOutcomes(L, S);
+  assert.equal(r.resettled, 1);
+  const fixed = byTx()['p-fixed'];
+  assert.equal(fixed.status, 'accepted', 'the old settler wrote declined; E1\'s pairing says the receiver accepted');
+  assert.equal(fixed.resolved_at, '2025-10-10T13:00:00Z');
+  assert.match(fixed.settle_reason, /re-settled from declined/);
+  assert.deepEqual(hand(), handBefore);
+  assert.deepEqual(app(), appBefore);
+  const again = settleObservedOutcomes(L, S);
+  assert.equal(again.resettled, 0, 'idempotent: once it agrees nothing is written again');
+  assert.equal(again.updated, 0);
+});
+
+test('an old settled row E1\'s pairing cannot settle is listed in disagree, never guessed at', () => {
+  raw({ tx_id: 'p-odd', team_id: 1, proposed_at: '2025-10-12T12:00:00Z' });
+  run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
+         status, espn_tx_id, resolved_at, created_at)
+       VALUES (?, ?, 'observed', '1', '2', '2025-10-12T12:00:00Z', 'accepted', 'p-odd', '2025-10-12T13:00:00Z', 'x')`, L, S);
+  const r = settleObservedOutcomes(L, S);
+  assert.deepEqual(r.disagree.map(d => [d.espn_tx_id, d.status]), [['p-odd', 'accepted']]);
+  assert.equal(byTx()['p-odd'].status, 'accepted', 'left as it is for a one-off look');
 });
 
 test('the result reports settled offers by status, and E1 grades the same set before and after', () => {

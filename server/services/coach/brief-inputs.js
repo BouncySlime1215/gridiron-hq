@@ -117,10 +117,20 @@ export function readReplies(db, { leagueId, me, since, until, partnerOf = () => 
   const read = [];
   if (tableExists(db, 'trade_outcomes')) {
     read.push('trade_outcomes');
+    // An offer Nick sent from the app has two rows once both settle: the app row (matched_tx_id
+    // = the ESPN proposal) and the collector's observed copy (espn_tx_id = the same proposal).
+    // Count the reply once: skip the observed copy (#409 review finding 3). 'withdrawn' (his
+    // own take-back) is not in the list: it is not a reply.
+    const hasMatched = db.prepare(`SELECT name FROM pragma_table_info('trade_outcomes')`).all().some(c => c.name === 'matched_tx_id');
+    const notAppCopy = hasMatched
+      ? `AND NOT (source = 'observed' AND espn_tx_id IN (SELECT matched_tx_id FROM trade_outcomes
+           WHERE league_id = ? AND season = o.season AND matched_tx_id IS NOT NULL))`
+      : '';
     for (const r of db.prepare(`SELECT id, counterparty_team_id AS team, status, resolved_at AS at
-      FROM trade_outcomes WHERE league_id = ? AND proposer_team_id = ?
+      FROM trade_outcomes o WHERE league_id = ? AND proposer_team_id = ?
         AND status IN ('accepted', 'declined', 'countered', 'expired') AND ${inWindow('resolved_at')}
-      ORDER BY julianday(resolved_at), id`).all(leagueId, String(me), since, until)) {
+        ${notAppCopy}
+      ORDER BY julianday(resolved_at), id`).all(leagueId, String(me), since, until, ...(hasMatched ? [leagueId] : []))) {
       if (exclude.has(`o:${r.id}`)) continue;
       keys.push(`o:${r.id}`);
       rows.push({ team: r.team == null ? null : String(r.team), reply: OUTCOME_REPLY[r.status], decline_reason: null, at: r.at, via: 'trade_outcomes' });

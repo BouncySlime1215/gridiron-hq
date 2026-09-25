@@ -678,8 +678,10 @@ export function settleSentOffers(leagueId, season, { now = null,
     return { ...out, state: 'ledger_absent',
       reason: 'trade_outcomes.sent_at does not exist on this database — migration 080 has not run here' };
   }
+  // Only the app's own sent offers: a screenshot row carries sent_at too (when it was posted), and is
+  // settled by settleScreenshotOffers, never matched here as one of Nick's taps.
   const open = rows(`SELECT * FROM trade_outcomes WHERE league_id = ? AND season = ?
-    AND sent_at IS NOT NULL AND status = 'proposed' ORDER BY sent_at, id`, leagueId, season);
+    AND sent_at IS NOT NULL AND status = 'proposed' AND source = 'app_proposed' ORDER BY sent_at, id`, leagueId, season);
   const setReason = (o, reason) => {
     if (o.settle_reason !== reason) run(`UPDATE trade_outcomes SET settle_reason = ? WHERE id = ?`, reason, o.id);
   };
@@ -818,8 +820,9 @@ export function settleOfferLoop(leagueId, season, opts = {}) {
  *   - among earlier screenshot rows (the same offer posted twice, or its pending screen
  *     then its accepted screen): found => that row is settled from the newer screen if it
  *     was still 'proposed', nothing new is written.
- * A FINALIZE screen (the proposer's review step, before Send) is recorded only when ESPN has a
- * trace of the deal; on its own it shows a draft, not a sent offer ('unconfirmed_draft').
+ * A FINALIZE or pending OFFER screen is a SENT offer (Nick, 9/25: he knows his league), with sent_at
+ * = when it was posted. Its outcome comes from ESPN (screenshotOutcomeOf): a paired orphan answer, an
+ * executed trade with the same players, or 'expired' once SCREENSHOT_SETTLE_DAYS pass with neither.
  * An ESPN answer or close whose proposal row ESPN no longer serves (an orphan, which the
  * grader cannot place in time) is not a duplicate: it SETTLES the screenshot row, and the
  * row gains the proposal time the orphan lacks. `matched_tx_id` then names that proposal.
@@ -885,27 +888,97 @@ function espnTraceOf(o) {
   }
   if (best) return { kind: 'proposal', tx_id: String(best.tx.tx_id) };
   if (near) return { kind: 'near_proposal', tx_id: String(near.tx.tx_id), jaccard: Math.round(near.j * 100) / 100 };
-  const known = new Set(proposals.map(p => String(p.tx_id)));
-  // An orphan: its proposal is gone, so its own items are the only terms. It must come
-  // after the screenshot's proposal time, and not later than ESPN's expiry could close it.
-  const orphans = tx.filter(t => t.related_tx_id != null && !known.has(String(t.related_tx_id))
-    && t.execution_type === (t.type === PROPOSAL ? 'CANCEL' : EXECUTED)
-    && Date.parse(t.proposed_at) >= o.at - win && Date.parse(t.proposed_at) <= o.at + OFFER_EXPIRE_DAYS * 24 * HOUR_MS
-    && same(t));
-  const answer = orphans.find(t => ANSWERS[t.type]);
-  if (answer) {
-    return { kind: 'orphan', tx_id: String(answer.related_tx_id), status: ANSWERS[answer.type], at: answer.proposed_at,
-      reason: `ESPN ${answer.type} ${answer.tx_id} (its proposal ${answer.related_tx_id} is not in the collected rows)` };
+  return null;
+}
+
+/** Hours after the screenshot within which an orphan ESPN answer between the same two teams pairs with it. */
+export const SCREENSHOT_PAIR_HOURS = 72;
+/** Days after the screenshot within which an executed trade can settle it, and after which silence is 'expired'. */
+export const SCREENSHOT_SETTLE_DAYS = 7;
+
+/**
+ * What became of a screenshot offer ESPN has no proposal row for (Nick, 9/25: a finalize or pending
+ * screen posted in the chat is a SENT offer). In order:
+ *   1. an ORPHAN answer: ESPN's accept/decline whose proposal row is gone, answered by the receiving
+ *      team within SCREENSHOT_PAIR_HOURS after the post; its proposal's close row (if any) must name
+ *      the proposer, and when the orphan's items name players they must overlap by
+ *      SCREENSHOT_NEAR_JACCARD. A veto after an accept stays 'accepted' (the receiver said yes).
+ *   2. an EXECUTED trade between the two teams within SCREENSHOT_SETTLE_DAYS with at least 60% of
+ *      the players: 'accepted'.
+ *   3. neither, once the collector has looked past SCREENSHOT_SETTLE_DAYS: 'expired' (no answer).
+ * Null while the window is open. `claimed`: proposal ids other rows already paired with.
+ * o = { league_id, season, from, to, players (sorted espn ids), seen (ms) }.
+ */
+function screenshotOutcomeOf(o, claimed = new Set()) {
+  if (!tableExists(RAW_TABLE)) return null;
+  const memberCol = rows(`PRAGMA table_info(${RAW_TABLE})`).some(c => c.name === 'member_id') ? 'member_id' : 'NULL AS member_id';
+  const tx = rows(`SELECT tx_id, type, status, execution_type, team_id, ${memberCol}, related_tx_id, proposed_at, processed_at,
+                          items_json, last_seen_at
+                   FROM ${RAW_TABLE} WHERE league_id = ? AND season = ? AND type LIKE 'TRADE%'`, o.league_id, o.season);
+  const from = String(o.from), to = String(o.to);
+  const jaccard = items => {
+    const ids = espnSet((items ?? []).filter(i => i?.playerId != null));
+    if (!ids?.length) return null;
+    const union = new Set([...ids, ...o.players]);
+    return ids.filter(x => o.players.includes(x)).length / union.size;
+  };
+  const proposalIds = new Set(tx.filter(t => t.type === PROPOSAL && t.execution_type === EXECUTED).map(t => String(t.tx_id)));
+  const byRelated = new Map();
+  for (const t of tx) if (t.related_tx_id != null) (byRelated.get(String(t.related_tx_id)) ?? byRelated.set(String(t.related_tx_id), []).get(String(t.related_tx_id))).push(t);
+  const pairEnd = o.seen + SCREENSHOT_PAIR_HOURS * HOUR_MS;
+  const candidates = [];
+  for (const [pid, kids] of byRelated) {
+    if (proposalIds.has(pid) || claimed.has(pid)) continue;
+    const answer = kids.find(k => ANSWERS[k.type] && k.execution_type === EXECUTED);
+    if (!answer || String(answer.team_id) !== to) continue;
+    const at = Date.parse(answer.proposed_at);
+    if (!(at >= o.seen - HOUR_MS && at <= pairEnd)) continue;
+    const close = kids.find(k => k.type === PROPOSAL && k.execution_type === 'CANCEL');
+    if (close && close.team_id != null && String(close.team_id) !== from) continue;
+    const items = [close, answer].map(k => parseList(k?.items_json)).find(x => x?.length) ?? null;
+    if (items) {
+      const parties = [...partiesOf(items)];
+      if (parties.length === 2 && pairOf(...parties) !== pairOf(from, to)) continue;
+      const j = jaccard(items);
+      if (j != null && j < SCREENSHOT_NEAR_JACCARD) continue;
+    }
+    const vetoed = tx.some(v => v.type === 'TRADE_VETO' && [pid, String(answer.tx_id)].includes(String(v.related_tx_id)));
+    candidates.push({ pid, answer, at, vetoed });
   }
-  const close = orphans.find(t => t.type === PROPOSAL);
-  if (close) {
-    const expiry = EXPIRY_ACTOR.test(close.member_id ?? '');
-    const status = expiry ? 'expired' : (allowsWithdrawn(appDb) && close.member_id != null ? 'withdrawn' : 'expired');
-    return { kind: 'orphan', tx_id: String(close.related_tx_id), status, at: close.proposed_at,
-      reason: `ESPN CANCEL ${close.tx_id} (${expiry ? 'expiry' : 'closed by a member'}; its proposal ${close.related_tx_id} is not in the collected rows)` };
+  candidates.sort((a, b) => a.at - b.at);
+  const c = candidates[0];
+  if (c) {
+    return { kind: 'orphan', tx_id: c.pid, status: ANSWERS[c.answer.type], at: c.answer.proposed_at,
+      reason: `paired with ESPN ${c.answer.type} ${c.answer.tx_id} (its proposal ${c.pid} is not in the collected rows; `
+        + `same two teams, ${Math.round((c.at - o.seen) / HOUR_MS)} h after the post)${c.vetoed ? ', then vetoed (still a yes)' : ''}` };
+  }
+  const settleEnd = o.seen + SCREENSHOT_SETTLE_DAYS * 24 * HOUR_MS;
+  for (const t of tx) {
+    if (!(t.type === 'TRADE_ACCEPT' && t.execution_type === 'PROCESS' && t.status === 'EXECUTED')) continue;
+    const at = Date.parse(t.processed_at ?? t.proposed_at);
+    if (!(at >= o.seen - HOUR_MS && at <= settleEnd)) continue;
+    const items = parseList(t.items_json) ?? [];
+    const parties = [...partiesOf(items)];
+    const j = jaccard(items);
+    if (parties.length === 2 && pairOf(...parties) === pairOf(from, to) && j != null && j >= 0.6) {
+      const key = String(t.related_tx_id ?? t.tx_id);
+      if (claimed.has(key)) continue;
+      return { kind: 'executed', tx_id: key, status: 'accepted', at: t.processed_at ?? t.proposed_at,
+        reason: `ESPN executed trade ${t.tx_id} between the same two teams with ${Math.round(j * 100)}% of the players` };
+    }
+  }
+  const seen = tx.map(t => Date.parse(t.last_seen_at)).filter(Number.isFinite);
+  const lastLooked = seen.length ? Math.max(...seen) : null;
+  if (lastLooked != null && lastLooked >= settleEnd) {
+    return { kind: 'expired', tx_id: null, status: 'expired', at: new Date(settleEnd).toISOString(),
+      reason: `no ESPN answer paired within ${SCREENSHOT_PAIR_HOURS} h and no executed trade within ${SCREENSHOT_SETTLE_DAYS} days `
+        + `(collector last looked ${new Date(lastLooked).toISOString()})` };
   }
   return null;
 }
+
+const claimedIds = (leagueId, season, exceptId = null) => new Set(rows(`SELECT matched_tx_id FROM trade_outcomes
+  WHERE league_id = ? AND season = ? AND matched_tx_id IS NOT NULL AND id IS NOT ?`, leagueId, season, exceptId).map(r => String(r.matched_tx_id)));
 
 /** An app offer Nick marked sent that is this same deal. */
 function appCopyOf(o) {
@@ -942,7 +1015,7 @@ function screenshotCopyOf(o) {
  *   toTeamId, fc_value, fc_captured_on }), proposed_at (null when the screen has no time),
  *   proposed_at_basis, seen_at (when it was posted), confidence (the parse's).
  * Returns { state, id?, matched_tx_id?, reason? }; states: recorded, already_recorded,
- * same_offer, espn_duplicate, espn_near_duplicate, app_duplicate, unconfirmed_draft (a finalize screen ESPN has no trace of),
+ * same_offer, espn_duplicate, espn_near_duplicate, app_duplicate,
  * refused, ledger_not_widened.
  */
 export function recordScreenshotOffer(o) {
@@ -973,44 +1046,40 @@ export function recordScreenshotOffer(o) {
   if (trace?.kind === 'near_proposal') return { state: 'espn_near_duplicate', matched_tx_id: trace.tx_id, jaccard: trace.jaccard };
   const app = appCopyOf(key);
   if (app) return { state: 'app_duplicate', id: app.id };
-  if (trace?.kind === 'orphan' && row(`SELECT id FROM trade_outcomes WHERE league_id = ? AND season = ? AND matched_tx_id = ?`,
-    o.league_id, o.season, trace.tx_id)) {
-    return { state: 'app_duplicate', matched_tx_id: trace.tx_id };
-  }
 
-  const seenReason = o.status === 'proposed' ? null : `the ${o.status} screen (posted ${o.seen_at})`;
-  const status = trace ? trace.status : o.status;
-  const resolvedAt = trace ? trace.at : (o.status === 'proposed' ? null : o.seen_at);
-  const statusFrom = trace ? trace.reason : (seenReason ?? 'pending on the screen');
+  // Nick (9/25): a finalize or pending screen posted in the chat is a SENT offer, sent when posted.
+  const seen = Date.parse(o.seen_at);
+  const screenDecided = o.status !== 'proposed';
+  const outcome = screenshotOutcomeOf({ league_id: o.league_id, season: o.season, from: o.proposer_team_id,
+    to: o.counterparty_team_id, players, seen }, claimedIds(o.league_id, o.season));
+  const status = screenDecided ? o.status : (outcome?.status ?? 'proposed');
+  const resolvedAt = screenDecided ? (outcome && outcome.status === o.status ? outcome.at : o.seen_at) : (outcome?.at ?? null);
+  const statusFrom = screenDecided ? `the ${o.status} screen (posted ${o.seen_at})` : (outcome?.reason ?? 'pending: no ESPN answer paired yet');
+  const matched = outcome && (!screenDecided || outcome.status === o.status) ? outcome.tx_id : null;
   const reason = `observed_screenshot: read off a chat screenshot (${o.kind ?? 'offer'} screen, parse confidence `
-    + `${o.confidence ?? 'n/a'}); proposed_at from ${o.proposed_at ? (o.proposed_at_basis ?? 'the screen') : 'nothing (no time on the screen)'}; `
+    + `${o.confidence ?? 'n/a'}); sent_at = when it was posted; proposed_at from `
+    + `${o.proposed_at ? (o.proposed_at_basis ?? 'the screen') : 'nothing (no time on the screen)'}; `
     + `status from ${statusFrom}; no model prediction: this offer was never scored when it was sent`;
 
   const copy = screenshotCopyOf(key);
   if (copy) {
     if (copy.status === 'proposed' && DECIDED.has(status)) {
       run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, settle_reason = ?, matched_tx_id = COALESCE(matched_tx_id, ?)
-           WHERE id = ? AND status = 'proposed'`, status, resolvedAt, `${reason} (settled by ${ideaId})`,
-      trace?.tx_id ?? null, copy.id);
+           WHERE id = ? AND status = 'proposed'`, status, resolvedAt, `${reason} (settled by ${ideaId})`, matched, copy.id);
       return { state: 'same_offer', id: copy.id, settled: true };
     }
     return { state: 'same_offer', id: copy.id, settled: false };
   }
-  // A finalize screen is the proposer's last step BEFORE sending: it is shared to ask "should I?"
-  // as often as to say "I did". Without ESPN's trace of it, it is not evidence of a sent offer.
-  if (o.kind === 'finalize' && !trace) {
-    return { state: 'unconfirmed_draft',
-      reason: 'a finalize screen with no ESPN trace (no proposal, answer or close for this deal): not shown to have been sent' };
-  }
 
+  const sentCol = hasSentColumns();
   const info = run(`INSERT INTO trade_outcomes
       (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json, proposed_at,
-       status, idea_id, resolved_at, matched_tx_id, settle_reason, created_at)
-    VALUES (?, ?, 'observed_screenshot', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       status, idea_id, resolved_at, matched_tx_id, settle_reason, created_at${sentCol ? ', sent_at' : ''})
+    VALUES (?, ?, 'observed_screenshot', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${sentCol ? ', ?' : ''})`,
   o.league_id, o.season, String(o.proposer_team_id), String(o.counterparty_team_id),
   JSON.stringify(give), JSON.stringify(get), o.proposed_at ?? null, status, ideaId, resolvedAt,
-  trace?.tx_id ?? null, reason, new Date().toISOString());
-  return { state: 'recorded', id: Number(info.lastInsertRowid), matched_tx_id: trace?.tx_id ?? null };
+  matched, reason, new Date().toISOString(), ...(sentCol ? [o.seen_at] : []));
+  return { state: 'recorded', id: Number(info.lastInsertRowid), status, paired: outcome?.kind ?? null, matched_tx_id: matched };
 }
 
 /**
@@ -1019,25 +1088,28 @@ export function recordScreenshotOffer(o) {
  * settle_reason and left 'proposed' (so no grader counts it). Idempotent.
  */
 export function settleScreenshotOffers(leagueId, season) {
-  const out = { state: 'settled', pending: 0, settled: 0, duplicates: 0 };
+  const out = { state: 'settled', pending: 0, settled: 0, duplicates: 0, by_status: {} };
   if (!screenshotReady()) return { ...out, state: 'ledger_not_widened' };
-  for (const s of rows(`SELECT * FROM trade_outcomes WHERE league_id = ? AND season = ? AND source = ? AND status = 'proposed'`,
-    leagueId, season, SCREENSHOT_SOURCE)) {
+  for (const s of rows(`SELECT * FROM trade_outcomes WHERE league_id = ? AND season = ? AND source = ? AND status = 'proposed'
+                        ORDER BY COALESCE(sent_at, created_at), id`, leagueId, season, SCREENSHOT_SOURCE)) {
     const players = espnSet([...(parseList(s.give_json) ?? [{}]), ...(parseList(s.get_json) ?? [{}])]);
     if (!players) { out.pending++; continue; }
-    const trace = espnTraceOf({ league_id: leagueId, season, pair: pairOf(s.proposer_team_id, s.counterparty_team_id),
-      players, at: Date.parse(s.proposed_at ?? s.created_at) });
-    if (trace?.kind === 'orphan' && (s.matched_tx_id == null || s.matched_tx_id === trace.tx_id)
-      && !row(`SELECT id FROM trade_outcomes WHERE league_id = ? AND season = ? AND matched_tx_id = ? AND id <> ?`,
-        leagueId, season, trace.tx_id, s.id)) {
-      run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, matched_tx_id = ?, settle_reason = ? WHERE id = ? AND status = 'proposed'`,
-        trace.status, trace.at, trace.tx_id, `${s.settle_reason ?? 'observed_screenshot:'}; settled later from ${trace.reason}`, s.id);
-      out.settled++;
-    } else if (trace?.kind === 'proposal' || trace?.kind === 'near_proposal') {
+    const seen = Date.parse(s.sent_at ?? s.proposed_at ?? s.created_at);
+    const trace = espnTraceOf({ league_id: leagueId, season, pair: pairOf(s.proposer_team_id, s.counterparty_team_id), players, at: seen });
+    if (trace?.kind === 'proposal' || trace?.kind === 'near_proposal') {
       const why = `observed_screenshot: a copy of ESPN proposal ${trace.tx_id}, collected after the screenshot; left pending so it is not counted twice`;
       if (s.settle_reason !== why) run(`UPDATE trade_outcomes SET settle_reason = ? WHERE id = ?`, why, s.id);
       out.duplicates++;
-    } else out.pending++;
+      continue;
+    }
+    const outcome = screenshotOutcomeOf({ league_id: leagueId, season, from: s.proposer_team_id, to: s.counterparty_team_id,
+      players, seen }, claimedIds(leagueId, season, s.id));
+    if (!outcome) { out.pending++; continue; }
+    run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, matched_tx_id = COALESCE(?, matched_tx_id), settle_reason = ?
+         WHERE id = ? AND status = 'proposed'`, outcome.status, outcome.at, outcome.tx_id,
+    `${s.settle_reason ?? 'observed_screenshot:'}; settled later from ${outcome.reason}`, s.id);
+    out.settled++;
+    out.by_status[outcome.status] = (out.by_status[outcome.status] ?? 0) + 1;
   }
   return out;
 }

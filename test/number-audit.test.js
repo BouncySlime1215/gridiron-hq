@@ -74,6 +74,10 @@ function cleanSnapshot() {
       { id: 'league_sync', label: 'League sync', as_of: minutesAgo(20), max_age_minutes: 180, pages: ['Every league page'] },
       { id: 'nfl_injuries', label: 'NFL injury reports', as_of: minutesAgo(90), max_age_minutes: 4320, pages: ['Start/Sit'] },
     ],
+    // PROJ-ESPN: the served week's frozen ESPN capture, and the ranges' realised coverage.
+    espn_projection: { flag: 'on', status: 'ok', scoring_key: 'league:7', newest_capture_at: minutesAgo(600), age_days: 0.42,
+      players: 540, late_only: 0, season: 2026, week: 3 },
+    range_coverage: { n: 40, covered: 32, coverage: 0.8, weeks: [1, 2], k: 1.71 },
   };
 }
 

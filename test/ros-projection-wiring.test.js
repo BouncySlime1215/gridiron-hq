@@ -16,6 +16,9 @@ import path from 'node:path';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-ros-wiring-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+// PROJ-ESPN: this file tests OUR weekly producer (the path GRIDIRON_PROJ_ESPN=0 serves; with
+// the flag on, ours is the shadow and test/proj-espn.test.js covers the served ESPN number).
+process.env.GRIDIRON_PROJ_ESPN = '0';
 
 const { db, row, rows, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');

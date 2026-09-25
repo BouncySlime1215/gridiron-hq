@@ -42,7 +42,7 @@ const code = src => src
 
 // UI consolidation: Trade Brain's tabs became Trades → People (pages/Trades.tsx); the surface is read there.
 const page = read('client/src/pages/Trades.tsx');
-const board = read('client/src/components/brain/ManagerBoard.tsx');
+const board = read('client/src/components/brain/ManagerBoard.tsx') + read('client/src/components/brain/ManagerCard.tsx');
 const slate = read('client/src/components/brain/ProposalSlate.tsx');
 const brainTypes = read('client/src/components/brain/types.ts');
 const app = read('client/src/App.tsx');

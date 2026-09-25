@@ -39,11 +39,11 @@ test('an ungated suggestion surface is not rendered: News edge is not a Trades v
 
 test('retired: the Trade Lab page, Trade Brain, the classic War Room', () => {
   for (const p of ['client/src/pages/TradeBrain.tsx', 'client/src/components/warroom/WarRoom.tsx',
-    'client/src/components/warroom/WarRoomShell.tsx', 'client/src/components/warroom/layoutPref.ts']) assert.ok(!exists(p), `${p} is gone`);
+    'client/src/components/warroom/WarRoomShell.tsx', 'client/src/components/warroom/layoutPref.ts',
+    'client/src/components/warroom/WarRoomV2.tsx', 'client/src/components/warroom/TopBarV2.tsx']) assert.ok(!exists(p), `${p} is gone`);
   const lab = read('client/src/pages/TradeLab.tsx');
   assert.doesNotMatch(lab, /export default function TradeLab/, 'no Trade Lab page');
   assert.doesNotMatch(lab, /const TABS = \[/, 'no Trade Lab tab strip');
-  assert.doesNotMatch(read('client/src/components/warroom/TopBarV2.tsx'), /Classic layout/);
   const r = read('client/src/components/Redirects.tsx');
   assert.match(r, /'\/trade-lab': \(\) => '\/trades\?view=find'/);
   assert.match(r, /'\/trade-brain':/);

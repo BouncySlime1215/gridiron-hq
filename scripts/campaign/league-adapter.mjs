@@ -219,6 +219,13 @@ export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
   return { now, trades, unmapped, valueAt, history };
 }
 
+/** Executed TRADE_ACCEPT rows this season in league_transactions_raw (0 when the table is missing). */
+export function executedTradeRows(svc, { leagueId, season }) {
+  if (!hasTable(svc, 'league_transactions_raw')) return 0;
+  return svc.db.row(`SELECT COUNT(DISTINCT tx_id) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?
+    AND type = 'TRADE_ACCEPT' AND execution_type = 'PROCESS' AND status = 'EXECUTED'`, leagueId, season)?.n ?? 0;
+}
+
 /**
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
  * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
@@ -410,6 +417,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
+    // integration-7: how many executed trades the raw table holds this season, so the planner can fail
+    // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).
+    executedTradeRows: executedTradeRows(svc, { leagueId, season }),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the

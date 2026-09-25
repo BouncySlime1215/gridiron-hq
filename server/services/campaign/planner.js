@@ -175,7 +175,11 @@ export function planLeague(adapter, settings) {
   const objUntouch = new Set((objective.untouchables ?? []).map(String));
   const flipUntouched = f => !f.legs || !(f.legs.give_a_ids ?? [f.legs.give_a]).some(id => objUntouch.has(String(id)));
   const flipKeep = f => flipUntouched(f) && !(TM && flipFails(f));
-  const flip = TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
+  // integration-7: FAIL CLOSED when the league has executed trades this season but the ledger came back
+  // missing or empty: Nick's no-buy-back / no-reversal rules cannot be checked, so no move is served.
+  const ledgerMissing = tmOn && Number(adapter.executedTradeRows) > 0 && !(adapter.tradeLedger?.trades?.length > 0);
+  const flip = ledgerMissing ? { ...flipAll, top: [], realised: [] }
+    : TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
   if (TM) tmCount.flips = flipAll.realised.filter(f => flipUntouched(f) && flipFails(f)).length;
 
   mark('flip');
@@ -233,6 +237,8 @@ export function planLeague(adapter, settings) {
     auto.push(pid);
   }
   for (const pid of reachOn ? auto : floored(budget.targets)) want(pid);
+  const ledgerSkipped = ledgerMissing ? { targets: wanted.length, flips: flipAll.realised.length } : null;
+  if (ledgerMissing) wanted.length = 0;
   // Shadow: read what is searched, count what the floor would drop, change nothing.
   if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
@@ -523,7 +529,8 @@ export function planLeague(adapter, settings) {
       drops_by_gate: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
-    trade_memory: memorySummary(tmOn ? TM : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
+    ...(ledgerSkipped ? { trade_ledger_missing: { executed_rows: Number(adapter.executedTradeRows), ...ledgerSkipped } } : {}),
+    trade_memory: memorySummary(tmOn ? (ledgerMissing ? 'ledger_missing' : TM) : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },

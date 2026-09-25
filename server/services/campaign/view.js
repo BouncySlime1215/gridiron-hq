@@ -279,11 +279,14 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     : gf.source === 'none' ? `The ${floorName} is on but there is no player score this run, so no get can be certified.`
       : gf.refused.length ? `${gf.refused.map(r => `${nm(r.player)} ${r.score == null ? 'has no score' : `scores ${Math.round(r.score)}`}`).join('; ')}, under the ${floorName}.`
         : gf.dropped ? `${gf.dropped} candidate get${gf.dropped === 1 ? '' : 's'} under the ${floorName} ${gf.dropped === 1 ? 'was' : 'were'} skipped.` : null;
+  // integration-7: no move because the trade ledger is missing (the planner failed closed).
+  const tlm = res.trade_ledger_missing ?? null;
+  const ledgerText = tlm ? `No move this run: the league has ${tlm.executed_rows} executed trade${tlm.executed_rows === 1 ? '' : 's'} this season but the trade ledger could not be read, so Nick's no-buy-back and no-reversal rules cannot be checked.` : null;
   const why = res.candidates_scored
     ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${keepText}${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
     : closestText ? `Nothing clears without overpaying; ${closestText}.`
-      : floorText ? null : 'The planner found no trade path worth sending this week.';
-  const next_move = best ? ok(best, 'plan.path') : unknown([floorText, why].filter(Boolean).join(' '), 'plan.path');
+      : floorText || ledgerText ? null : 'The planner found no trade path worth sending this week.';
+  const next_move = best ? ok(best, 'plan.path') : unknown([ledgerText, floorText, why].filter(Boolean).join(' '), 'plan.path');
 
   /* ------------------------------------------------------- destination */
   // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.
@@ -545,7 +548,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: model != null ? { model } : {},
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
-      dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0 },
+      dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,
+        // integration-7: targets (and flips) not searched because the season's trade ledger was missing.
+        ...(res.trade_ledger_missing ? { trade_ledger_missing: res.trade_ledger_missing.targets + res.trade_ledger_missing.flips } : {}) },
       trade_memory: res.trade_memory ?? { status: 'no_ledger', dropped_total: 0 },
       // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink); bookkeeping only.
       ...(res.shrink ? { shrink: res.shrink } : {}),

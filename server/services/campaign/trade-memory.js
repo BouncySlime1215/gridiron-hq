@@ -199,6 +199,7 @@ export function stepPasses(mem, step, on) {
  * before or after path search and are reported beside it, never summed into it.
  */
 export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, flips = 0, ladderRows = 0, refused = [], unmapped = 0 }) {
+  if (mem === 'ledger_missing') return { status: 'ledger_missing', dropped_total: 0 };
   if (mem === 'off') return { status: 'off', warning: TRADE_MEMORY_OFF_WARNING, dropped_total: 0 };
   if (!mem) return { status: 'no_ledger', dropped_total: 0 };
   const d = { ...dropped };

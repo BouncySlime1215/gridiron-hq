@@ -13,9 +13,10 @@
  * fix has nothing factual left to say that is not shown elsewhere.
  *
  * Fixture: a 10-team, one-WR league where every WR plays this week and has a weekly
- * model (so lineupSpread() coverage is 1 and the Roster shape branch's precondition
- * holds). player-week-engine.js is mocked with a real WR params shape (copied from
- * test/asset-universe-bye-week-range.test.js) so lineupSpread() samples real weeks.
+ * model. player-week-engine.js is mocked with a real WR params shape (copied from
+ * test/asset-universe-bye-week-range.test.js). The fixture has no league world
+ * (no schedule rules), so its weekly range is unmodelled since WEEKLY-RANGE-ONE
+ * (lineup-week-range.js); the Roster shape branch that needed one is gone (below).
  */
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,15 +101,13 @@ const VARIANCE = /chase variance|You need variance|boom-rate/i;
 // any rendered field fails, not only in action.
 const rendered = fixes => fixes.map(f => `${f.area} ${f.issue} ${f.action}`);
 
-test('control: the fixture puts each team where the old rule would bucket it, with a modelled range', () => {
+test('control: the fixture puts each team where the old rule would bucket it', () => {
   const b = selfScout(league(), BUBBLE);
   assert.equal(b.rank, 5, `bubble fixture must rank 5th, got ${b.rank}`);
   assert.equal(selfScout(league(), LONGSHOT).rank, 10);
   assert.equal(selfScout(league(), CONTENDER).rank, 1);
-  // The Roster shape branch only ran when floor != null && coverage > 0.5; without this
-  // control a pass below could just mean the branch never fired.
-  assert.ok(b.spread.floor != null, `the weekly range must be modelled, got floor ${b.spread.floor}`);
-  assert.ok(b.spread.coverage > 0.5, `lineupSpread coverage must exceed 0.5, got ${b.spread.coverage}`);
+  // The Roster shape branch (which needed a modelled range) is deleted, so there is no
+  // range precondition left to control for; the range itself is lineup-week-range.js's.
 });
 
 test('RED: a bubble team is not told to chase variance', () => {
@@ -140,7 +139,6 @@ test('RED (consumer): the scout route serves the chosen bubble team without vari
   const body = await res.json();
   assert.equal(body.team.roster_id, BUBBLE, `route must scout the requested team, got ${body.team.roster_id}`);
   assert.equal(body.rank, 5);
-  assert.ok(body.spread.floor != null, 'control: the served range is modelled');
   const hits = rendered(body.fixes).filter(a => VARIANCE.test(a));
   assert.deepEqual(hits, [], `route served variance advice: ${JSON.stringify(hits)}`);
 });

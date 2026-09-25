@@ -79,7 +79,7 @@ export default function Trades() {
   return (
     <div className="mx-auto max-w-[1100px]">
       <PageHeader eyebrow="Trades" title="Trades" actions={<TradeDeskHeader desk={desk} />} />
-      <div className="mb-5 ds-tabs-wrap"><Tabs label="Trades views" value={view} onChange={setView} tabs={VIEWS} /></div>
+      <div className="mb-5"><Tabs label="Trades views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
       {view === 'planner' && (warOn && activeId && warRoom.data
         ? <TradesPlanner part="next" view={warRoom.data} leagueId={activeId} onAsk={coach.open} />

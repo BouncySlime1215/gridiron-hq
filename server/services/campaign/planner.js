@@ -761,6 +761,8 @@ export function planLeague(adapter, settings) {
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     // HIS-SIDE-WIRE: ESPN's trade block as the adapter read it (null: not read); the view reads it per target.
     trade_block: adapter.tradeBlock ?? null,
+    // CHAT-TRADE-INTEREST (shadow): the adapter's read of chat_trade_interest (null: not read).
+    chat_interest: adapter.chatInterest ?? null,
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

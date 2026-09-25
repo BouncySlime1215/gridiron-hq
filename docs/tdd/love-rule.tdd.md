@@ -59,3 +59,13 @@ in one frozen object so the local run can report exactly what it judged.
 Section 4d says LOVE uses "actual AND expected" points; section 5 and CT-29 say luck has weight 0.
 Actual minus expected IS the luck term, so the tag reads expected points and share only, and
 actual points appear only in the luck sentence. Flagged in the PR under "Not confirmed".
+
+## Review round 1 (coordinator findings 1 and 2)
+
+1. Stale reports stuck: the reader kept each player's latest report at or before week N, however old.
+   Now only the week-N report counts (N-1 when N is not published); no row there means healthy.
+2. Failed open: a table with no current report read everyone healthy. Now a table whose latest
+   report is older than N-1 (or has none this season) is `sources.injuries.status = 'stale'` with a
+   reason, and every role is `unknown`, which caps BUY at PASS.
+
+RED: the 3 new reader tests fail against the round-0 reader (21 pass, 3 fail). GREEN: 24 of 24.

@@ -4,7 +4,8 @@
  *   usage          player_week_usage (keyed on players.id): mean target_share, summed actual TDs
  *   ffopportunity  nfl_ffopportunity_weekly (keyed on players.gsis_id): mean expected and actual
  *                  points per game, summed expected TDs ("usage through week N")
- *   injuries       nfl_injuries, the latest report at or before week N: the healthy-role read
+ *   injuries       nfl_injuries, the week-N report (N-1 if N is not out): the healthy-role read;
+ *                  older or missing reports make every role 'unknown', never 'healthy'
  *   draft          DRAFT-ID-MAP's `by_player` map when the producer has one, else 'not_read'
  *
  * A missing table is reported per source as 'table_absent' ("we cannot look"), never thrown and
@@ -82,12 +83,22 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
 
   const injury = new Map();
   if (hasTable(db, 'nfl_injuries')) {
-    if (gsisIds.length) {
-      const rows = db.rows(`SELECT gsis_id, week, report_status FROM nfl_injuries
-                            WHERE season = ? AND week <= ? AND gsis_id IN (${IN(gsisIds)})
-                            ORDER BY week`, season, week, ...gsisIds);
-      sources.injuries.rows = rows.length;
-      for (const r of rows) injury.set(r.gsis_id, r);   // ordered by week: the last one wins
+    // Only the current report counts: week N, or N-1 when N is not published yet. An older report is
+    // stale, so a player Out in week 1 and off the report since is not still Out. A table with nothing
+    // for N or N-1 cannot say who is healthy: every role reads 'unknown' (caps the tag at PASS).
+    const latest = db.row(`SELECT MAX(week) AS w FROM nfl_injuries WHERE season = ? AND week <= ?`, season, week)?.w ?? null;
+    if (latest == null || latest < week - 1) {
+      sources.injuries = { status: 'stale', max_week: latest, rows: 0,
+        reason: latest == null ? `nfl_injuries has no ${season} report at or before week ${week}`
+          : `nfl_injuries' latest ${season} report is week ${latest}, older than week ${week - 1}` };
+    } else {
+      sources.injuries.report_week = latest;
+      if (gsisIds.length) {
+        const rows = db.rows(`SELECT gsis_id, week, report_status FROM nfl_injuries
+                              WHERE season = ? AND week = ? AND gsis_id IN (${IN(gsisIds)})`, season, latest, ...gsisIds);
+        sources.injuries.rows = rows.length;
+        for (const r of rows) injury.set(r.gsis_id, r);
+      }
     }
   } else sources.injuries = { status: 'table_absent', reason: 'nfl_injuries is not on this database' };
 
@@ -97,7 +108,7 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
     const weeks = [...u.map(r => r.week), ...f.map(r => r.week)];
     const inj = p.gsis_id ? injury.get(p.gsis_id) ?? null : null;
     const report = inj?.report_status ?? null;
-    // A healthy role needs a report we could read; no row on a readable table is "not on the report".
+    // A healthy role needs a current report; no row on a current report is "not on the report".
     const injuriesRead = sources.injuries.status === 'ok' && !!p.gsis_id;
     const role = !injuriesRead ? { status: 'unknown', report_status: null, radar: null }
       : { status: report && UNHEALTHY.has(report.toLowerCase()) ? 'unhealthy' : 'healthy', report_status: report, radar: null };

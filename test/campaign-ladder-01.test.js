@@ -99,7 +99,7 @@ test('the chained finish spends the piece the first rung brought in', () => {
 test('a ladder card: depth -> level below -> blue chip, p per rung as a guess, "no" at every rung', () => {
   const { adapter, S, vals } = chainWorld();
   const plans = searchTarget(S, adapter, vals, OBJ, 31);
-  const out = ladderCards(plans, { mode: 'balanced', scoreOf, players: adapter.players });
+  const out = ladderCards(plans, { mode: 'balanced', scoreOf, players: adapter.players, confirmed: q => q });
   assert.equal(out.cards.length, 1);
   const c = out.cards[0];
   assert.equal(String(c.target), '31');
@@ -129,7 +129,9 @@ const players = new Map(Object.entries({ 1: 100, 2: 100, 3: 100, 5: 100, 80: 100
   .map(([id, value]) => [id, { value }]));
 const sc = { 1: 20, 2: 20, 3: 20, 5: 76, 7: 90, 8: 82, 9: 76, 10: 95, 80: 90, 160: 90, 277: 85, 290: 84 };
 const scoreOf2 = id => (sc[id] == null ? null : { score: sc[id] });
-const cardsFor = (plans, opts = {}) => ladderCards(plans, { mode: 'balanced', scoreOf: scoreOf2, players, ...opts });
+// Default: every plan beats doing nothing on the confirm dice, re-priced as is (the planner's confirmedActive).
+const asIs = q => q;
+const cardsFor = (plans, opts = {}) => ladderCards(plans, { mode: 'balanced', scoreOf: scoreOf2, players, confirmed: asIs, ...opts });
 
 test('final get under Blue chip 83 is dropped; unscored fails closed', () => {
   const below = plan('8', [step('2', ['1'], ['5']), step('3', ['5'], ['8'])]);
@@ -185,7 +187,7 @@ test('backup at a "no": the best other rung sharing the steps before it', () => 
   const a = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.05)]);
   const b = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.04)]);
   // Every plan beats doing nothing on the confirm dice here (confirmedActive returns it as is).
-  const out = cardsFor([a, b], { confirmed: q => q });
+  const out = cardsFor([a, b]);
   const c = out.cards.find(x => x.rungs[1].partner === '3');
   assert.equal(c.rungs[1].on_no.kind, 'backup');
   assert.equal(c.rungs[1].on_no.partner, '4');
@@ -259,15 +261,12 @@ test('review 2 / Batch B: a backup comes only from main\'s confirm-dice gate (co
   const a = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.05)]);
   const b = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.04)]);
   const card = out => out.cards.find(x => x.rungs[1].partner === '3');
-  // No confirm dice: never a planning-dice backup (main: no confirm dice, no served move). The rung says stop.
-  const plain = card(cardsFor([a, b]));
-  assert.equal(plain.rungs[1].on_no.kind, 'stop');
   // confirmedActive says b does not beat doing nothing: no backup, stop.
-  const failed = card(cardsFor([a, b], { confirmed: () => null }));
+  const failed = card(cardsFor([a, b], { confirmed: q => (q === a ? a : null) }));
   assert.equal(failed.rungs[1].on_no.kind, 'stop');
   // confirmedActive returns b re-priced on the confirm dice: the card shows that plan's confirm-dice expected.
   const reB = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.02)]);
-  const held = card(cardsFor([a, b], { confirmed: q => (q === b ? reB : null) }));
+  const held = card(cardsFor([a, b], { confirmed: q => (q === b ? reB : q) }));
   assert.equal(held.rungs[1].on_no.kind, 'backup');
   assert.equal(held.rungs[1].on_no.dice, 'confirm');
   assert.equal(held.rungs[1].on_no.expected, pathExpectation(reB.steps).expected, 'the re-priced plan\'s number, not the planning one');
@@ -290,7 +289,7 @@ test('review 3 / Batch B: main\'s trade memory: no player Nick sold comes back f
   const late = plan('171', [step('2', ['1'], ['5']), step('3', ['5'], ['171'])]);
   assert.equal(ladderCards([late], { mode: 'balanced', scoreOf: id => ({ score: 90 }), players: ps, memory: memFor() }).dropped_by_reason.sold, 1);
   // Control: with no ledger the same path is a card (the rule, not a typo, drops it).
-  assert.equal(ladderCards([buyback], { mode: 'balanced', scoreOf: id => ({ score: 90 }), players: ps }).cards.length, 1);
+  assert.equal(ladderCards([buyback], { mode: 'balanced', scoreOf: id => ({ score: 90 }), players: ps, confirmed: q => q }).cards.length, 1);
   // 290 stays pinned with no sold set at all.
   assert.equal(cardsFor([plan('7', [step('2', ['1'], ['290']), step('3', ['290'], ['7'])])]).dropped_by_reason.never_get, 1);
 });
@@ -340,7 +339,7 @@ test('Batch B: main\'s floor on everything held: a destination min_get_score rai
   assert.equal(cardsFor([held]).dropped_by_reason.held_below_floor, 1);
 });
 
-test('Batch B through the planner: GETS-FLOOR=0 does not open the ladder floor; no confirm dice, no backup', () => {
+test('Batch B through the planner: GETS-FLOOR=0 does not open the ladder floor; no confirm dice, no card', () => {
   // Floor switched off by hand in the planner: ladder cards still hold everything they keep to 83+.
   const a = makeAdapter();
   a.scoreOf = id => ({ score: SCORE_FIX[id] ?? 30 });
@@ -358,6 +357,43 @@ test('Batch B through the planner: GETS-FLOOR=0 does not open the ladder floor; 
   const world = b.world.bind(b);
   b.world = seed => (seed === b.seed ? world(seed) : { fail: 'no confirm dice (test)' });
   const r2 = planLeague(b, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { GRIDIRON_LADDER: '1' } });
-  assert.ok(r2.ladders.cards.length > 0, 'control: cards still built on the planning dice');
-  for (const c of r2.ladders.cards) for (const r of c.rungs) assert.equal(r.on_no.kind, 'stop');
+  // No confirm dice: no card and no backup (RULE-FUZZ: a served move needs a confirm-dice gain).
+  assert.equal(r2.ladders.cards.length, 0);
+  assert.ok(r2.ladders.dropped_by_reason.not_confirmed > 0, 'control: rule-passing ladders existed');
+});
+
+/* --------------------- Batch B + RULE-FUZZ #392: every served ladder move beats doing nothing on the confirm dice */
+
+// #392's checker (test/fixtures/nick-rules.mjs confirmedGain): confirmed_expected > 0, or dice 'confirm' with expected > 0.
+const confirmGain = x => (x?.confirmed_expected != null ? Number(x.confirmed_expected) : x?.dice === 'confirm' ? Number(x.expected) : null);
+
+test('RULE-FUZZ shape: a card is served only when confirmedActive keeps it, and carries confirmed_expected > 0', () => {
+  const a = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.05)]);
+  const b = plan('7', [step('2', ['2'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.04)]);
+  const reA = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.03)]);
+  // No confirm dice: no card at all (main: no confirm dice, no served move).
+  const none = cardsFor([a, b], { confirmed: null });
+  assert.equal(none.cards.length, 0);
+  assert.equal(none.dropped_by_reason.not_confirmed, 2);
+  // b fails the confirm gate; a is re-priced there and shows that number.
+  const out = cardsFor([a, b], { confirmed: q => (q === a ? reA : null) });
+  assert.equal(out.cards.length, 1);
+  assert.equal(out.cards[0].confirmed_expected, pathExpectation(reA.steps).expected);
+  assert.ok(confirmGain(out.cards[0]) > 0);
+  assert.equal(out.dropped_by_reason.not_confirmed, 1);
+  // A re-priced plan whose expected is not above 0 is not served.
+  const flat = plan('7', [step('2', ['1'], ['5'], 0.3, 0), step('3', ['5'], ['7'], 0.3, 0)]);
+  assert.equal(cardsFor([a], { confirmed: () => flat }).cards.length, 0);
+});
+
+test('RULE-FUZZ shape through the planner: every card and every backup carries a confirm-dice gain > 0, in every mode', () => {
+  for (const mode of ['safe', 'balanced', 'all_in']) {
+    const { res, entry } = run({ GRIDIRON_LADDER: '1' }, mode);
+    if (mode !== 'safe') assert.ok(res.ladders.cards.length > 0, `${mode}: control, cards exist`);
+    for (const c of res.ladders.cards) {
+      assert.ok(confirmGain({ dice: res.ladders.dice, ...c }) > 0, `${mode}: card ${c.target}`);
+      for (const r of c.rungs) if (r.on_no.kind === 'backup') assert.ok(confirmGain(r.on_no) > 0, `${mode}: backup`);
+    }
+    for (const c of entry.ladders.value.cards) assert.ok(c.confirmed_expected.value > 0);
+  }
 });

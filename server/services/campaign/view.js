@@ -205,6 +205,16 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         silence: replyField(row('silence'), r => ({ do: r.do, when: r.when, message: r.message })),
       }, 'plan.path');
       out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
+      // NEGOTIATOR-DEFAULTS (flag, default off): the levers this offer uses, its feeler, expiry and withdraw rule.
+      if (pb.negotiation) {
+        const n = pb.negotiation;
+        out.negotiation = ok({ levers: [...n.levers], feeler: n.feeler, expires_hours: n.expires_hours, withdraw_if: n.withdraw_if,
+          ...(n.alt_package ? { alt_package: { give: ids(n.alt_package.give), get: ids(n.alt_package.get),
+            ...(fin(n.alt_package.his_pct) ? { his_pct: n.alt_package.his_pct } : {}),
+            ...(n.alt_package.dice === 'confirm' && fin(n.alt_package.expected) ? { dice: 'confirm', expected: n.alt_package.expected } : {}) } } : {}),
+          ...(n.anchor ? { anchor: { ...n.anchor } } : {}),
+          ...(n.cool_off ? { cool_off: true } : {}), ...(n.alt_dropped ? { alt_dropped: n.alt_dropped } : {}) }, 'plan.template');
+      }
     }
     // CAP-1C: a depth-only 2-for-1 planned above the 0 cap says so, with the lineup and title gains that allowed it.
     const dp = st.depth_premium;

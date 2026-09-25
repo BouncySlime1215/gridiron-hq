@@ -61,7 +61,9 @@ const PENDING = [
   { unit: 'PLAYER-SCORE (GRIDIRON_PLAYER_SCORE flag)', why: 'the blue-chip board is served only with its flag on; the fixture producer runs flag-off',
     path: /^leagues\[\]\.blue_chips\.value(\.|\[|$)/ },
   { unit: 'PLAYER-SCORE (#375) blue-chip board', why: 'CAP-1C premium steps need a blue-chip board on the adapter; the fixture producer has none, so the premium stays off',
-    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.depth_premium(\..+)?$/ }
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.depth_premium(\..+)?$/ },
+  { unit: 'NEGOTIATOR-DEFAULTS (flag)', why: 'the negotiation block is served only with GRIDIRON_NEGOTIATOR_DEFAULTS on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.negotiation(\..*)?$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 

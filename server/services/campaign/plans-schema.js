@@ -61,6 +61,11 @@ export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now
 export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
 /** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
 export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
+/** NEGOTIATOR-DEFAULTS levers (negotiator-defaults.js reads this list). */
+export const NEGOTIATION_LEVERS = Object.freeze(['defensible_anchor', 'two_packages', 'firm_wording', 'why_line', 'expiry',
+  'withdraw_on_news', 'feeler_first', 'no_pressure_tactics', 'cool_off']);
+/** Why a second package was not served (planner.js confirmAlt): the rules a served plan must pass. */
+export const ALT_DROP_REASONS = Object.freeze(['over_cap', 'path_conflict', 'floor', 'trade_memory', 'confirm_dice']);
 export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 /** PLAYER-SCORE vocabularies (people/player-score.js LABEL_NAMES / GAP_TYPES; a test pins them equal). */
 export const SCORE_LABELS = Object.freeze(['Elite blue chip', 'Blue chip', 'Level below', 'Solid starter', 'Flex', 'Depth', 'Bench']);
@@ -140,6 +145,16 @@ const stepCounterpart = obj({
   reason_chain: arr(cpFeature)
 }, { reply_mix_label: str });
 
+/* NEGOTIATOR-DEFAULTS: the levers an offer uses (for grading by lever once offers are logged), the interest
+ * check sent before it, how long it stands, when it is withdrawn, the second package and the anchor lift. */
+const stepNegotiation = obj({
+  levers: arr(oneOf(NEGOTIATION_LEVERS), { min: 1 }), feeler: str, expires_hours: int(1), withdraw_if: str
+}, {
+  alt_package: obj({ give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }, { his_pct: num, dice: oneOf(['confirm']), expected: num }),
+  anchor: obj({ lifted: bool, floor_pct: num, from_pct: num, to_pct: num, defensible: bool }),
+  cool_off: bool, alt_dropped: oneOf(ALT_DROP_REASONS)
+});
+
 /** One offer in a plan, with its playbook. */
 const step = obj({
   partner: id,
@@ -160,7 +175,9 @@ const step = obj({
   counterpart: field(stepCounterpart),
   // CAP-1C: the premium over the 0 cap on a depth-only 2-for-1, and the lineup / title gains that allowed it.
   depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
-    { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num }))
+    { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num })),
+  // NEGOTIATOR-DEFAULTS (GRIDIRON_NEGOTIATOR_DEFAULTS, default off): how this offer is made, tagged by lever.
+  negotiation: field(stepNegotiation)
 });
 
 /** A plan: one deck card. */

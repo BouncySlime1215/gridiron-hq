@@ -256,3 +256,14 @@ test('BASIS-02: the donor is the closest ppg at the same position; a replay basi
   assert.deepEqual([...replay.scale], [[100, 1.1]]);
   assert.equal(replay.template.size, 0);
 });
+
+test('BASIS-02: "current week" is the league clock simStartWeek uses, not the NFL calendar (review finding 2)', async () => {
+  const { basis02AtCurrentWeek } = await import('../server/services/season-sim.js');
+  const lg = { season: 2026, payload_season: 2026, current_week: 4 };
+  // Tuesday lag: the NFL calendar says week 5, ESPN's scoring period is still 4.
+  // The sim starts at the league's week 4, so BASIS-02 must still apply.
+  assert.equal(basis02AtCurrentWeek(lg, 4, 2026), true);
+  assert.equal(basis02AtCurrentWeek(lg, 3, 2026), false, 'a replay of an earlier week keeps the as-of level');
+  assert.equal(basis02AtCurrentWeek({ ...lg, payload_season: 2025 }, 4, 2026), false, 'a past-season payload never takes today\'s ros_ppg');
+  assert.equal(basis02AtCurrentWeek({ ...lg, season: 2025, payload_season: 2025 }, 18, 2026), false, 'another season is never current');
+});

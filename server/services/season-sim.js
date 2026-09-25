@@ -213,6 +213,22 @@ export function simStartWeek(lg, requested = null) {
 }
 
 /**
+ * BASIS-02: is this sim at the league's current week (so the finder's served ros_ppg
+ * is the right level)? Judged on the SAME clock simStartWeek uses (the league's
+ * scoring period, league-week.js), never the NFL calendar: on a Tuesday when the NFL
+ * week has advanced but ESPN's scoring period has not, the two clocks disagree and
+ * the old `fromWeek >= tradeWeekContext().week` silently switched BASIS-02 off.
+ * A past-season payload or another season's league is never "current" (no leak of
+ * today's ros_ppg into a replay); an explicit earlier week is a replay.
+ */
+export function basis02AtCurrentWeek(lg, fromWeek, nowSeason = tradeWeekContext().season) {
+  const payloadSeason = Number(lg?.payload_season), season = Number(lg?.season);
+  if (payloadSeason && season && payloadSeason !== season) return false;
+  if (season && Number(nowSeason) && season !== Number(nowSeason)) return false;
+  return Number(fromWeek) >= leagueCurrentWeek(lg);
+}
+
+/**
  * The league-median game (a win for every team above that week's median score,
  * half a win at it). Only runs when league-rules says the league plays it.
  */
@@ -681,7 +697,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   // BASIS-02 (sim-basis.js): at the current week the level is the finder's ros_ppg,
   // and a player with no last-season projection borrows a pool at his rate.
   const basis = basis02.on
-    ? applyBasis02(basis0, roster, proj, { atCurrentWeek: fromWeek >= tradeWeekContext().week })
+    ? applyBasis02(basis0, roster, proj, { atCurrentWeek: basis02AtCurrentWeek(lg, fromWeek) })
     : basis0;
   // One draw from the caller's stream names this simulated world. Every random
   // number below is addressed by (world, player, week[, run]) off it, so under

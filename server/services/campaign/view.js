@@ -254,7 +254,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   // NO-OVERPAY: with no move, say when the cap on market value given is what stopped it, and name the closest overpay.
   const op = res.no_overpay ?? null;
   const cl = op?.closest && fin(op.closest.pct) ? op.closest : null;
-  const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
+  // REACH-01: a chained miss prints its whole chain (the legs before the overpaying finish), in order.
+  const legs = (cl?.chain ?? []).map(x => `${x.give.map(nm).join(' + ')} for ${x.get.map(nm).join(' + ')} (Team ${x.team})`);
+  const finish = cl ? `${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')}` : '';
+  const closestText = cl ? `the closest is ${legs.length ? `${legs.join(', then ')}, then ${finish}` : finish} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
   // GETS-FLOOR: with the floor on and no move, say first that the floor is what emptied the deck.
   const gf = res.gets_floor?.mode === 'on' ? res.gets_floor : null;
   const floorName = gf ? getsFloorName(gf.floor) : null;

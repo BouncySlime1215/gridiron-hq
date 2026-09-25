@@ -49,35 +49,45 @@ export function tolerancesFor(mode, overrides = {}) {
   return base;
 }
 
+/** REACH-01: the gate codes toleranceCheck names (the keys of dropped_by_reason's `tolerance` counts). */
+export const TOLERANCE_CODES = Object.freeze(['max_assets', 'max_offers_per_manager_week', 'max_give_per_step',
+  'max_downside_per_step', 'core_starter', 'untouchable']);
+
+/** Why a plan breaks a slider, or null when it fits (the text of toleranceCheck). */
+export function toleranceViolation(plan, tol, ctx = {}, mode = DEFAULT_MODE) {
+  return toleranceCheck(plan, tol, ctx, mode)?.why ?? null;
+}
+
 /**
- * Why a plan breaks a slider, or null when it fits.
+ * Which slider a plan breaks first, as { code, why } (code one of TOLERANCE_CODES), or null when it fits.
  * ctx: { originalIds, sentThisWeek: Map|obj manager -> offers already sent, core: Set of ids (SAFE) }
  */
-export function toleranceViolation(plan, tol, ctx = {}, mode = DEFAULT_MODE) {
+export function toleranceCheck(plan, tol, ctx = {}, mode = DEFAULT_MODE) {
+  const fail = (code, why) => ({ code, why });
   const spent = assetsSpent(plan.steps, ctx.originalIds ?? []);
-  if (spent > tol.max_assets) return `spends ${spent} of your players (limit ${tol.max_assets})`;
+  if (spent > tol.max_assets) return fail('max_assets', `spends ${spent} of your players (limit ${tol.max_assets})`);
   const per = new Map();
   for (const s of plan.steps) per.set(String(s.team), (per.get(String(s.team)) ?? 0) + 1);
   const sent = ctx.sentThisWeek instanceof Map ? ctx.sentThisWeek : new Map(Object.entries(ctx.sentThisWeek ?? {}));
   for (const [team, n] of per) {
     const already = Number(sent.get(team) ?? 0);
     if (already + n > tol.max_offers_per_manager_week) {
-      return `Team ${team} would get ${already + n} offers this week (limit ${tol.max_offers_per_manager_week})`;
+      return fail('max_offers_per_manager_week', `Team ${team} would get ${already + n} offers this week (limit ${tol.max_offers_per_manager_week})`);
     }
   }
   for (const s of plan.steps) {
-    if (s.give.length > tol.max_give_per_step) return `a step gives ${s.give.length} players (limit ${tol.max_give_per_step})`;
+    if (s.give.length > tol.max_give_per_step) return fail('max_give_per_step', `a step gives ${s.give.length} players (limit ${tol.max_give_per_step})`);
     if (Number.isFinite(s.delta) && s.delta < -tol.max_downside_per_step) {
-      return `a step leaves you ${(-s.delta * 100).toFixed(1)} pts below today (limit ${(tol.max_downside_per_step * 100).toFixed(1)})`;
+      return fail('max_downside_per_step', `a step leaves you ${(-s.delta * 100).toFixed(1)} pts below today (limit ${(tol.max_downside_per_step * 100).toFixed(1)})`);
     }
   }
   if (mode === 'safe' && ctx.core) {
     const hit = plan.steps.flatMap(s => s.give).find(id => ctx.core.has(String(id)));
-    if (hit != null) return 'spends a core starter (Safe mode keeps them)';
+    if (hit != null) return fail('core_starter', 'spends a core starter (Safe mode keeps them)');
   }
   const untouch = ctx.untouchables instanceof Set ? ctx.untouchables : new Set((ctx.untouchables ?? []).map(String));
   const u = plan.steps.flatMap(s => s.give).find(id => untouch.has(String(id)));
-  if (u != null) return 'sells a player you marked untouchable';
+  if (u != null) return fail('untouchable', 'sells a player you marked untouchable');
   return null;
 }
 
@@ -107,16 +117,16 @@ export function scorePlan(plan, mode) {
 
 /**
  * Rank candidate plans for a mode: drop tolerance breakers (kept in `dropped` with
- * the reason), score the rest, sort best first (ties: expected, then fewer steps).
+ * the reason and its code; the all-in floor is code 'p_complete_floor'), score the rest, sort best first (ties: expected, then fewer steps).
  */
 export function rankPlans(plans, mode, tol, ctx = {}) {
   const m = normaliseMode(mode);
   const kept = [], dropped = [];
   for (const p of plans) {
-    const why = toleranceViolation(p, tol, ctx, m);
-    if (why) { dropped.push({ plan: p, why }); continue; }
+    const bad = toleranceCheck(p, tol, ctx, m);
+    if (bad) { dropped.push({ plan: p, why: bad.why, code: bad.code }); continue; }
     const s = scorePlan(p, m);
-    if (!s.eligible) { dropped.push({ plan: p, why: s.why }); continue; }
+    if (!s.eligible) { dropped.push({ plan: p, why: s.why, code: 'p_complete_floor' }); continue; }
     kept.push({ ...p, ...s, mode: m });
   }
   kept.sort((a, b) => (b.score - a.score) || (b.expected - a.expected) || (a.steps.length - b.steps.length));

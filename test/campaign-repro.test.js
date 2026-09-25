@@ -133,8 +133,11 @@ test('--db-snapshot takes a frozen copy: writes to the live DB after the start a
  *   his-screen-probe.mjs (2)  a dev probe timing one hisScreenFor call (elapsed ms in its printout).
  *   negotiate-bench.mjs (2)   a dev bench seeding its own 'bench' thread rows (write stamps and a
  *                       unique idea id); not the producer.
+ *   bench-producer.mjs (4)    PRODUCER-FAST's dev benchmark: one wall-clock instant shared by its
+ *                       modes (it benchmarks today's league) and its elapsed timings; not the producer.
  */
 const JUSTIFIED = new Map([
+  ['scripts/campaign/bench-producer.mjs', 4],
   ['scripts/campaign/his-screen-probe.mjs', 2],
   ['scripts/campaign/negotiate-bench.mjs', 2],
   ['scripts/campaign/produce-plans.mjs', 1],

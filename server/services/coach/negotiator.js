@@ -120,7 +120,8 @@ parentPort.on('message', async msg => {
     try {
       await ready;
       for (const k of [...built.keys()]) if (k.startsWith(msg.leagueId + ':')) built.delete(k);
-      const a = mod.buildAdapter(svc, msg.leagueId, { finder: false });
+      // REPRO-01: buildAdapter needs a clock; the live Coach negotiates about the world right now.
+      const a = mod.buildAdapter(svc, msg.leagueId, { finder: false, now: Date.now() });
       if (!a || a.fail) { parentPort.postMessage({ op: 'built', key: msg.key, fail: String(a && a.fail ? a.fail : 'no adapter') }); return; }
       built.set(msg.key, a);
       parentPort.postMessage({ op: 'built', key: msg.key, me: String(a.league && a.league.me), seed: a.seed, rosters: a.rosters });

@@ -692,8 +692,8 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
       teamId: req.query.team_id,
       week: Math.min(18, Math.max(1, Number(req.query.week) || leagueCurrentWeek(lg))),
       objective: req.query.objective === 'mean' ? 'mean' : 'ceiling',
-      target: req.query.target ? Number(req.query.target) : null,
-      trials: Math.min(8000, Number(req.query.trials) || 3000)
+      target: req.query.target ? Number(req.query.target) : null
+      // No `trials`: every lineup is scored on the league world's runs (WEEKLY-RANGE-ONE).
     }));
   } catch (e) { next(e); }
 });

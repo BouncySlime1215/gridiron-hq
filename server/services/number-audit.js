@@ -14,9 +14,11 @@
  *                            prepareSeason vs trade-engine.js buildAssetUniverse; BASIS-02)
  *       B title_odds_paths   My team's /simulate, Trade Lab/TradeCard's tradeImpact
  *                            world, the finder's horizon sim (myPlayoffOdds)
- *       C weekly_range       one lineup-week's range from the four samplers
- *                            (trade card lineupSpread, season-sim pools, ceiling
- *                            lineup, lineup posture)
+ *       C weekly_range       one lineup-week's range as each page serves it (trade
+ *                            card lineupSpread, the title-odds sim's own lineup,
+ *                            ceiling lineup, lineup posture). Since WEEKLY-RANGE-ONE
+ *                            every one is lineup-week-range.js's p10/p50/p90, so a
+ *                            gap now means the pages started different lineups.
  *       D current_week       tradeWeekContext vs leagueCurrentWeek vs simStartWeek
  *       E p_play_default     rostered players priced on the `?? 0.92` default, and
  *                            chance-to-play differing between the two callers
@@ -67,8 +69,8 @@ export const CHECKS = Object.freeze({
   },
   weekly_range: {
     row: 'C', title: 'Weekly ranges differ between pages',
-    cause: 'Four separate samplers for one lineup-week (trade card, season sim, ceiling lineup, lineup posture), with different inputs and methods.',
-    trust: 'Use the trade card\'s range (this week\'s chance to play included); read the others as rough.',
+    cause: 'The pages started different lineups for the same week, or a page stopped reading the one weekly-range producer (lineup-week-range.js: p10 / p50 / p90 of the lineup total in the title odds\' world).',
+    trust: 'Use the trade card\'s range; it is the one producer\'s number for your highest-projected lineup.',
   },
   current_week: {
     row: 'D', title: 'Pages disagree on the current week',
@@ -463,7 +465,6 @@ export function spearman(xs, ys) {
   return dx && dy ? num / Math.sqrt(dx * dy) : NaN;
 }
 
-const quantile = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
 const oddsMap = (teams, key) => Object.fromEntries((teams ?? []).map(t => [String(t.roster_id), t[key]]));
 const errorText = e => String(e?.message ?? e).slice(0, 200);
 
@@ -503,11 +504,12 @@ function attempt(fn) {
  * in the refresh loop. Every producer is attempted independently.
  */
 export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
-  const [sim, te, ceiling, posture, weekMod, proj, contingency, pricing, preview, scoring, fmt, scheduler, simBasis] = await Promise.all([
+  const [sim, te, ceiling, posture, weekMod, proj, contingency, pricing, preview, scoring, fmt, scheduler, simBasis, weekRange, leagueWorldMod] = await Promise.all([
     import('./season-sim.js'), import('./trade-engine.js'), import('./ceiling-lineup.js'),
     import('./lineup-posture.js'), import('./league-week.js'), import('./projections.js'),
     import('./contingency.js'), import('./counterparty-pricing.js'), import('./preview-mode.js'),
     import('./scoring.js'), import('./format.js'), import('./scheduler.js'), import('./sim-basis.js'),
+    import('./lineup-week-range.js'), import('./league-world.js'),
   ]);
   const SEASON = Number(process.env.NFL_SEASON) || 2026;
   const me = String(lg.my_team_id ?? '');
@@ -573,7 +575,9 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
       trade_engine_week: tWeek, season_sim_week: sWeek };
   })();
 
-  // C: one lineup-week (your highest-mean lineup, this week) from each sampler.
+  // C: one lineup-week (your highest-mean lineup, this week) as each page serves it.
+  // Every range is lineup-week-range.js's (WEEKLY-RANGE-ONE); each page still picks
+  // its own lineup, which is what this check now measures.
   const mine = teams.error ? null : teams.find(t => t.roster_id === me);
   const range = (id, label, pages, fn) => {
     const r = attempt(fn);
@@ -583,14 +587,25 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
     range('trade_card', 'Trade card', ['Trade cards', 'Trade Lab'], () => {
       if (!mine) return { error: teams.error ?? 'your team is not in this league' };
       const s = te.lineupSpread(te.bestLineup(mine.players, te.lineupSlots(lg), 'current_week_ppg'));
-      return { floor: s.floor, median: s.mean, ceiling: s.ceiling };
+      if (s.error) return { error: s.error };
+      return { floor: s.floor, median: s.median, ceiling: s.ceiling };
     }),
     range('season_sim', 'Title odds simulator', ['My team (title odds)', 'Trade Lab (title impact)'], () => {
-      if (world.error || world.fail) return { error: world.error ?? world.fail?.error ?? 'no world' };
-      const arr = world.points?.get(me)?.get(sim.simStartWeek(lg));
-      if (!arr) return { error: 'your team has no simulated week' };
-      const sorted = Float64Array.from(arr).sort();
-      return { floor: quantile(sorted, 0.1), median: quantile(sorted, 0.5), ceiling: quantile(sorted, 0.9) };
+      // The league's one world (league-world.js): the draws the title odds and every
+      // other page's range read.
+      const lw = attempt(() => leagueWorldMod.leagueWorld(lg));
+      if (lw.error || lw.fail) return { error: lw.error ?? lw.fail?.error ?? 'no world' };
+      const world = lw;
+      // The lineup the sim starts for you this week (lineupStarters: pool means decide,
+      // before kickoff), on the modelled skill slots the other pages price.
+      const wk = sim.simStartWeek(lg);
+      const team = world.prep?.teams?.find(t => t.roster_id === me);
+      const means = weekRange.worldWeekMeans(world, wk);
+      if (!team || !means) return { error: 'your team has no simulated week' };
+      const ids = sim.lineupStarters(team.players, te.lineupSlots(lg), means).map(p => p.id);
+      const r = weekRange.lineupWeekRange(world, ids, wk);
+      if (r.error) return { error: r.error };
+      return { floor: r.floor, median: r.median, ceiling: r.ceiling };
     }),
     range('ceiling_lineup', 'Ceiling lineup', ['My team (ceiling lineup)'], () => {
       const c = ceiling.ceilingLineup(lg.id, { teamId: me, week, objective: 'mean' });
@@ -601,9 +616,9 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
     range('lineup_posture', 'Start/Sit posture', ['Start/Sit'], () => {
       const p = posture.lineupPosture(lg, { myTeamId: me, week });
       if (p.error) return { error: p.error };
-      if (!finite(p.my_projection) || !finite(p.my_sd)) return { error: 'no projection or spread' };
-      const z = 1.2816;
-      return { floor: Math.max(0, p.my_projection - z * p.my_sd), median: p.my_projection, ceiling: p.my_projection + z * p.my_sd };
+      const r = p.weekly_range;
+      if (!r || r.error) return { error: r?.error ?? 'no weekly range served' };
+      return { floor: r.floor, median: r.median, ceiling: r.ceiling };
     }),
   ];
 

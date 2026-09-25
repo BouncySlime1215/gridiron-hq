@@ -78,6 +78,8 @@ function cleanSnapshot() {
     espn_projection: { flag: 'on', status: 'ok', scoring_key: 'league:7', newest_capture_at: minutesAgo(600), age_days: 0.42,
       players: 540, late_only: 0, season: 2026, week: 3 },
     range_coverage: { n: 40, covered: 32, coverage: 0.8, weeks: [1, 2], k: 1.71 },
+    // U0 SHADOW-LIVE: every frozen ESPN week has E-XGB shadow forecasts.
+    exgb_shadow: { status: 'ok', season: 2026, weeks: [{ week: 3, frozen: 521, shadow: 1500 }], missing: [] },
   };
 }
 
@@ -363,4 +365,18 @@ test('FIX-10: flag off, the card and the nav dot are absent; preview, the card s
   assert.match(text(preview), /Preview \(unconfirmed forward\)/);
   assert.match(preview, /data-preview/);
   assert.match(renderToStaticMarkup(React.createElement(UI.NumberHealthNavDot)), /data-broken-dot/, 'preview: the dot shows');
+});
+
+test('U0 exgb_shadow_capture: broken when a frozen ESPN week has no shadow forecasts; ok when off', () => {
+  const snap = cleanSnapshot();
+  snap.exgb_shadow = { status: 'broken', season: 2026, missing: [4],
+    weeks: [{ week: 3, frozen: 521, shadow: 1500 }, { week: 4, frozen: 552, shadow: 0 }] };
+  const r = byId(evaluateSnapshot(snap, { now: NOW })).exgb_shadow_capture;
+  assert.equal(r.status, 'broken');
+  assert.match(r.detail, /week 4/);
+  assert.match(r.detail, /week 4: 0 forecasts \/ 552 frozen/);
+  snap.exgb_shadow = { status: 'off', weeks: [], missing: [] };
+  assert.equal(byId(evaluateSnapshot(snap, { now: NOW })).exgb_shadow_capture.status, 'ok');
+  delete snap.exgb_shadow;
+  assert.equal(byId(evaluateSnapshot(snap, { now: NOW })).exgb_shadow_capture.status, 'warn', 'not collected is unmeasured, never ok');
 });

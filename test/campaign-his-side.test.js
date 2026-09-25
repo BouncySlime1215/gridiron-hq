@@ -131,6 +131,16 @@ const entryOf = (a, opts = {}) => {
   return toEntry(res, { names: a.names(), as_of: '2026-09-24T06:00:00.000Z', ...opts });
 };
 
+test('shadow summary: the ESPN block status and unmapped count are written out, unread and failed alike', () => {
+  const a = league();
+  a.tradeBlock = { status: 'ok', by_team: { 3: [] }, unmapped: 4 };
+  assert.deepEqual(entryOf(a)._run.inputs.his_side.espn_block, { status: 'ok', unmapped: 4 });
+  a.tradeBlock = { status: 'unknown', reason: 'stored league payload is not JSON: x' };
+  assert.deepEqual(entryOf(a)._run.inputs.his_side.espn_block, { status: 'unknown', reason: 'stored league payload is not JSON: x' });
+  delete a.tradeBlock;
+  assert.deepEqual(entryOf(a)._run.inputs.his_side.espn_block, { status: 'unread' });
+});
+
 test('planner: the adapter trade block rides on the result', () => {
   assert.deepEqual(planOf(league()).trade_block, { status: 'ok', by_team: { 2: [], 3: ['25'], 4: ['35'] }, unmapped: 0 });
   assert.equal(planOf(league({ block: false })).trade_block, null);
@@ -150,6 +160,8 @@ test('flag off: no target carries his_side, the reasoning text is unchanged, the
   assert.equal(s.of, off.targets.value.length);
   assert.equal(s.ok, s.targets.filter(x => x.status === 'ok').length);
   assert.deepEqual(Object.keys(s.targets[0]).sort(), ['owner', 'player', 'reads', 'status']);
+  // A broken ESPN id map must not read as an empty block: the unmapped count is written out.
+  assert.deepEqual(s.espn_block, { status: 'ok', unmapped: 0 });
   assert.deepEqual(validateLeague(off).errors, []);
 });
 

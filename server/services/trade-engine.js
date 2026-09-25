@@ -100,9 +100,14 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // counterparty read rather than describing one: a deal that is not positive for
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
-import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { edgeTest, tacticsForDeal, timingRead, vetoClimate, vetoRiskFor } from './trade-tactics.js';
 import { LOST_IDEAS } from './rec-ledger.js';
 import { pYesFlag, pYesFor, pYesTable } from './p-yes.js';
+// CLONE v2 (#288, batch D rebase): a shadow LIVE-BLEND challenger, attached as `p_yes_challenger`
+// only with GRIDIRON_CLONE_V2=1. Nothing served reads it.
+import { challengerOf, cheapestAbove, cloneFor, cloneMode, CLONE_V2_MODEL, leagueAcceptPool, packageGainPct,
+  vetoFactor } from './trade-acceptance.js';
+import { cloneFitsFor } from './trade-outcomes.js';
 import { servedAcceptBand } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
@@ -1714,10 +1719,12 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   const tm = titleMutualMode();
   // PYES-ONE: the served P(yes) flag is a different answer too.
   const py = pYesFlag();
+  // CLONE v2: flag on adds the shadow challenger block, so it is a different payload; off, the key is unchanged.
+  const cv = cloneMode();
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
     `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}:` +
-    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}:py${py.on ? py.mode : 0}`;
+    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}:py${py.on ? py.mode : 0}${cv.on ? ':cv1' : ''}`;
 }
 
 /**
@@ -2270,6 +2277,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   // PYES-ONE: one decided-offer table per search, read only when the flag is on.
   const py = pYesFlag();
   const pyTable = py.on ? pYesTable(db, lg.id) : null;
+  const clones = cloneContext(lg, counterparties, weekNow.season);
   for (const d of shown) {
     const cp = counterparties.get(String(d.partner_id)) ?? null;
     // The rungs of the ladder are the packages that land EXACTLY THIS RETURN
@@ -2332,6 +2340,58 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     // baseline for this partner, with the band kept as `challenger`.
     d.acceptance = pYesFor({ counterparty: d.counterparty, edge: d.edge,
       profile: cp?.negotiation ?? null, team: d.partner_id, table: pyTable, on: py.on });
+    // CLONE v2: the shadow challenger rides beside the served acceptance and changes none of it.
+    if (clones && d.acceptance?.band) d.acceptance.p_yes_challenger = challengerFor(clones, cp, d, climate);
+  }
+  if (clones) markCloneFollowUps(shown);
+}
+
+/**
+ * CLONE v2 (#288), read once per league when GRIDIRON_CLONE_V2=1: the league's accept pool and every
+ * manager's settled replies. Null when off, so nothing is read and nothing is attached. A failed read
+ * is not swallowed into "no evidence": it is logged and every challenger block carries the reason.
+ */
+// TEST SEAM: cloneContext, challengerFor and markCloneFollowUps are exported so
+// test/clone-v2-challenger.test.js pins the call site, not only the unit.
+export function cloneContext(lg, counterparties, season) {
+  if (!cloneMode().on) return null;
+  const cps = [...counterparties.values()];
+  // CLONE-01a's fitted pool when a profile carries one; else the n-weighted league rate at a fixed strength.
+  const pool = cps.find(c => c?.accept_pool)?.accept_pool ?? leagueAcceptPool(cps);
+  try {
+    return { pool, fits: cloneFitsFor(lg.id, season) };
+  } catch (err) {
+    console.error(`[trade-engine] clone v2 fits read failed for league ${lg.id}:`, err);
+    return { pool, fits: null, error: 'the clone fits could not be read, so there is no challenger read' };
+  }
+}
+
+/** The shadow challenger block for one deal. His gain is priced off the deal's own player values. */
+export function challengerFor(clones, cp, d, climate) {
+  if (!clones.fits) return { model: CLONE_V2_MODEL, served: false, shadow: true, p: null, reason: clones.error };
+  const gainPct = packageGainPct(d.i_give, d.i_get);
+  const clone = cloneFor({ counterparty: { ...cp, ...d.counterparty }, pool: clones.pool,
+    fit: clones.fits.get(String(d.partner_id)) ?? null, gainPct });
+  const veto = vetoFactor(climate ? vetoRiskFor(climate, { theirValuePct: d.their_value_pct }) : null);
+  return challengerOf(clone, veto);
+}
+
+/**
+ * After a decline, the follow-up is the cheapest shown package to that manager that clears the
+ * price his decline set. Marked on that deal's challenger block only (shadow, like the rest of it).
+ */
+export function markCloneFollowUps(shown) {
+  const byPartner = new Map();
+  for (const d of shown) {
+    const bound = d.acceptance?.p_yes_challenger?.price_bound?.gain_pct;
+    if (!Number.isFinite(bound)) continue;
+    if (!byPartner.has(d.partner_id)) byPartner.set(d.partner_id, { bound, deals: [] });
+    byPartner.get(d.partner_id).deals.push(d);
+  }
+  for (const { bound, deals } of byPartner.values()) {
+    const pick = cheapestAbove(deals.map(d => ({ d, gain_pct: d.acceptance.p_yes_challenger.gain_pct })), bound);
+    if (pick) pick.d.acceptance.p_yes_challenger.follow_up = { above_bound_pct: bound,
+      why: `the cheapest package here that gives him more than the ${bound}% he declined` };
   }
 }
 

@@ -23,6 +23,7 @@
 import { rows, row, run, db as appDb } from '../db/index.js';
 import { rawOfferGroups } from './eval/decided-offers.js';
 import { allowsWithdrawn } from '../db/trade-outcomes-withdrawn.js';
+import { packageGainPct } from './trade-acceptance.js';
 
 /** ESPN's own expiry close; any other actor closing a proposal is its proposer withdrawing it (decided-offers.js). */
 const EXPIRY_ACTOR = /^TradeTaskProcessor/;
@@ -792,5 +793,119 @@ export function settleSentOffers(leagueId, season, { now = null,
  * then the sent offers settled against the same raw rows. Idempotent.
  */
 export function settleOfferLoop(leagueId, season, opts = {}) {
-  return { observed: settleObservedOutcomes(leagueId, season), sent: settleSentOffers(leagueId, season, opts) };
+  const observed = settleObservedOutcomes(leagueId, season);
+  const sent = settleSentOffers(leagueId, season, opts);
+  // CLONE-01b b2: every settled reply updates that manager's clone (a shadow ledger; nothing served reads it).
+  return { observed, sent, clones: refreshCloneFits(leagueId, season) };
+}
+
+/* ------------------------------------------------- the clone fits (CLONE-01b b2) */
+
+/** A settled sent offer is a decision only when he answered: accept = 1; decline or counter = 0 (EVAL E1). */
+const DECIDED = Object.freeze({ accepted: 1, declined: 0, countered: 0 });
+
+/** One side's players, or null when its JSON cannot be read (the caller records why). */
+const parseSide = json => {
+  try {
+    const x = JSON.parse(json ?? '[]');
+    return Array.isArray(x) ? x : null;
+  } catch (e) {
+    if (e instanceof SyntaxError) return null;
+    throw e;
+  }
+};
+
+/**
+ * The ESPN terms of each matched proposal in one league-season, from the raw row's items_json (which
+ * the collector's upsert can blank once the offer is resolved). Map tx_id -> {items, source}. #288 read
+ * trade_proposal_snapshots first; that table (#247) is not on main and nothing writes it, so it is not
+ * read here.
+ */
+function proposalTerms(leagueId, season) {
+  const out = new Map();
+  if (!tableExists(RAW_TABLE)) return out;
+  for (const r of rows(`SELECT tx_id, items_json FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?
+    AND type = ?`, leagueId, season, PROPOSAL)) {
+    const read = itemsOf(r.items_json);
+    if (!read.error && read.items.length && !out.has(String(r.tx_id))) out.set(String(r.tx_id), { items: read.items, source: 'raw' });
+  }
+  return out;
+}
+
+/**
+ * One settled offer's two sides, priced. The players come from the ESPN terms
+ * of the proposal it matched (the raw row); each is priced at the value
+ * the app stored for that ESPN id when the offer was sent. With no ESPN terms
+ * the stored package is used as is, and `terms` says which it was.
+ */
+function pricedSides(o, terms) {
+  const give = parseSide(o.give_json);
+  const get = parseSide(o.get_json);
+  const t = o.matched_tx_id == null ? null : terms.get(String(o.matched_tx_id)) ?? null;
+  if (!t || !give || !get) return { give, get, terms: 'stored' };
+  const valueOf = new Map([...give, ...get].filter(p => p?.espn_id != null).map(p => [String(p.espn_id), p.value]));
+  const proposer = o.proposer_team_id == null ? null : String(o.proposer_team_id);
+  const side = pick => t.items.filter(pick).map(i => ({ espn_id: i.playerId, value: valueOf.get(String(i.playerId)) }));
+  return { give: side(i => String(i?.fromTeamId) === proposer), get: side(i => String(i?.toTeamId) === proposer),
+    terms: t.source };
+}
+
+/**
+ * Rewrite `manager_clone_fits` for one league-season from the settled replies
+ * to offers Nick SENT (sent_at set). Whole rows, so a re-run writes the same
+ * thing: idempotent. Expired and pending offers are not decisions and are left
+ * out. A side whose JSON cannot be read keeps its reply with `gain_pct: null`
+ * and says so, rather than dropping the reply. `terms` counts where each
+ * reply's players came from (FIX-288-5): the raw row, or
+ * only the package the app stored.
+ */
+export function refreshCloneFits(leagueId, season) {
+  if (!tableExists('manager_clone_fits')) {
+    return { state: 'table_absent', managers: 0, reason: 'manager_clone_fits does not exist — migration 111 has not run here' };
+  }
+  if (!hasSentColumns()) {
+    return { state: 'table_absent', managers: 0, reason: 'trade_outcomes.sent_at does not exist — migration 080 has not run here' };
+  }
+  const settled = rows(`SELECT id, proposer_team_id, counterparty_team_id, give_json, get_json, status, resolved_at,
+      matched_tx_id
+    FROM trade_outcomes WHERE league_id = ? AND season = ? AND source = 'app_proposed'
+      AND sent_at IS NOT NULL AND status IN ('accepted', 'declined', 'countered')
+      AND counterparty_team_id IS NOT NULL
+    ORDER BY COALESCE(resolved_at, proposed_at), id`, leagueId, season);
+  const termsBy = settled.some(o => o.matched_tx_id != null) ? proposalTerms(leagueId, season) : new Map();
+  const termCount = { raw: 0, stored: 0 };
+  const by = new Map();
+  for (const o of settled) {
+    const { give, get, terms } = pricedSides(o, termsBy);
+    termCount[terms]++;
+    const gain = give && get ? packageGainPct(give, get) : null;
+    const reply = { y: DECIDED[o.status], status: o.status, resolved_at: o.resolved_at ?? null, outcome_id: o.id,
+      gain_pct: gain, terms,
+      ...(give && get ? {} : { gain_reason: 'its give_json or get_json is not valid JSON, so its price is unknown' }) };
+    const id = String(o.counterparty_team_id);
+    if (!by.has(id)) by.set(id, []);
+    by.get(id).push(reply);
+  }
+  const stamp = new Date().toISOString();
+  run('DELETE FROM manager_clone_fits WHERE league_id = ? AND season = ?', leagueId, season);
+  for (const [rosterId, replies] of by) {
+    const declined = replies.filter(r => r.y === 0 && Number.isFinite(r.gain_pct)).map(r => r.gain_pct);
+    const coef = { replies, price_bound: declined.length ? { gain_pct: Math.max(...declined), declines: declined.length } : null };
+    run(`INSERT INTO manager_clone_fits (league_id, season, roster_id, coef_json, n, k, fit_stamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`, leagueId, season, rosterId, JSON.stringify(coef),
+    replies.length, replies.filter(r => r.y === 1).length, stamp);
+  }
+  const withTerms = termCount.raw;
+  return { state: 'refreshed', managers: by.size, replies: settled.length, reason: null,
+    terms: { ...termCount, share_with_terms: settled.length ? +(withTerms / settled.length).toFixed(3) : null } };
+}
+
+/** Each manager's clone evidence for one league-season: Map roster_id -> {replies, n, k, price_bound, fit_stamp}. */
+export function cloneFitsFor(leagueId, season) {
+  if (!tableExists('manager_clone_fits')) return new Map();
+  return new Map(rows(`SELECT roster_id, coef_json, n, k, fit_stamp FROM manager_clone_fits
+    WHERE league_id = ? AND season = ?`, leagueId, season).map(r => {
+    const coef = JSON.parse(r.coef_json);
+    return [String(r.roster_id), { ...coef, n: r.n, k: r.k, fit_stamp: r.fit_stamp }];
+  }));
 }

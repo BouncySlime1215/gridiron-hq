@@ -31,3 +31,14 @@ test('the recap is a dialog and Escape closes it', () => {
   assert.match(recap, /role="dialog" aria-modal="true" aria-label="Draft recap"/);
   assert.match(recap, /if \(e\.key === 'Escape'\) onClose\(\);/);
 });
+
+test('the live room (/draft/live/:id) on DS: header, chips, no neutral legacy palette', () => {
+  const live = read('client/src/pages/LiveDraft.tsx');
+  assert.match(live, /import \{ Button, Chip, PageHeader \} from '\.\.\/components\/ui\/DesignSystem';/);
+  assert.match(live, /<PageHeader eyebrow="Live draft" title=\{d\.name\}/);
+  assert.match(live, /<Chip key=\{p\} on=\{filter === p\} onClick=\{\(\) => setFilter\(p\)\}>/);
+  assert.match(live, /<Chip key=\{t\} on=\{rosterTab === t\} onClick=\{\(\) => setRosterTab\(t\)\}>/);
+  assert.match(live, /title=\{live \? 'Syncing with ESPN every 4 seconds; click to pause'/);
+  assert.doesNotMatch(live, /\b(bg|text|border|divide)-(slate|white)(-\d+)?\b/, 'neutrals come from tokens');
+  assert.doesNotMatch(live, /className=[^>]*(?<![-\w])card\b|ds-ds-/, 'ds-card, not the legacy card');
+});

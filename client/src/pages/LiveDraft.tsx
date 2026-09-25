@@ -9,6 +9,7 @@ import DraftBoardRail from '../components/draft/DraftBoardRail';
 import { pprSeries, statHeadline } from '../components/draft/types';
 import { usePageExplain } from '../components/PageExplainContext';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { Button, Chip, PageHeader } from '../components/ui/DesignSystem';
 import { sanitizedMessage } from '../lib/errorSanitize';
 
 /* --------------------------------------------------------------- primitives */
@@ -22,21 +23,21 @@ const POS_COLOR: Record<string, string> = {
   WR: 'bg-sky-100 text-sky-700 border-sky-200',
   TE: 'bg-amber-100 text-amber-700 border-amber-200',
   K: 'bg-violet-100 text-violet-700 border-violet-200',
-  DEF: 'bg-slate-200 text-slate-700 border-slate-300',
+  DEF: 'bg-[var(--c-hover)] text-[var(--c-ink2)] border-[var(--c-line-strong)]',
   FLEX: 'bg-indigo-100 text-indigo-700 border-indigo-200'
 };
 
 const POS_TINT: Record<string, string> = {
   QB: 'bg-rose-50/70 border-rose-200', RB: 'bg-[var(--good-tint)]/70 border-[var(--good)]',
   WR: 'bg-sky-50/70 border-sky-200', TE: 'bg-amber-50/70 border-amber-200',
-  K: 'bg-violet-50/70 border-violet-200', DEF: 'bg-slate-50 border-slate-200'
+  K: 'bg-violet-50/70 border-violet-200', DEF: 'bg-[var(--c-soft)] border-[var(--c-line)]'
 };
 
 // "take"/"healthy" are real semantic states (good outcome, no injury) — they use
 // the good/crit tokens directly rather than the brand-remapped emerald classes.
 const VERDICT_TINT: Record<string, string> = {
   'take': 'bg-good-tint border-good',
-  'fine here': 'bg-white border-slate-200',
+  'fine here': 'bg-[var(--c-card)] border-[var(--c-line)]',
   'let him go': 'bg-crit-tint border-crit'
 };
 
@@ -45,7 +46,7 @@ const STATUS_TINT: Record<string, string> = {
   'injury risk': 'bg-crit-tint text-crit',
   rookie: 'bg-sky-100 text-sky-700',
   'bounce-back': 'bg-amber-100 text-amber-700',
-  ageing: 'bg-slate-200 text-slate-700'
+  ageing: 'bg-[var(--c-hover)] text-[var(--c-ink2)]'
 };
 
 /** Draft-slot number -> the owning team's display name, from ESPN's pick order. */
@@ -57,7 +58,7 @@ function teamNameForSlot(draft: any, slot: number) {
 
 function Pos({ pos, className = '' }: { pos: string; className?: string }) {
   return (
-    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${POS_COLOR[pos] ?? 'bg-slate-100 text-slate-600 border-slate-200'} ${className}`}>
+    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${POS_COLOR[pos] ?? 'bg-[var(--c-soft)] text-[var(--c-ink2)] border-[var(--c-line)]'} ${className}`}>
       {pos}
     </span>
   );
@@ -74,11 +75,11 @@ function Face({ p, size = 40 }: { p: any; size?: number }) {
   const [failed, setFailed] = useState(false);
   const url = headshotUrl(p);
   const initials = (p?.name ?? '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('');
-  const ring = POS_COLOR[p?.position]?.split(' ').find(c => c.startsWith('border-')) ?? 'border-slate-200';
+  const ring = POS_COLOR[p?.position]?.split(' ').find(c => c.startsWith('border-')) ?? 'border-[var(--c-line)]';
   return (
     <div style={{ width: size, height: size }}
-      className={`relative shrink-0 rounded-full border-2 ${ring} bg-slate-100 overflow-hidden grid place-items-center`}>
-      <span className="absolute text-[10px] font-bold text-slate-400">{initials}</span>
+      className={`relative shrink-0 rounded-full border-2 ${ring} bg-[var(--c-soft)] overflow-hidden grid place-items-center`}>
+      <span className="absolute text-[10px] font-bold text-[var(--c-muted)]">{initials}</span>
       {url && !failed && (
         <img src={url} alt="" onError={() => setFailed(true)}
           className="relative w-full h-full object-cover object-top" />
@@ -122,7 +123,7 @@ function ConnectLeague() {
             <button key={l.id} onClick={() => link(l.id)} disabled={busy === l.id} title={busy === l.id ? 'Connecting to this draft' : 'Open the live draft room for this league'}
               className="ds-card ds-lift p-4 text-left disabled:opacity-50">
               <div className="font-semibold">{l.name ?? `ESPN ${l.league_id}`}</div>
-              <div className="text-xs text-slate-500 mt-1">
+              <div className="text-xs text-[var(--c-muted)] mt-1">
                 {l.season} · {l.team_count ?? '?'} teams · league {l.league_id}
               </div>
               <div className="text-sm font-semibold text-[var(--c-accent)] mt-2">
@@ -417,48 +418,47 @@ function Room({ id }: { id: string }) {
           {snipes.map(s => (
             <div key={s.key} className="rounded-xl border border-rose-300 bg-rose-50 shadow-md p-3">
               <div className="text-xs font-bold text-rose-700">🎯 SNIPED</div>
-              <div className="text-sm text-slate-800"><b>{s.name}</b> just went to {s.team}</div>
+              <div className="text-sm text-[var(--c-ink)]"><b>{s.name}</b> just went to {s.team}</div>
             </div>
           ))}
         </div>
       )}
       {/* ---------------------------------------------------------- header */}
-      <div className="flex items-center gap-3 flex-wrap mb-3">
-        <Link to="/draft?view=live" className="text-xs text-slate-500 hover:text-slate-700">← hub</Link>
-        <h1 className="text-lg font-bold">{d.name}</h1>
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${espnLive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-          {espnLive ? 'LIVE · ESPN' : d.draft_at ? `ESPN draft ${new Date(d.draft_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'ESPN · not started'}
-        </span>
-        {espnLive && clockStart && d.pick_seconds && (() => {
-          const left = Math.max(0, d.pick_seconds - Math.floor((now - clockStart) / 1000));
-          return <span className={`font-mono text-sm font-bold tabular-nums ${left <= 15 ? 'text-rose-600' : 'text-slate-700'}`} title="Started when the last pick landed; can lag ESPN by up to one 4s poll">~{left}s</span>;
-        })()}
-        <button onClick={() => setLive(v => !v)}
-          className={`text-[11px] px-2 py-1 rounded-full border ${live ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-          {live ? '● syncing every 4s' : '‖ paused'}
-        </button>
-        <SourcePill draftId={id} sync={state.sync} />
-        {syncNote && <span className="text-[11px] text-slate-500">{syncNote}</span>}
-        {desynced && (
-          <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-300 px-2 py-0.5 rounded-full"
-            title="ESPN has more picks than this board has mirrored — a pick failed to sync. Check the real draft board and reconnect if this doesn't clear on its own.">
-            ⚠ OUT OF SYNC WITH ESPN
-          </span>
-        )}
-        {err && <span className="text-[11px] text-rose-600">{err}</span>}
-      </div>
+      <PageHeader eyebrow="Live draft" title={d.name}
+        meta={<>
+          <Link to="/draft?view=live" className="ds-note hover:underline">← All live drafts</Link>
+          <Chip tone={espnLive ? 'good' : 'neutral'}>
+            {espnLive ? 'Live · ESPN' : d.draft_at ? `ESPN draft ${new Date(d.draft_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'ESPN · not started'}
+          </Chip>
+          {espnLive && clockStart && d.pick_seconds && (() => {
+            const left = Math.max(0, d.pick_seconds - Math.floor((now - clockStart) / 1000));
+            return <span className={`font-mono text-sm font-bold tabular-nums ${left <= 15 ? 'text-[var(--c-red)]' : 'text-[var(--c-ink2)]'}`} title="Started when the last pick landed; can lag ESPN by up to one 4s poll">~{left}s</span>;
+          })()}
+          <Chip tone={live ? 'good' : 'neutral'} on={live} onClick={() => setLive(v => !v)}
+            title={live ? 'Syncing with ESPN every 4 seconds; click to pause' : 'Sync paused; click to resume'}>
+            {live ? '● Syncing every 4 s' : '‖ Sync paused'}
+          </Chip>
+          <SourcePill draftId={id} sync={state.sync} />
+          {syncNote && <span className="ds-note">{syncNote}</span>}
+          {desynced && (
+            <span title="ESPN has more picks than this board has mirrored: a pick failed to sync. Check the real draft board and reconnect if this doesn't clear on its own.">
+              <Chip tone="bad">⚠ Out of sync with ESPN</Chip>
+            </span>
+          )}
+          {err && <span className="text-[11px] text-[var(--c-red)]">{err}</span>}
+        </>} />
 
       {/* ------------------------------------------------------ clock strip */}
-      <div className={`card p-4 mb-4 ${myTurn ? 'ring-2 ring-emerald-400 bg-emerald-50/40' : ''}`}>
+      <div className={`ds-card p-4 mb-4 ${myTurn ? 'ring-2 ring-emerald-400 bg-emerald-50/40' : ''}`}>
         {clock.complete ? (
           <div className="font-bold text-lg">Draft complete — {state.my_team.picks.length} picks on your roster.</div>
         ) : myTurn ? (
           <div className="flex items-center gap-4 flex-wrap">
             <span className="text-xl font-extrabold text-emerald-700">YOU'RE ON THE CLOCK</span>
-            <span className="text-sm text-slate-600">Pick {clock.pick_number} · Round {clock.round} · {d.pick_seconds}s</span>
+            <span className="text-sm text-[var(--c-ink2)]">Pick {clock.pick_number} · Round {clock.round} · {d.pick_seconds}s</span>
             {pickPlayer && (
               <span className="ml-auto flex items-center gap-2 text-sm">
-                <span className="text-slate-500">Claude says</span>
+                <span className="text-[var(--c-muted)]">Claude says</span>
                 <Face p={pickPlayer} size={28} />
                 <b>{pickPlayer.name}</b>
               </span>
@@ -466,14 +466,14 @@ function Room({ id }: { id: string }) {
           </div>
         ) : (
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-slate-600">On the clock:</span>
+            <span className="text-sm text-[var(--c-ink2)]">On the clock:</span>
             <span className="font-bold">{slotTeam(clock.slot)}</span>
-            <span className="text-sm text-slate-500">pick {clock.pick_number} · round {clock.round}</span>
+            <span className="text-sm text-[var(--c-muted)]">pick {clock.pick_number} · round {clock.round}</span>
             <span className="ml-auto text-sm">
               <b className="text-sky-700">{until}</b> pick{until === 1 ? '' : 's'} until you're up
-              {until > 0 && d.pick_seconds && <span className="text-slate-500"> (~{Math.max(1, Math.round(until * d.pick_seconds / 60))} min)</span>}
+              {until > 0 && d.pick_seconds && <span className="text-[var(--c-muted)]"> (~{Math.max(1, Math.round(until * d.pick_seconds / 60))} min)</span>}
               {clock.my_upcoming_picks?.length > 1 &&
-                <span className="text-slate-500"> · yours: {clock.my_upcoming_picks.slice(0, 3).join(', ')}</span>}
+                <span className="text-[var(--c-muted)]"> · yours: {clock.my_upcoming_picks.slice(0, 3).join(', ')}</span>}
             </span>
           </div>
         )}
@@ -485,15 +485,15 @@ function Room({ id }: { id: string }) {
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[1.5fr_1fr]">
         <div className="min-w-0 space-y-4">
           {/* ------------------------------------------------ AI advice card */}
-          <div className="card p-4">
+          <div className="ds-card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <h2 className="font-bold text-sm">Claude's call</h2>
-              {adviceBusy && <span className="text-[11px] text-slate-400">thinking…</span>}
-              <button onClick={refreshAdvice} disabled={adviceBusy}
-                className="ml-auto text-[11px] text-sky-700 hover:underline disabled:opacity-40">re-ask</button>
+              <h2 className="ds-h">Claude's call</h2>
+              {adviceBusy && <span className="text-[11px] text-[var(--c-muted)]">thinking…</span>}
+              <Button size="sm" variant="quiet" className="ml-auto" onClick={refreshAdvice} disabled={adviceBusy}
+                title={adviceBusy ? 'Already asking' : 'Ask again with the board as it is now'}>Ask again</Button>
             </div>
             {!advice ? (
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-[var(--c-muted)]">
                 {adviceBusy ? 'Reading the board…' : 'Advice appears as your pick comes up — or hit re-ask now.'}
               </p>
             ) : (
@@ -504,7 +504,7 @@ function Room({ id }: { id: string }) {
                     <div className="flex items-center gap-2">
                       {pickPlayer && <Pos pos={pickPlayer.position} />}
                       <span className="text-xl font-extrabold">{advice.pick}</span>
-                      {pickPlayer?.team_abbr && <span className="text-xs text-slate-500">{pickPlayer.team_abbr}</span>}
+                      {pickPlayer?.team_abbr && <span className="text-xs text-[var(--c-muted)]">{pickPlayer.team_abbr}</span>}
                       {/* Sniped between the advice and the clock: say so, loudly, rather than
                           leave a name on screen that can no longer be drafted. */}
                       {!pickPlayer && (
@@ -513,19 +513,19 @@ function Room({ id }: { id: string }) {
                         </span>
                       )}
                       {pickPlayer?.projected_points != null && (
-                        <span className="text-xs font-bold text-slate-600 tabular-nums">{Math.round(pickPlayer.projected_points)} pts</span>
+                        <span className="text-xs font-bold text-[var(--c-ink2)] tabular-nums">{Math.round(pickPlayer.projected_points)} pts</span>
                       )}
                     </div>
                     {/* The stat-rooted reason first — "1,200+ rec yds three years running" —
                         then Claude's prose. Without career data the prose leads as before. */}
                     {pickHeadline && (
-                      <p className="text-sm font-bold text-slate-900 mt-1 tabular-nums">{pickHeadline}</p>
+                      <p className="text-sm font-bold text-[var(--c-ink)] mt-1 tabular-nums">{pickHeadline}</p>
                     )}
-                    <p className="text-sm text-slate-700 mt-1">{advice.why}</p>
+                    <p className="text-sm text-[var(--c-ink2)] mt-1">{advice.why}</p>
                     {(() => {
                       const pl = (advice.players ?? []).find((p: any) => p.name === advice.pick);
                       return pl?.status ? (
-                        <span className={`inline-block mt-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                        <span className={`inline-block mt-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-[var(--c-soft)] text-[var(--c-ink2)]'}`}>
                           {pl.status}
                         </span>
                       ) : null;
@@ -536,8 +536,8 @@ function Room({ id }: { id: string }) {
                 {/* The evidence: one row per season, the position's stats that matter,
                     streak chips, and this year's p20–p80. Absent career → nothing here. */}
                 {(pickEvidence.career || pickEvidence.preseason) && (
-                  <div className="rounded-lg border border-slate-200 bg-white p-2.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">The evidence</div>
+                  <div className="rounded-lg border border-[var(--c-line)] bg-[var(--c-ds-card)] p-2.5">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--c-muted)] mb-1.5">The evidence</div>
                     <EvidenceTable career={pickEvidence.career} preseason={pickEvidence.preseason} position={pickPlayer?.position} />
                   </div>
                 )}
@@ -546,14 +546,14 @@ function Room({ id }: { id: string }) {
                   const pl = (advice.players ?? []).find((p: any) => p.name === advice.pick);
                   return pl ? (
                     <div className="grid gap-1 text-xs">
-                      <p><span className="font-semibold text-good">Pros. </span><span className="text-slate-700">{pl.pros}</span></p>
-                      <p><span className="font-semibold text-crit">Cons. </span><span className="text-slate-700">{pl.cons}</span></p>
-                      {pl.camp && <p><span className="font-semibold text-slate-500">Camp. </span><span className="text-slate-600">{pl.camp}</span></p>}
+                      <p><span className="font-semibold text-good">Pros. </span><span className="text-[var(--c-ink2)]">{pl.pros}</span></p>
+                      <p><span className="font-semibold text-crit">Cons. </span><span className="text-[var(--c-ink2)]">{pl.cons}</span></p>
+                      {pl.camp && <p><span className="font-semibold text-[var(--c-muted)]">Camp. </span><span className="text-[var(--c-ink2)]">{pl.camp}</span></p>}
                     </div>
                   ) : null;
                 })()}
 
-                <div className="grid gap-1 text-xs text-slate-600 pt-1 border-t border-slate-100">
+                <div className="grid gap-1 text-xs text-[var(--c-ink2)] pt-1 border-t border-[var(--c-line)]">
                   <div><span className="font-semibold">Next few picks: </span>{advice.position_priority}</div>
                   <div><span className="font-semibold">At your next turn: </span>{advice.next_turn_outlook}</div>
                 </div>
@@ -563,10 +563,10 @@ function Room({ id }: { id: string }) {
 
           {/* ------------------------------------------------ the other options */}
           {otherOptions.length > 0 && (
-            <div className="card p-4">
-              <h2 className="font-bold text-sm mb-3">
+            <div className="ds-card p-4">
+              <h2 className="ds-h mb-3">
                 The other options
-                <span className="sm:hidden ml-2 text-[10px] font-normal text-slate-400">swipe →</span>
+                <span className="sm:hidden ml-2 text-[10px] font-normal text-[var(--c-muted)]">swipe →</span>
               </h2>
               {/* Below sm these become a swipeable rail instead of a tall stack:
                   on a phone the vertical stack pushes "Take one of these" a full
@@ -582,21 +582,21 @@ function Room({ id }: { id: string }) {
                   const series = pprSeries(ev.career, 3);
                   const seasons = (ev.career?.seasons ?? []).slice(0, 3).map((s: any) => s.season).reverse();
                   return (
-                    <div key={pl.name} className={`rounded-lg border p-2.5 min-w-0 basis-[85%] shrink-0 snap-start sm:basis-auto sm:shrink ${VERDICT_TINT[pl.verdict] ?? 'bg-white border-slate-200'}`}>
+                    <div key={pl.name} className={`rounded-lg border p-2.5 min-w-0 basis-[85%] shrink-0 snap-start sm:basis-auto sm:shrink ${VERDICT_TINT[pl.verdict] ?? 'bg-[var(--c-ds-card)] border-[var(--c-line)]'}`}>
                       <div className="flex items-center gap-2">
                         <Face p={bp ?? { name: pl.name }} size={32} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 min-w-0">
                             {bp?.position && <Pos pos={bp.position} />}
                             <span className="font-semibold text-sm truncate">{pl.name}</span>
-                            {bp?.team_abbr && <span className="text-[11px] text-slate-500">{bp.team_abbr}</span>}
+                            {bp?.team_abbr && <span className="text-[11px] text-[var(--c-muted)]">{bp.team_abbr}</span>}
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${pl.verdict === 'take' ? 'bg-good-tint text-good border-good' : pl.verdict === 'let him go' ? 'bg-crit-tint text-crit border-crit' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${pl.verdict === 'take' ? 'bg-good-tint text-good border-good' : pl.verdict === 'let him go' ? 'bg-crit-tint text-crit border-crit' : 'bg-[var(--c-soft)] text-[var(--c-ink2)] border-[var(--c-line)]'}`}>
                               {pl.verdict}
                             </span>
                             {pl.status && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-slate-100 text-slate-600'}`}>{pl.status}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-[var(--c-soft)] text-[var(--c-ink2)]'}`}>{pl.status}</span>
                             )}
                           </div>
                         </div>
@@ -605,13 +605,13 @@ function Room({ id }: { id: string }) {
                           {series.length > 0 && <SparkBar values={series} labels={seasons} className="justify-end mt-1" />}
                         </div>
                       </div>
-                      {headline && <p className="text-xs font-semibold text-slate-800 mt-1.5 tabular-nums">{headline}</p>}
+                      {headline && <p className="text-xs font-semibold text-[var(--c-ink)] mt-1.5 tabular-nums">{headline}</p>}
                       {(() => {
                         const band = bandFor(ev.preseason) ?? bandFor(bp);
                         return band && bandMax > 0 ? (
                           <div className="mt-1.5">
                             <RangeBar low={band.p20} high={band.p80} mid={band.points} max={bandMax} />
-                            <div className="text-[10px] text-slate-500 tabular-nums mt-0.5">
+                            <div className="text-[10px] text-[var(--c-muted)] tabular-nums mt-0.5">
                               {Math.round(band.p20)}–{Math.round(band.p80)} pts p20–p80
                             </div>
                           </div>
@@ -621,9 +621,9 @@ function Room({ id }: { id: string }) {
                       <details className="mt-1.5">
                         <summary className="text-[11px] text-sky-700 cursor-pointer list-none hover:underline">pros &amp; cons</summary>
                         <div className="mt-1 space-y-1 text-xs">
-                          <p><span className="font-semibold text-good">Pros. </span><span className="text-slate-700">{pl.pros}</span></p>
-                          <p><span className="font-semibold text-crit">Cons. </span><span className="text-slate-700">{pl.cons}</span></p>
-                          {pl.camp && <p><span className="font-semibold text-slate-500">Camp. </span><span className="text-slate-600">{pl.camp}</span></p>}
+                          <p><span className="font-semibold text-good">Pros. </span><span className="text-[var(--c-ink2)]">{pl.pros}</span></p>
+                          <p><span className="font-semibold text-crit">Cons. </span><span className="text-[var(--c-ink2)]">{pl.cons}</span></p>
+                          {pl.camp && <p><span className="font-semibold text-[var(--c-muted)]">Camp. </span><span className="text-[var(--c-ink2)]">{pl.camp}</span></p>}
                         </div>
                       </details>
                     </div>
@@ -635,14 +635,14 @@ function Room({ id }: { id: string }) {
 
           {/* ------------------------------------------- lookahead simulation */}
           {(sim?.candidates?.length || simBusy) && (
-            <div className="card p-4">
+            <div className="ds-card p-4">
               <div className="flex items-center gap-2 mb-2">
-                <h2 className="font-bold text-sm">If you take him now…</h2>
+                <h2 className="ds-h">If you take him now…</h2>
                 {/* The caption has to say WHICH randomness the numbers below
                     contain. Until 2026-09-07 the only random thing was the
                     draft order, so "played out 200×" read as a claim about
                     outcomes that the simulation was not making. */}
-                <span className="text-[11px] text-slate-400">{simBusy ? 'simulating the rest of the draft…'
+                <span className="text-[11px] text-[var(--c-muted)]">{simBusy ? 'simulating the rest of the draft…'
                   : sim?.outcome_draws
                     ? `rest of the draft played out ${sim?.sims ?? 200}× per pick, each season drawn from the p20/p80 band`
                     : `rest of the draft played out ${sim?.sims ?? 200}× per pick`}</span>
@@ -660,10 +660,10 @@ function Room({ id }: { id: string }) {
                       && Math.abs(c.delta) < 2 * c.delta_se;
                     const leader = c.delta === 0 || tie;
                     return (
-                    <div key={c.player_id} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${leader ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                    <div key={c.player_id} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${leader ? 'border-emerald-300 bg-emerald-50' : 'border-[var(--c-line)] bg-[var(--c-ds-card)]'}`}>
                       <Pos pos={c.position} />
                       <span className="font-semibold text-sm truncate">{c.name}</span>
-                      <span className="text-[11px] text-slate-500">{c.team_abbr}</span>
+                      <span className="text-[11px] text-[var(--c-muted)]">{c.team_abbr}</span>
                       <span className="ml-auto text-right shrink-0">
                         {c.expected != null ? <>
                           {/* expected_paired, not expected: candidates are
@@ -671,8 +671,8 @@ function Room({ id }: { id: string }) {
                               are taken over differently-selected sets of worlds
                               and can rank against the like-for-like comparison
                               this list is ordered by. */}
-                          <span className="block text-sm font-bold">{Math.round(c.expected_paired ?? c.expected)}<span className="text-[10px] font-normal text-slate-400"> pts lineup</span></span>
-                          <span className={`block text-[10px] font-semibold ${leader ? 'text-emerald-700' : 'text-slate-400'}`}
+                          <span className="block text-sm font-bold">{Math.round(c.expected_paired ?? c.expected)}<span className="text-[10px] font-normal text-[var(--c-muted)]"> pts lineup</span></span>
+                          <span className={`block text-[10px] font-semibold ${leader ? 'text-emerald-700' : 'text-[var(--c-muted)]'}`}
                             title={c.delta_se != null ? `± ${c.delta_se} simulation error on this gap` : undefined}>
                             {c.delta === 0 ? 'best finish' : tie ? 'too close to call' : `${c.delta} vs best`}</span>
                           {/* Only shown when the spread is a real one: the
@@ -680,7 +680,7 @@ function Room({ id }: { id: string }) {
                               range is hundreds wide, which is the honest shape
                               of the decision and should not be hidden. */}
                           {sim?.outcome_draws && c.p10 != null && (
-                            <span className="block text-[10px] text-slate-400 tabular-nums" title="10th–90th percentile of the finished roster across the simulated seasons">
+                            <span className="block text-[10px] text-[var(--c-muted)] tabular-nums" title="10th–90th percentile of the finished roster across the simulated seasons">
                               {Math.round(c.p10)}–{Math.round(c.p90)}
                             </span>
                           )}
@@ -690,7 +690,7 @@ function Room({ id }: { id: string }) {
                     );
                   })}
                   {sim.candidates[0]?.likely_next?.length > 0 && (
-                    <div className="text-[11px] text-slate-500 pt-1">
+                    <div className="text-[11px] text-[var(--c-muted)] pt-1">
                       After that, usually still there at your next turn: {sim.candidates[0].likely_next.map((n: any) => `${n.name} (${n.pct}%)`).join(', ')}
                     </div>
                   )}
@@ -700,59 +700,56 @@ function Room({ id }: { id: string }) {
           )}
 
           {/* -------------------------------------------------- best available */}
-          <div className="card p-4">
+          <div className="ds-card p-4">
             {/* Sticky inside the card: this list is the longest thing on the page
                 and its position filters scroll out of reach exactly when you are
                 scanning down it. -m/p offsets keep the pinned strip flush with
                 the card edge instead of showing a sliver of list beside it. */}
-            <div className="sticky top-0 z-20 bg-white -mx-4 -mt-4 px-4 pt-4 pb-2 mb-1 rounded-t-xl
+            <div className="sticky top-0 z-20 bg-[var(--c-ds-card)] -mx-4 -mt-4 px-4 pt-4 pb-2 mb-1 rounded-t-xl
                             flex items-center gap-2 flex-wrap">
-              <h2 className="font-bold text-sm">Take one of these</h2>
+              <h2 className="ds-h">Take one of these</h2>
               <div className="ml-auto flex gap-1">
                 {['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map(p => (
-                  <button key={p} onClick={() => setFilter(p)}
-                    className={`text-[11px] px-2 py-0.5 rounded-full border ${filter === p ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600'}`}>
-                    {p}
-                  </button>
+                  <Chip key={p} on={filter === p} onClick={() => setFilter(p)}>{p === 'ALL' ? 'All' : p}</Chip>
                 ))}
               </div>
             </div>
             {state?.market_unavailable && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm leading-6 text-slate-700">
-                <b className="text-slate-900">No rankings — the draft market is empty.</b>{' '}
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm leading-6 text-[var(--c-ink2)]">
+                <b className="text-[var(--c-ink)]">No rankings — the draft market is empty.</b>{' '}
                 {state.market_unavailable.detail}
                 {state.market_unavailable.missing?.length > 0 && (
-                  <span className="block mt-1 text-xs text-slate-500">
+                  <span className="block mt-1 text-xs text-[var(--c-muted)]">
                     Missing: {state.market_unavailable.missing.join('; ')}.
                   </span>
                 )}
                 {state.market_unavailable.fix && (
-                  <span className="block mt-1 text-xs text-slate-500">{state.market_unavailable.fix}</span>
+                  <span className="block mt-1 text-xs text-[var(--c-muted)]">{state.market_unavailable.fix}</span>
                 )}
               </div>
             )}
             <div className="space-y-1.5">
               {targets.map((t: any, i: number) => (
                 <div key={t.player_id}
-                  className={`flex items-center gap-3 p-2 rounded-lg border ${POS_TINT[t.position] ?? 'bg-white border-slate-200'} ${flashTargets.has(t.player_id) ? 'just-updated' : ''}`}>
-                  <span className="text-xs font-bold text-slate-400 w-4 text-center">{i + 1}</span>
+                  className={`flex items-center gap-3 p-2 rounded-lg border ${POS_TINT[t.position] ?? 'bg-[var(--c-ds-card)] border-[var(--c-line)]'} ${flashTargets.has(t.player_id) ? 'just-updated' : ''}`}>
+                  <span className="text-xs font-bold text-[var(--c-muted)] w-4 text-center">{i + 1}</span>
                   <Face p={t} size={44} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <Pos pos={t.position} />
                       <Link to={`/players/${t.player_id}`} className="font-semibold text-sm truncate hover:underline">{t.name}</Link>
-                      <span className="text-[11px] text-slate-500">{t.team_abbr}</span>
+                      <span className="text-[11px] text-[var(--c-muted)]">{t.team_abbr}</span>
                     </div>
                     {(() => {
                       const headline = statHeadline(t.career, t.preseason);
                       return headline
-                        ? <div className="text-[11px] font-semibold text-slate-800 truncate tabular-nums" title={(t.reasons ?? []).join(' · ')}>{headline}</div>
-                        : <div className="text-[11px] text-slate-600 truncate">{(t.reasons ?? []).join(' · ') || 'best value on the board'}</div>;
+                        ? <div className="text-[11px] font-semibold text-[var(--c-ink)] truncate tabular-nums" title={(t.reasons ?? []).join(' · ')}>{headline}</div>
+                        : <div className="text-[11px] text-[var(--c-ink2)] truncate">{(t.reasons ?? []).join(' · ') || 'best value on the board'}</div>;
                     })()}
                   </div>
                   <div className="w-24 sm:w-28 text-right shrink-0 tabular-nums">
                     {t.projected_points != null && (
-                      <div className="text-sm font-bold">{Math.round(t.projected_points)}<span className="text-[10px] font-normal text-slate-400"> pts</span></div>
+                      <div className="text-sm font-bold">{Math.round(t.projected_points)}<span className="text-[10px] font-normal text-[var(--c-muted)]"> pts</span></div>
                     )}
                     {/* The band sits directly under the point projection it
                         qualifies: same column, shared scale across the list, so a
@@ -766,12 +763,12 @@ function Room({ id }: { id: string }) {
                       ) : null;
                     })()}
                     {t.vorp != null && (
-                      <div className={`text-[10px] font-semibold ${t.vorp > 0 ? 'text-emerald-700' : 'text-slate-400'}`} title="Projected points over a replacement-level starter at his position in this league">
+                      <div className={`text-[10px] font-semibold ${t.vorp > 0 ? 'text-emerald-700' : 'text-[var(--c-muted)]'}`} title="Projected points over a replacement-level starter at his position in this league">
                         {t.vorp > 0 ? '+' : ''}{Math.round(t.vorp)} vs repl.
                       </div>
                     )}
                     {t.gone_by_next != null && (
-                      <div className={`text-[10px] font-semibold ${t.gone_by_next > 0.7 ? 'text-rose-600' : 'text-slate-400'}`}>
+                      <div className={`text-[10px] font-semibold ${t.gone_by_next > 0.7 ? 'text-rose-600' : 'text-[var(--c-muted)]'}`}>
                         {Math.round(t.gone_by_next * 100)}% gone
                       </div>
                     )}
@@ -785,26 +782,23 @@ function Room({ id }: { id: string }) {
         {/* -------------------------------------------------------- side rail */}
         <div className="space-y-4">
           {/* ---------------------------------------------- my team: lineup */}
-          <div className="card p-4">
+          <div className="ds-card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <h2 className="font-bold text-sm">My team</h2>
-              <span className="text-[11px] text-slate-500">
+              <h2 className="ds-h">My team</h2>
+              <span className="text-[11px] text-[var(--c-muted)]">
                 {state.my_team.picks.length}/{d.rounds} picked
                 {lineup.projected_total ? ` · ${lineup.projected_total} proj pts` : ''}
               </span>
               <div className="ml-auto flex gap-1">
                 {(['lineup', 'order', 'board'] as const).map(t => (
-                  <button key={t} onClick={() => setRosterTab(t)}
-                    className={`text-[10px] px-2 py-0.5 rounded-full border ${rosterTab === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600'}`}>
-                    {t === 'lineup' ? 'Lineup' : t === 'order' ? 'Draft order' : 'Draft board'}
-                  </button>
+                  <Chip key={t} on={rosterTab === t} onClick={() => setRosterTab(t)}>{t === 'lineup' ? 'Lineup' : t === 'order' ? 'Draft order' : 'Draft board'}</Chip>
                 ))}
               </div>
             </div>
 
             {needs.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-3">
-                <span className="text-[11px] text-slate-500 mr-1">still need:</span>
+                <span className="text-[11px] text-[var(--c-muted)] mr-1">still need:</span>
                 {needs.map(([pos, n]) => (
                   <span key={pos} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
                     {pos}{(n as number) > 1 ? ` ×${n}` : ''}
@@ -816,14 +810,14 @@ function Room({ id }: { id: string }) {
             {rosterTab === 'lineup' ? (
               <div className="space-y-3">
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--c-muted)] mb-1.5">
                     Starters · {lineup.filled}/{lineup.slots_total}
                   </div>
                   <div className="space-y-1">
                     {lineup.starters.map((s: any, i: number) => (
                       <div key={`${s.slot}-${i}`}
-                        className={`flex items-center gap-2 p-1.5 rounded-lg border ${s.player ? 'bg-white border-slate-200' : 'bg-slate-50 border-dashed border-slate-200'}`}>
-                        <span className={`text-[10px] font-bold w-11 text-center py-0.5 rounded border ${POS_COLOR[s.slot.replace(/\d/g, '')] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        className={`flex items-center gap-2 p-1.5 rounded-lg border ${s.player ? 'bg-[var(--c-ds-card)] border-[var(--c-line)]' : 'bg-[var(--c-soft)] border-dashed border-[var(--c-line)]'}`}>
+                        <span className={`text-[10px] font-bold w-11 text-center py-0.5 rounded border ${POS_COLOR[s.slot.replace(/\d/g, '')] ?? 'bg-[var(--c-soft)] text-[var(--c-ink2)] border-[var(--c-line)]'}`}>
                           {s.slot}
                         </span>
                         {s.player ? (
@@ -833,17 +827,17 @@ function Room({ id }: { id: string }) {
                               <Link to={`/players/${s.player.player_id}`} className="block text-xs font-semibold truncate hover:underline">
                                 {s.player.name}
                               </Link>
-                              <span className="text-[10px] text-slate-500">
+                              <span className="text-[10px] text-[var(--c-muted)]">
                                 {s.player.team_abbr}
                                 {s.player.bye_week ? ` · bye ${s.player.bye_week}` : ''}
                               </span>
                             </div>
                             {s.player.projected_points != null && (
-                              <span className="text-xs font-bold text-slate-600 shrink-0">{Math.round(s.player.projected_points)}</span>
+                              <span className="text-xs font-bold text-[var(--c-ink2)] shrink-0">{Math.round(s.player.projected_points)}</span>
                             )}
                           </>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">empty</span>
+                          <span className="text-xs text-[var(--c-muted)] italic">empty</span>
                         )}
                       </div>
                     ))}
@@ -851,27 +845,27 @@ function Room({ id }: { id: string }) {
                 </div>
 
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--c-muted)] mb-1.5">
                     Bench · {lineup.bench.length}
                   </div>
                   <div className="space-y-1">
                     {lineup.bench.map((p: any) => (
-                      <div key={p.player_id} className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-50/70 border border-slate-100">
+                      <div key={p.player_id} className="flex items-center gap-2 p-1.5 rounded-lg bg-[var(--c-soft)]/70 border border-[var(--c-line)]">
                         <span className="w-11 text-center"><Pos pos={p.position} /></span>
                         <Face p={p} size={28} />
                         <div className="min-w-0 flex-1">
                           <Link to={`/players/${p.player_id}`} className="block text-xs font-medium truncate hover:underline">{p.name}</Link>
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-[10px] text-[var(--c-muted)]">
                             R{Math.ceil(p.pick_number / d.team_count)} · {p.team_abbr}
                             {p.bye_week ? ` · bye ${p.bye_week}` : ''}
                           </span>
                         </div>
                         {p.projected_points != null && (
-                          <span className="text-xs font-bold text-slate-500 shrink-0">{Math.round(p.projected_points)}</span>
+                          <span className="text-xs font-bold text-[var(--c-muted)] shrink-0">{Math.round(p.projected_points)}</span>
                         )}
                       </div>
                     ))}
-                    {!lineup.bench.length && <p className="text-xs text-slate-400">Nobody on the bench yet.</p>}
+                    {!lineup.bench.length && <p className="text-xs text-[var(--c-muted)]">Nobody on the bench yet.</p>}
                   </div>
                 </div>
               </div>
@@ -881,24 +875,24 @@ function Room({ id }: { id: string }) {
             ) : (
               <div className="space-y-1">
                 {state.my_team.picks.map((p: any) => (
-                  <div key={p.pick_number} className="flex items-center gap-2 p-1.5 rounded-lg border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 w-11 text-center">
+                  <div key={p.pick_number} className="flex items-center gap-2 p-1.5 rounded-lg border border-[var(--c-line)]">
+                    <span className="text-[10px] font-bold text-[var(--c-muted)] w-11 text-center">
                       R{Math.ceil(p.pick_number / d.team_count)}·{p.pick_number}
                     </span>
                     <Face p={p} size={28} />
                     <Pos pos={p.position} />
                     <span className="text-xs font-medium truncate flex-1">{p.name}</span>
-                    <span className="text-[10px] text-slate-400">{p.team_abbr}</span>
+                    <span className="text-[10px] text-[var(--c-muted)]">{p.team_abbr}</span>
                   </div>
                 ))}
-                {!state.my_team.picks.length && <p className="text-xs text-slate-400">No picks yet.</p>}
+                {!state.my_team.picks.length && <p className="text-xs text-[var(--c-muted)]">No picks yet.</p>}
               </div>
             )}
           </div>
 
           {/* ------------------------------------------- positional scarcity */}
-          <div className="card p-4">
-            <h2 className="font-bold text-sm mb-2">What waiting costs you</h2>
+          <div className="ds-card p-4">
+            <h2 className="ds-h mb-2">What waiting costs you</h2>
             <div className="space-y-2">
               {['RB', 'WR', 'TE', 'QB'].map(pos => {
                 const p = state.positions[pos];
@@ -910,12 +904,12 @@ function Room({ id }: { id: string }) {
                     {best && <Face p={best} size={30} />}
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-medium truncate">{p.best}</div>
-                      <div className="text-[10px] text-slate-500 truncate">
-                        falls to <b className="font-medium text-slate-600">{p.fallback ?? '—'}</b> by your next turn
+                      <div className="text-[10px] text-[var(--c-muted)] truncate">
+                        falls to <b className="font-medium text-[var(--c-ink2)]">{p.fallback ?? '—'}</b> by your next turn
                       </div>
                     </div>
                     {p.cost_of_waiting != null && p.cost_of_waiting > 0 && (
-                      <span className={`text-xs font-bold shrink-0 ${p.cost_of_waiting > 40 ? 'text-rose-600' : 'text-slate-500'}`}>
+                      <span className={`text-xs font-bold shrink-0 ${p.cost_of_waiting > 40 ? 'text-rose-600' : 'text-[var(--c-muted)]'}`}>
                         −{Math.round(p.cost_of_waiting)}
                       </span>
                     )}
@@ -927,10 +921,10 @@ function Room({ id }: { id: string }) {
 
           {/* ------------------------------------------------------- runs */}
           {state.runs?.length > 0 && (
-            <div className="card p-4">
-              <h2 className="font-bold text-sm mb-2">Run in progress</h2>
+            <div className="ds-card p-4">
+              <h2 className="ds-h mb-2">Run in progress</h2>
               {state.runs.map((r: any) => (
-                <p key={r.position} className="text-xs text-slate-700">
+                <p key={r.position} className="text-xs text-[var(--c-ink2)]">
                   <b>{r.taken} {r.position}s</b> in the last {r.of} picks — the tier below is going faster than ADP says.
                 </p>
               ))}
@@ -938,22 +932,22 @@ function Room({ id }: { id: string }) {
           )}
 
           {/* -------------------------------------------------- pick feed */}
-          <div className="card p-4">
-            <h2 className="font-bold text-sm mb-2">Off the board</h2>
+          <div className="ds-card p-4">
+            <h2 className="ds-h mb-2">Off the board</h2>
             <div className="space-y-1">
               {state.recent_picks.map((p: any) => (
                 <div key={p.pick_number}
                   className={`flex items-center gap-2 rounded px-1 -mx-1 ${p.pick_number === flashPick ? 'just-updated' : ''}`}>
-                  <span className="text-[10px] font-bold text-slate-400 w-8">
+                  <span className="text-[10px] font-bold text-[var(--c-muted)] w-8">
                     {Math.ceil(p.pick_number / d.team_count)}.{String(((p.pick_number - 1) % d.team_count) + 1).padStart(2, '0')}
                   </span>
                   <Face p={p} size={26} />
                   <Pos pos={p.position} />
                   <span className="text-xs truncate flex-1">{p.name}</span>
-                  <span className="text-[10px] text-slate-400 truncate max-w-[6rem]">{slotTeam(p.team_slot)}</span>
+                  <span className="text-[10px] text-[var(--c-muted)] truncate max-w-[6rem]">{slotTeam(p.team_slot)}</span>
                 </div>
               ))}
-              {!state.recent_picks.length && <p className="text-xs text-slate-400">Draft hasn't started.</p>}
+              {!state.recent_picks.length && <p className="text-xs text-[var(--c-muted)]">Draft hasn't started.</p>}
             </div>
           </div>
         </div>

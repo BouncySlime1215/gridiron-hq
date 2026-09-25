@@ -67,6 +67,22 @@ Fixtures only (made-up players). No real data.
 | F8 | Shadow | flag on, no served step (next move, alternatives, itinerary, targets) is a claim; the best claim path is reported as shadow | a served claim |
 | F9 | RULE-FUZZ | the claims sweep finds 0 violations of every rule, including the three new ones, and is not vacuous (claim paths reported in some leagues); the oracle catches each new rule on a hand-built result | any violation, or a vacuous sweep |
 
-## Results
+## Results (GREEN, after the pre-registration above)
 
-Filled in after GREEN.
+RED `ab9b9431` (rebased; first written as `a0321475`): 13 of 20 claim tests failed on main's code
+(the end-of-path claim search, no `claimRule` / `pickDrop` / `strandedBranch`). GREEN `34ef326b`, then
+`gets-floor.js#isFlipPieceClaim` (the one flip-piece rule, shared with FLIP-STRANDED #432 at the
+coordinator's request) and the `premium_gate` count / `best_stranded` report.
+
+Test-only changes after RED, pass bars unchanged: F2 gained the `isFlipPieceClaim` cases; F6's
+"hurt" case also checks the reported `best_stranded`. `confirm.js#confirmVerdict` fails exactly when
+the confirm-dice expected is <= 0, so a failed verdict is counted as `claim_stranded` (first coded as
+`confirm_failed`, which now means "no confirm dice").
+
+| # | Result |
+|---|---|
+| F1-F8 | pass (`test/campaign-flip-claims.test.js` 10/10, `test/campaign-search-wide.test.js` 18/18) |
+| F9 | pass: RULE-FUZZ 44/44 (was 39). Claims sweep, seeds 1..40, every mode: 6,307 claim paths built, 134 / 204 / 397 reported (safe / balanced / all-in) in 35 / 36 / 40 leagues, 0 violations of any rule |
+
+League 4 (snapshot copy, live env + `GRIDIRON_SEARCH_WIDE=1`): see the PR. 57 flip claims built,
+22 scored, 0 kept (21 `claim_stranded`, 1 `premium_gate`); the next move is unchanged.

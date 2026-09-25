@@ -63,6 +63,14 @@ export function blendWeek(p, season, week, { lift = vegasLift } = {}) {
   return { value: r2(base * (vegas.applied ? vegas.multiplier : 1)), base, vegas };
 }
 
+/**
+ * PROJ-ESPN: the lift for a served frozen ESPN number. ESPN's projection already prices the
+ * game, so blend.week IS the ESPN number (the served weekly projection); a betting-line lift on
+ * top would make the served number something ESPN never said.
+ */
+export const ESPN_NO_LIFT = () => ({ multiplier: 1, line: null, applied: false,
+  reason: 'served weekly projection is frozen ESPN; no betting-line lift on top' });
+
 /** The trade horizon, derived from blend.week: never a second this-week number. */
 export const horizonPpg = (weekPpg, rosPpg) =>
   CURRENT_WEEK_SHARE * weekPpg + (1 - CURRENT_WEEK_SHARE) * rosPpg;

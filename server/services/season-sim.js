@@ -35,6 +35,7 @@ import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
+import { rbTitleMode, conditionalTitle, meanInterval } from './rb-title.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -621,7 +622,7 @@ export function simulateSeason(lg, {
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
   basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag(),
-  horizonFlag = availHorizonFlag() }) {
+  horizonFlag = availHorizonFlag(), rbTitle = rbTitleMode() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -706,7 +707,9 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     kdstFields: kdst.fields,
     // AVAIL-HORIZON-2 change B: 0 = no team-mean term.
     teamMeanSd: teamMeanSd(horizonFlag),
-    teamMeanFields: horizonFlag.on ? { team_mean_sd: TEAM_MEAN_SD, ...availHorizonPreviewFields(horizonFlag) } : null
+    teamMeanFields: horizonFlag.on ? { team_mean_sd: TEAM_MEAN_SD, ...availHorizonPreviewFields(horizonFlag) } : null,
+    // RB-TITLE: 'off' | 'shadow' | 'on' (rb-title.js#rbTitleMode).
+    rbTitle
   };
 }
 
@@ -801,6 +804,9 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
   const perRun = keepRuns
     ? new Map(ids.map(id => [id, { title: new Uint8Array(runs), playoffs: new Uint8Array(runs) }]))
     : null;
+  // RB-TITLE: each run's title as the probability of winning its bracket (rb-title.js).
+  const rbMode = prep.rbTitle ?? rbTitleMode();
+  const rb = rbMode === 'off' ? null : rbTitleState(prep, teams, runs, rawPointsFor, perRun);
 
   for (let run = 0; run < runs; run++) {
     const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
@@ -838,18 +844,23 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
       stats.get(bracket.champion).title++;
       if (perRun) perRun.get(bracket.champion).title[run] = 1;
     }
+    if (rb) rb.add(run, field, sd > 0 ? teamOffsets(prep.world, ids, run, sd) : null);
   }
 
-  const out = [...stats.values()].map(s => ({
-    roster_id: s.roster_id, owner: s.owner,
-    playoff_odds: +(s.playoffs / runs).toFixed(4),
-    playoff_odds_95: binomial95(s.playoffs, runs),
-    title_odds: +(s.title / runs).toFixed(4),
-    title_odds_95: binomial95(s.title, runs),
-    finals_odds: +(s.finals / runs).toFixed(4),
-    expected_wins: +(s.wins / runs).toFixed(2),
-    expected_points: +(s.points / runs).toFixed(1)
-  })).sort((a, b) => b.title_odds - a.title_odds);
+  const out = [...stats.values()].map(s => {
+    const c = rb ? rb.result(s.roster_id) : null;
+    return {
+      roster_id: s.roster_id, owner: s.owner,
+      playoff_odds: +(s.playoffs / runs).toFixed(4),
+      playoff_odds_95: binomial95(s.playoffs, runs),
+      title_odds: +((rbMode === 'on' ? c.mean : s.title / runs)).toFixed(4),
+      title_odds_95: rbMode === 'on' ? c.ci : binomial95(s.title, runs),
+      ...(rbMode === 'shadow' ? { title_odds_rb: +c.mean.toFixed(4), title_odds_rb_se: +c.se.toFixed(4) } : {}),
+      finals_odds: +(s.finals / runs).toFixed(4),
+      expected_wins: +(s.wins / runs).toFixed(2),
+      expected_points: +(s.points / runs).toFixed(1)
+    };
+  }).sort((a, b) => b.title_odds - a.title_odds);
 
   return {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
@@ -857,7 +868,10 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     reseed: rules.schedule.reseed, division_winners_first: rules.seeding.division_winners_first,
     median_game: rules.median_game, rules_unknown: rules.unknown,
     standings_carried_in: fromWeek > 1,
-    odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
+    odds_interval: rbMode === 'on'
+      ? 'run-to-run Monte Carlo error of the conditional title estimate (normal interval); excludes the shared error of the fixed per-player outcome pools'
+      : 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
+    ...(rb ? { rb_title: rbMode, title_estimator: rbMode === 'on' ? 'conditional' : 'indicator' } : {}),
     teams: out,
     ...(prep.basisFields ?? {}),
     ...(prep.kdstFields ?? {}),
@@ -866,6 +880,40 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),
     ...(perRun ? { per_run: perRun } : {})
+  };
+}
+
+/**
+ * RB-TITLE state for one playSeasons call: every team's raw (offset-free) bracket-week
+ * points in every run, read once run by run (simulateSeason caches draws per run), then
+ * each run's conditional title probabilities summed. With 'on' and `perRun`, the
+ * per-run title array holds those probabilities (the paired SE reads them); with
+ * 'shadow' they sit beside it as `title_rb`.
+ */
+function rbTitleState(prep, teams, runs, rawPointsFor, perRun) {
+  const roundWeeks = prep.rules.schedule.playoff_weeks;
+  const weeks = [...new Set(roundWeeks.flat())];
+  const raw = new Map(teams.map(t => [t.roster_id, new Map(weeks.map(w => [w, new Float64Array(runs)]))]));
+  for (let k = 0; k < runs; k++) {
+    for (const w of weeks) for (const t of teams) raw.get(t.roster_id).get(w)[k] = rawPointsFor(t, k, w);
+  }
+  const ids = teams.map(t => t.roster_id);
+  const ct = conditionalTitle({
+    ids, runs, roundWeeks, reseed: prep.rules.schedule.reseed, rawPoints: (id, w, k) => raw.get(id).get(w)[k]
+  });
+  const sum = new Map(ids.map(id => [id, 0])), sq = new Map(ids.map(id => [id, 0]));
+  const served = (prep.rbTitle ?? rbTitleMode()) === 'on';
+  const arrays = perRun ? new Map(ids.map(id => [id, new Float64Array(runs)])) : null;
+  if (perRun) for (const id of ids) perRun.get(id)[served ? 'title' : 'title_rb'] = arrays.get(id);
+  return {
+    add(run, field, offsets) {
+      for (const [id, p] of ct.probs(field, offsets)) {
+        if (!p) continue;
+        sum.set(id, sum.get(id) + p); sq.set(id, sq.get(id) + p * p);
+        if (arrays) arrays.get(id)[run] = p;
+      }
+    },
+    result: id => meanInterval(sum.get(id), sq.get(id), runs)
   };
 }
 
@@ -961,7 +1009,7 @@ export function tradeImpactWorld(lg, {
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
     scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag),
-    teamMeanSd: teamMeanSd(horizonFlag)
+    teamMeanSd: teamMeanSd(horizonFlag), rbTitle: rbTitleMode()
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -1059,7 +1107,8 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
   if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
     || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed
     || k.basis !== basisKey(rosBasisFlag()) || k.mode !== worldMode()
-    || k.kdst !== kdstKey(simKdstFlag()) || (k.teamMeanSd ?? 0) !== teamMeanSd()) return false;
+    || k.kdst !== kdstKey(simKdstFlag()) || (k.teamMeanSd ?? 0) !== teamMeanSd()
+    || (k.rbTitle ?? 'off') !== rbTitleMode()) return false;
   // The world's copula must hold exactly the players the full runs would: every
   // rostered player plus the ones this deal names. A named player outside it, or
   // an extra free agent the deal does not name, would change his game-mates' draws.
@@ -1157,7 +1206,12 @@ export function tradeImpact(lg, {
       playoff_before: b.playoff_odds, playoff_after: a.playoff_odds,
       playoff_delta, playoff_delta_se,
       playoff_delta_clears_noise: playoff_delta_se != null && Math.abs(playoff_delta) > TRADE_DELTA_NOISE_SE * playoff_delta_se,
-      wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2)
+      wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2),
+      // RB-TITLE shadow: the conditional delta beside the served one, never served.
+      ...(rb.title_rb && ra.title_rb ? {
+        title_delta_rb: +(a.title_odds_rb - b.title_odds_rb).toFixed(4),
+        title_delta_rb_se: pairedSe(rb.title_rb, ra.title_rb)
+      } : {})
     };
   };
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,

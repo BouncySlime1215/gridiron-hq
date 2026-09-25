@@ -71,6 +71,14 @@ test('only useWarRoom.ts reads and only requests.ts writes, each to its one rout
   assert.deepEqual(globalThis.__warRoomPaths, ['/trades/3/war-room', null]);
 });
 
+test('the War Room view reads no profile store (the retired People Board rail took the only people reads)', () => {
+  const src = fs.readFileSync(path.join(REPO, 'server', 'services', 'war-room-view.js'), 'utf8');
+  assert.doesNotMatch(src, /profile_json|negotiation_profiles|manager_notes|openChatDb|buildPeopleBoard|peopleBoardFlag/);
+  for (const f of fs.readdirSync(WARROOM_DIR, { recursive: true }).filter(f => /\.tsx?$/.test(f))) {
+    assert.doesNotMatch(fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8'), /profile_json|manager_notes|people_board/, `${f} reads no profile store`);
+  }
+});
+
 test('no arithmetic on producer values in components (formatters only)', () => {
   for (const f of fs.readdirSync(WARROOM_DIR).filter(x => /\.tsx$/.test(x))) {
     const src = fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8');

@@ -29,7 +29,7 @@ export function Headshot({ src, pos, size = 36 }: { src?: string | null; pos: st
       {src
         ? <img src={src} alt="" className="w-full h-full object-cover"
             onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
-        : <span className="text-[10px] font-black text-slate-400">{pos}</span>}
+        : <span className="text-[10px] font-black text-slate-500">{pos}</span>}
     </div>
   );
 }
@@ -46,11 +46,11 @@ export function Trend({ v, raw, value, trend, className = '' }: {
   if (pct == null && value != null && trend != null && value - trend !== 0) {
     pct = (trend / (value - trend)) * 100;
   }
-  if (pct == null) return <span className={`text-slate-300 ${className}`}>—</span>;
+  if (pct == null) return <span className={`text-slate-500 ${className}`}>—</span>;
   const up = pct > 0.5, down = pct < -0.5;
   return (
     <span title={points != null ? `${points > 0 ? '+' : ''}${Math.round(points)} pts` : undefined}
-      className={`tabular-nums ${up ? 'text-good' : down ? 'text-crit' : 'text-slate-400'} ${className}`}>
+      className={`tabular-nums ${up ? 'text-good' : down ? 'text-crit' : 'text-slate-500'} ${className}`}>
       {up ? '▲' : down ? '▼' : '·'}{Math.abs(pct).toFixed(1)}%
     </span>
   );
@@ -71,6 +71,8 @@ interface RowProps {
   dense?: boolean;
   /** Hide the position chip when space is tight (the headshot ring already encodes it). */
   hidePos?: boolean;
+  /** On a phone, show the position as a small prefix on the name instead of the chip (keeps room for the name). */
+  phonePos?: boolean;
 }
 
 /**
@@ -79,7 +81,7 @@ interface RowProps {
  */
 export default function PlayerRow({
   playerId, rank, name, position, teamAbbr, headshot, tier,
-  right, meta, onClickRow, action, dense, hidePos
+  right, meta, onClickRow, action, dense, hidePos, phonePos
 }: RowProps) {
   const open = usePlayerCard();
   return (
@@ -87,12 +89,12 @@ export default function PlayerRow({
       onClick={onClickRow}
       className={`group flex items-center gap-2 px-2.5 ${dense ? 'py-1.5' : 'py-2'} overflow-hidden
         ${onClickRow ? 'cursor-pointer hover:bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
-      <span className="w-6 shrink-0 text-right text-[11px] font-mono text-slate-400 tabular-nums">{rank}</span>
+      <span className="w-6 shrink-0 text-right text-[11px] font-mono text-slate-500 tabular-nums">{rank}</span>
       {tier != null && (
         <span className="w-1 shrink-0 self-stretch rounded-full" style={{ background: TIER_COLORS[tier] ?? '#cbd5e1' }} title={`Tier ${tier}`} />
       )}
       <Headshot src={headshot} pos={position} size={dense ? 28 : 36} />
-      {!hidePos && <PosBadge pos={position} />}
+      {!hidePos && (phonePos ? <span className="hidden sm:contents"><PosBadge pos={position} /></span> : <PosBadge pos={position} />)}
       {/* name gets every remaining pixel; basis-0 stops flex from reserving content width */}
       <div className="flex-1 basis-0 min-w-0">
         <button
@@ -100,11 +102,12 @@ export default function PlayerRow({
           className="block w-full text-left font-semibold text-slate-800 hover:text-emerald-700 truncate"
           title={name}>
           {hidePos && <span className={`text-[10px] font-black mr-1.5 pos-${position}`}>{position}</span>}
+          {phonePos && !hidePos && <span className={`sm:hidden text-[10px] font-black mr-1.5 pos-${position}`}>{position}</span>}
           {name}
         </button>
-        {meta && <div className="text-[11px] text-slate-400 leading-tight truncate">{meta}</div>}
+        {meta && <div className="text-[11px] text-slate-500 leading-tight truncate">{meta}</div>}
       </div>
-      {teamAbbr && <span className="shrink-0 text-[11px] text-slate-400 font-medium">{teamAbbr}</span>}
+      {teamAbbr && <span className="w-9 shrink-0 text-[11px] text-slate-500 font-medium">{teamAbbr}</span>}
       {right}
       {action}
     </div>

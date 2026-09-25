@@ -88,6 +88,11 @@ export const FANTASY_LIVE_JOBS = [
   // capture window (Tue after waivers, Sat morning, 2 h before each kickoff) it fetches
   // nothing. The loop is the only thing that runs it while SCHEDULER_DISABLED=1.
   'espn_weekly_projection_capture',
+  // E-XGB phase 2: with GRIDIRON_EXGB=1 only (otherwise both return 'skipped' at once). The
+  // forecast follows the capture so it can use the ESPN number frozen in the same window;
+  // the grade scores finished weeks against frozen ESPN and our weekly projection.
+  'exgb_shadow_predict',
+  'exgb_weekly_grade',
   // 2026-09-18 structural relook: both fully configured in scheduler.js already
   // (refreshNflModelGrowth, refreshFfOpportunity) but scheduler-only, so player_week_usage
   // was stuck at the season's first week while SCHEDULER_DISABLED=1 — silently inverting

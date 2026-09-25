@@ -43,6 +43,8 @@ import { activeInjuryFlagIds } from './injury-flags.js';
 import { zonedDateTime } from './date-util.js';
 // RL-16-2: the league's observed waiver runs (league_waiver_runs, league_transactions_raw).
 import { clusterRuns, observedWaiverRuns } from './waiver-runs.js';
+// Plan item 13: priority is perishable in a weekly-reset league.
+import { assertPerishable, perishableBlock, perishableEnabled } from './waiver-perishable.js';
 
 export { observedWaiverRuns };
 
@@ -437,7 +439,10 @@ export function claimPriority(lg, payload, rosterId) {
   } else if (missing.length) {
     reason = `The synced league does not carry ${missing.join(', ')}.`;
   }
+  // Hard rule, always on: a weekly-reset league is never told to save priority.
+  assertPerishable(strategy, { resets_weekly: wv.order_resets_weekly });
   return {
+    ...(perishableEnabled() ? { perishable: perishableBlock({ resets_weekly: wv.order_resets_weekly, uses_budget: wv.uses_budget }) } : {}),
     known: !staleSeason && missing.length === 0,
     reason,
     acquisition_type: wv.acquisition_type,

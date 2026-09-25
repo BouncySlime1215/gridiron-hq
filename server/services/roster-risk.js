@@ -38,6 +38,8 @@ import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext
 } from './trade-engine.js';
 import { freeAgents, horizonValue } from './waiver-brain.js';
+// Plan item 13: handcuff advice only with the workload test.
+import { HANDCUFF_READING } from './waiver-perishable.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const LAST_REGULAR_WEEK = 14;
@@ -263,9 +265,7 @@ export function fragility(leagueId, { myTeamId = null } = {}) {
     most_fragile: weighted.slice(0, 5),
     critical: weighted.filter(r => r.leaves_hole).map(r => ({
       ...r,
-      reading: `Losing ${r.name} leaves you with no startable ${r.unfillable.join('/')} at all. ` +
-        'That is not a downgrade, it is an empty slot, and a handcuff off the wire is cheaper than ' +
-        'discovering it in week 9.'
+      reading: `Losing ${r.name} leaves you with no startable ${r.unfillable.join('/')} at all. ${HANDCUFF_READING}`
     })),
     note: 'Ranked by expected loss — what a slot costs if the player is unavailable, times how often ' +
       'he is. A fragile slot behind a durable player is a smaller problem than a moderate one behind ' +

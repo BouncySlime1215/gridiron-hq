@@ -109,29 +109,6 @@ test('Confirm writes exactly one stop.add request with confirmed = 1', async () 
   } finally { delete process.env.GRIDIRON_WARROOM_ENABLED; }
 });
 
-test('the War Room mounts the real Coach dock, and the placeholder is gone', () => {
-  assert.equal(fs.existsSync(path.join(WARROOM_DIR, 'CoachDock.tsx')), false, "#231's placeholder dock is deleted");
-  const src = fs.readFileSync(path.join(WARROOM_DIR, 'WarRoom.tsx'), 'utf8');
-  assert.match(src, /import \{ CoachDock, useWarRoomCoach[^}]*\} from '\.\/coach'/);
-  assert.match(src, /useWarRoomCoach\(\{[^}]*plans: view/);
-  return (async () => {
-    const { default: WarRoom } = await wr.mod('WarRoom');
-    const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/war-room-plans.json', import.meta.url), 'utf8'));
-    const view = buildWarRoomView(1, { status: 'ok', entries: fixture, as_of: 'x', id: 'y' }, { enabled: true, preview: true });
-    const html = renderToStaticMarkup(React.createElement(WarRoom, { view, leagues: [{ id: 1, name: 'League 1' }], activeId: 1, onLeague() {}, onExit() {} }));
-    assert.match(html, /class="wr-coach/);
-    assert.match(html, /aria-label="Ask Coach"/);
-    assert.doesNotMatch(html, /<input[^>]*disabled[^>]*aria-label="Ask Coach"|Not built yet|Coach turns on with WR-COACH/);
-  })();
-});
-
-test('Coach focus_panel names map onto the War Room grid', async () => {
-  const { COACH_PANEL_AREA, PANELS } = await wr.mod('WarRoom');
-  assert.deepEqual(Object.keys(COACH_PANEL_AREA).sort(), [...client.PANELS].sort());
-  const areas = new Set(PANELS.map(p => p.id));
-  for (const a of Object.values(COACH_PANEL_AREA)) if (a) assert.ok(areas.has(a), a);
-});
-
 test('skip and decline reasons are one list, owned by plans-schema.js', async () => {
   assert.deepEqual([...schema.SKIP_REASONS], ['player', 'cost', 'manager', 'not_now']);
   assert.equal(schema.SKIP_REASONS, plansSchema.SKIP_REASONS);

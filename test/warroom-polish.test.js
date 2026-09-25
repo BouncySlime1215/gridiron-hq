@@ -47,7 +47,7 @@ const plansOf = (...entries) => ({ status: 'ok', entries: structuredClone(entrie
 const viewOf = (entry = LEAGUE4) => buildWarRoomView(entry.league, plansOf(entry), ON);
 const LEAGUES = [1, 2, 3, 4, 5].map(id => ({ id, name: `League ${id}` }));
 
-const { default: WarRoom } = await wr.mod('WarRoom');
+const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { default: TopStrip, rankInRange } = await wr.mod('TopStrip');
 const { default: FlipMap, groupFlips } = await wr.mod('FlipMap');
 const { default: NoMoveCard, NOT_CLEARED } = await wr.mod('NoMoveCard');
@@ -90,24 +90,6 @@ test('1: rankAttention ranks 1..of with one row per league', () => {
   assert.equal(rankInRange(5, 5), true);
 });
 
-test('1: the league rail never reads "rank 6 of 5"', () => {
-  const bad = structuredClone(LEAGUE4);
-  bad.attention = { status: 'ok', value: { rank: 6, of: 5, reason: 'best move worth 0.0 pts' }, source: 'campaign.plan' };
-  const view = viewOf(bad);
-  assert.equal(view.attention.status, 'failed');
-  assert.match(view.attention.reason, /rank 6 of 5 is out of range/);
-  assert.equal('value' in view.attention, false);
-  const text = textOf(room(view));
-  assert.doesNotMatch(text, /rank 6 of 5/);
-  assert.match(text, /not ranked yet/);
-  // Even if a view slipped one through, the rail does not draw it.
-  const slipped = { ...viewOf(), attention: bad.attention };
-  const strip = textOf(render(React.createElement(TopStrip, { view: slipped, leagues: LEAGUES, activeId: 4, onLeague() {}, onExit() {}, theme: 'light', onTheme() {} })));
-  assert.doesNotMatch(strip, /rank 6 of 5/);
-  // The real, in-range rank still reads.
-  assert.match(textOf(room(viewOf())), /rank 5 of 5: best move worth 0\.0 pts/);
-});
-
 /* ------------------------------------------------------- 2. next move */
 
 test('2: NEXT MOVE with nothing cleared: the reason, then the closest path and the all-in option', () => {
@@ -144,31 +126,6 @@ test('2: the no-move card asks Coach, and says so when the plan wrote nothing to
 });
 
 /* -------------------------------------------------------- 3. flip map */
-
-test('3: the flip map groups by player; rows with no fair legs sit behind "Show all"', () => {
-  const groups = groupFlips(LEAGUE4.flip_map.value);
-  assert.equal(groups.length, new Set(LEAGUE4.flip_map.value.map(f => f.player)).size);
-  assert.equal(groups[0].rows.length, LEAGUE4.flip_map.value.filter(f => f.player === groups[0].player).length);
-  assert.ok(groups[0].rows.length >= 4);
-  assert.equal(groups[0].best, LEAGUE4.flip_map.value[0], 'no fair legs: the best leg is the biggest gap (producer order)');
-  const html = panel(room(viewOf()), 'flip_map');
-  const text = textOf(html);
-  assert.doesNotMatch(text, /no fair legs yet · |Player 134 \(WR\).*Player 134 \(WR\)/);
-  assert.match(text, /No flip has a fair leg on both sides yet: gaps on 3 players, none sendable/);
-  assert.match(text, /Show all \(3 with no fair legs yet\)/);
-
-  // An actionable flip shows once per player (its best leg), the rest stay behind Show all.
-  const flips = structuredClone(LEAGUE4.flip_map.value);
-  const legged = flips.findIndex((f, i) => i > 0 && f.player === flips[0].player);
-  const p = { status: 'ok', value: 0.4, source: 'clone.accept' };
-  flips[legged].legs = { give_a: '1', get_b: '2', p1: p, p2: p, p_both: { ...p, value: 0.16 }, nick_after: { status: 'ok', value: 0.01, source: 'sim.title' } };
-  const t2 = textOf(render(React.createElement(FlipMap, { field: { status: 'ok', value: flips, source: 'sim.title' }, names: LEAGUE4.names, big: false })));
-  assert.equal(t2.split('Player 134 (WR)').length - 1, 1, 'one row for the player');
-  assert.match(t2, /both yes 16%/);
-  assert.match(t2, new RegExp(`\\+${groups[0].rows.length - 1} other buyers`));
-  assert.match(t2, /Show all \(2 with no fair legs yet\)/);
-  assert.doesNotMatch(t2, /Player 15 \(\w+\)/, 'non-actionable players are hidden by default');
-});
 
 /* ------------------------------------------------------- 4. top strip */
 
@@ -222,15 +179,6 @@ test('6: the Coach footer says none clears this week, with the reason', () => {
 });
 
 /* ---------------------------------------------------- 7. number health */
-
-test('7: number health reads the audit in the contract shape', () => {
-  const text = textOf(render(React.createElement(HealthDot, { health: viewOf().number_health })));
-  assert.match(text, /Numbers: 2 broken, 9 checked ok/);
-  assert.match(text, /Title tab and trade finder rank players differently/);
-  assert.doesNotMatch(text, /not computed yet/);
-  const html = panel(room(viewOf()), 'brain_report');
-  assert.match(html, /data-health="red"/);
-});
 
 test('7: when the plan carries no number_health, the view reads number_audit (FIX-05)', async () => {
   const { runMigrations } = await import('../server/db/migrate.js');

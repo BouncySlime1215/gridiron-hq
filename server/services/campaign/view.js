@@ -25,6 +25,7 @@ import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
+import { hisSide, hisSideSummary } from './his-side.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -117,7 +118,7 @@ export function failedEntry(res, { names = {} } = {}) {
  *   teams (league-adapter.mjs#teamNames: roster -> { name, manager }; none -> 'unknown') }
  * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null, teams = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null, teams = null, his_side_on: hisSideServed = false } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -351,7 +352,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
 
   /* ------------------------------------------------ targets and flips */
   const bestTarget = res.best?.target != null ? String(res.best.target) : null;
-  const targetList = res.suggestions.filter(t => t.owner != null && inNames(t.player)).map(t => ({
+  // HIS-SIDE-WIRE: the owner's side, read for every target; served only with GRIDIRON_HIS_SIDE=1.
+  const hisRows = [];
+  const hisOf = t => {
+    const hs = hisSide({ player: t.player, owner: t.owner, partner: res.partners.find(p => p.team === String(t.owner)) ?? null,
+      model: (res.counterpart?.models ?? []).find(m => String(m.team) === String(t.owner)) ?? null,
+      block: res.trade_block ?? null, memory: res.trade_memory ?? null, inNames, nm, tl });
+    hisRows.push({ player: String(t.player), owner: String(t.owner), hs });
+    return hs;
+  };
+  const hisField = hs => (hs.status === 'ok' ? ok(hs.value, 'plan.template') : unknown(hs.reason, 'plan.template'));
+  const targetList = res.suggestions.filter(t => t.owner != null && inNames(t.player)).map(t => ({ t, hs: hisOf(t) })).map(({ t, hs }) => ({
     player: String(t.player), owner: String(t.owner),
     gain_if_landed: num(t.gain_if_landed, 'sim.title', { se: t.gain_se, unit }),
     p_reach: num(t.p_reach, 'plan.path', { prob: true, unit: 'probability', guess: true, missing: 'No path to him fits any risk mode yet.' }),
@@ -359,7 +370,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     approved: !!t.approved, is_plan_target: bestTarget === String(t.player),
     reasoning: ok({
       case_for: relabel(t.why),
-      his_side: needsOf(t.owner).length ? `${tl(t.owner)}'s roster read lists ${needsOf(t.owner).join(', ')} as thin.` : `There is no read of ${tl(t.owner)}'s needs.`,
+      his_side: hisSideServed && hs.status === 'ok' ? hs.value.text
+        : needsOf(t.owner).length ? `${tl(t.owner)}'s roster read lists ${needsOf(t.owner).join(', ')} as thin.` : `There is no read of ${tl(t.owner)}'s needs.`,
       devils_advocate: t.mode_fit === 'fits' ? 'A path fits the current risk mode; landing him still takes every step saying yes.'
         : t.mode_fit === 'needs_all_in' ? 'Only an all-in plan reaches him.' : 'No plan inside the sliders reaches him.',
       news_check: 'Not checked for targets: the news read runs on the offers in a plan.',
@@ -367,6 +379,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       counter: 'No offer yet, so no counter plan.',
       cites: ['gain_if_landed', 'p_reach'], check_first: t.mode_fit !== 'fits',
     }, 'plan.template'),
+    ...(hisSideServed ? { his_side: hisField(hs) } : {}),
   }));
   const targets = targetList.length ? ok(targetList, 'plan.path') : unknown('No single-player upgrade found on the other rosters.', 'plan.path');
 
@@ -511,7 +524,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
-      inputs: model != null ? { model } : {},
+      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed) },
     },
   };
 }

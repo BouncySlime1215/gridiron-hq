@@ -57,7 +57,9 @@ const PENDING = [
   { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ },
   { unit: 'FLIP-LEGS-2 (#358 flag)', why: 'the flip packages are served only with GRIDIRON_FLIP_LEGS on; the fixture producer runs flag-off',
-    path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ }
+    path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ },
+  { unit: 'HIS-SIDE-WIRE (flag)', why: 'targets[].his_side is served only with GRIDIRON_HIS_SIDE=1; the fixture producer runs flag-off (test/campaign-his-side.test.js validates the served shape)',
+    path: /^leagues\[\]\.targets\.value\[\]\.his_side(\..+)?$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 

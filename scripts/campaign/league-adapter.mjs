@@ -17,6 +17,8 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { tradeBlocks } from '../../server/services/espn-trade-block.js';
+import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -358,6 +360,13 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     return { mult, price: (players.get(id)?.value ?? 0) * mult };
   };
 
+  // HIS-SIDE-WIRE (TM-10): ESPN's trade block from this league's payload, as planner ids (the sim's
+  // asset universe carries each player's ESPN id; an unmapped one is counted, never guessed).
+  const byEspn = new Map();
+  // espn_id 0 is a placeholder on historical rows (ONE-PLAN 4b row 5), never a real id.
+  for (const a of assets.values()) if (Number(a?.espn_id) > 0) byEspn.set(Number(a.espn_id), a.id);
+  const tradeBlock = tradeBlockRead(tradeBlocks(payload), e => byEspn.get(Number(e)) ?? null);
+
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
   const dl = deadlineWeek(svc, lg, payload);
@@ -367,7 +376,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock,
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // His notes on his OWN roster ("untouchable: Nico Collins") protect his players the same way:

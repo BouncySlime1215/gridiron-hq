@@ -42,3 +42,40 @@ seller's floor, which is unmeasured).
   seller's floor on a player he bought this season and his net position currency.
   Until #379 merges the read says "no trade ledger" and the other three sources
   carry the status. No second ledger reader is added here.
+
+## RED
+
+`test/campaign-his-side.test.js`, commit `1d7062b`: 11 tests, all failing on
+`ERR_MODULE_NOT_FOUND` (`server/services/campaign/his-side.js` did not exist).
+
+## What changed (GREEN)
+
+- `server/services/campaign/his-side.js` (new, pure): the flag (`hisSideOn`), the
+  ESPN block mapper (`tradeBlockRead`: ON_THE_BLOCK only, ESPN id -> planner id,
+  unmapped counted), the per-target read (`hisSide`) and the shadow summary
+  (`hisSideSummary`).
+- `server/services/espn-trade-block.js` (new): `tradeBlocks` moved verbatim out of
+  `lineup-signals.js`, which now imports it. One reader of `teams[].tradeBlock`.
+- `scripts/campaign/league-adapter.mjs`: `adapter.tradeBlock` from the league
+  payload; ESPN ids through the sim's asset universe (espn_id 0 skipped: 4b row 5).
+- `planner.js`: `res.trade_block` passes the adapter's read through (one line).
+- `view.js#toEntry`: every target gets its read; with `his_side_on` it is served as
+  `targets[].his_side` (source `plan.template`) and the reasoning slot `his_side`
+  reads its text. Off, the reasoning text is the old sentence. Either way the
+  per-target status goes to `_run.inputs.his_side`.
+- `plans-schema.js`: `targets[].his_side` optional, typed.
+- `produce-plans.mjs#buildPlansFile`: `his_side_on: hisSideOn(env)`.
+- `test/warroom-plans-contract.test.js`: the his_side paths join PENDING (flag-off
+  fixture, as FLIP-LEGS-2's are). The regenerated fixture differs from main only by
+  four `_run.inputs.his_side` blocks (additions only).
+
+## Not done: the manager_signals n = 0 repair (4b row 8)
+
+The rows with `value = 0, n = 0` are count metrics (`tx_waiver_moves`,
+`tx_proposals_sent`, `tx_offers_received`, `tx_decisions_made`, `tx_veto_votes`),
+where `n` is the count itself, so 0 is a measured count, not a missing read.
+`manager-signals.js#activitySignals` says so on purpose ("the inactive manager is
+the signal ... emitted only when the league has transaction rows at all"). The
+pricing path reads `tx_adds_per_week` (n = weeks) and `tx_completed_trades`
+(n = weeks), not those counts (`counterparty-pricing.js:532-555`). Writing NULL
+would turn "did nothing" into "unknown" and move P(yes). Left for Nick to rule on.

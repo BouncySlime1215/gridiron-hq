@@ -340,6 +340,8 @@ export function planLeague(adapter, settings) {
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     untouchable: { ids: [...untouchable], refused_targets: refused },
+    // HIS-SIDE-WIRE: ESPN's trade block as the adapter read it (null: not read); the view reads it per target.
+    trade_block: adapter.tradeBlock ?? null,
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

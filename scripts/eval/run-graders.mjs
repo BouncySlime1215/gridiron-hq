@@ -12,6 +12,9 @@
  * Before the graders, with reasoning grading on (preview mode), one
  * `reasoning_claims:` line: REASON-02 claims recorded and settled for C8.
  *
+ * Then one `living_gate:` line: the LIVING-01b re-gate's forward sim predictions
+ * recorded this tick (eval/living-gate-record.js), or what they wait on.
+ *
  * Exit 1 when any grader threw (its row is still written, as a grader_error)
  * or the reasoning-claims step failed (the graders still run). A grader_error row
  * is what the fallback rule treats as blocking. Importing this file runs nothing.
@@ -44,14 +47,32 @@ export async function main({ now = new Date(), log = console.log } = {}) {
     reasoningOk = false;
     log(`reasoning_claims: ERROR ${String(e?.message ?? e).slice(0, 300)}`);
   }
+  // LIVING-01b re-gate: record next week's paired sim predictions before the
+  // graders, and hand the grader its optional models. Each waits, and says so,
+  // until its unit (ACTIVITY-01 #334, LIVING-01b #261) is on this build. A failure
+  // is logged and fails the run; the graders still run.
+  let livingOk = true;
+  let gateOpts = {};
+  try {
+    const { resolveGateModels, recordSimPredictions } = await import('../../server/services/eval/living-gate-record.js');
+    const models = await resolveGateModels();
+    gateOpts = { intensityFor: models.intensityFor };
+    const rec = await recordSimPredictions(db, { predict: models.predict, now });
+    for (const e of rec.errors) { livingOk = false; log(`living_gate: ERROR league ${e.league_id} ${e.message}`); }
+    log(`living_gate: ${rec.state === 'waiting' ? `sim waiting (${rec.reason})` : `${rec.written} sim predictions recorded`}; `
+      + `activity model ${models.intensityFor ? 'present' : 'waiting (ACTIVITY-01, #334, not on this build)'}`);
+  } catch (e) {
+    livingOk = false;
+    log(`living_gate: ERROR ${String(e?.message ?? e).slice(0, 300)}`);
+  }
   const { runAll, writeReport } = await import('../../server/services/eval/index.js');
-  const { results, errors } = runAll(db);
+  const { results, errors } = runAll(db, { 'L01B-GATE': gateOpts });
   const stored = writeReport(db, results, { now });
   const count = s => results.filter(r => r.status === s).length;
   for (const e of errors) log(`brain_report: ERROR ${e.check} ${e.message}`);
   log(`brain_report: ${count('passing')} passing, ${count('not_enough_data')} not_enough_data, `
     + `${count('failing')} failing (run ${stored.run_id})`);
-  return { ok: errors.length === 0 && reasoningOk, stored };
+  return { ok: errors.length === 0 && reasoningOk && livingOk, stored };
 }
 
 const invokedDirectly = (() => {

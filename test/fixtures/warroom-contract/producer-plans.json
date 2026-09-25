@@ -3050,6 +3050,11 @@
     },
     "source": "campaign.plan"
    },
+   "blue_chips": {
+    "status": "unknown",
+    "source": "people.score",
+    "reason": "The blue-chip board was not built for this run."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 595842253,
@@ -6818,6 +6823,11 @@
     },
     "source": "campaign.plan"
    },
+   "blue_chips": {
+    "status": "unknown",
+    "source": "people.score",
+    "reason": "The blue-chip board was not built for this run."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1212727519,
@@ -9904,6 +9914,11 @@
     },
     "source": "campaign.plan"
    },
+   "blue_chips": {
+    "status": "unknown",
+    "source": "people.score",
+    "reason": "The blue-chip board was not built for this run."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1458790284,
@@ -11506,6 +11521,11 @@
      }
     },
     "source": "campaign.plan"
+   },
+   "blue_chips": {
+    "status": "unknown",
+    "source": "people.score",
+    "reason": "The blue-chip board was not built for this run."
    },
    "_run": {
     "seed": 12345,

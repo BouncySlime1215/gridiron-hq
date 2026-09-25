@@ -142,3 +142,10 @@ export function hisSideSummary(rows, on, block = null) {
     targets: rows.map(r => ({ player: r.player, owner: r.owner, status: r.hs.status, reads: r.hs.status === 'ok' ? r.hs.value.reads : r.hs.reads })),
   };
 }
+
+/** The producer's log line for one league's `_run.inputs.his_side` (the unmapped count reaches the run log, not only the file). */
+export function hisSideLine(summary) {
+  const b = summary.espn_block ?? { status: 'unread' };
+  const block = b.status === 'ok' ? `ok, ${b.unmapped ?? 0} unmapped ids` : b.reason ? `${b.status} (${b.reason})` : b.status;
+  return `his_side ${summary.flag}, ESPN trade block ${block}, ${summary.ok} of ${summary.of} targets read ok`;
+}

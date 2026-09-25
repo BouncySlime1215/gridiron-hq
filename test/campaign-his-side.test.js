@@ -221,3 +221,19 @@ test('needs: the live layer hands a Set (counterparty-pricing.js#deriveRosterNee
     assert.equal(t.his_side.value.reads.needs, 'ok');
   }
 });
+
+test('producer log: one line per league names the ESPN block status and its unmapped id count', async () => {
+  const run = async block => {
+    const lines = [];
+    const a = league();
+    if (block) a.tradeBlock = block; else delete a.tradeBlock;
+    await buildPlansFile([{ id: 4, load: async () => ({ adapter: a }) }],
+      { generated_at: '2026-09-24T06:00:00.000Z', clock: () => 0, env: {}, log: l => lines.push(l) });
+    return lines.filter(l => l.includes('his_side'));
+  };
+  const ok = await run({ status: 'ok', by_team: { 3: [] }, unmapped: 4 });
+  assert.equal(ok.length, 1);
+  assert.match(ok[0], /^\[warroom\] league 4: his_side shadow, ESPN trade block ok, 4 unmapped ids, \d+ of \d+ targets read ok$/);
+  assert.match((await run({ status: 'unknown', reason: 'x' }))[0], /league 4: his_side shadow, ESPN trade block unknown \(x\)/);
+  assert.match((await run(null))[0], /league 4: his_side shadow, ESPN trade block unread/);
+});

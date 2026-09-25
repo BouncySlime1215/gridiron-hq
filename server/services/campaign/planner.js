@@ -17,6 +17,7 @@ import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink } from './m
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
+import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
@@ -340,6 +341,21 @@ export function planLeague(adapter, settings) {
   // Playbook for every step of the chosen plan, and for each deck card's first step.
   const managers = adapter.managers;
   const names = id => adapter.players.get(id)?.name ?? `player ${id}`;
+  const ND = negotiatorDefaultsOn(env);
+  // NEGOTIATOR-DEFAULTS: the "Or X for Y" package goes out only when it beats doing nothing on the confirm dice
+  // and stays inside the cap (above it, only the planned premium package that held on the confirm dice).
+  // Returns { alt, dropped } with dropped null, 'confirm_dice' or 'over_cap'.
+  const altValue = id => adapter.players.get(id)?.value;
+  const confirmAlt = (alt, st, stateBefore) => {
+    if (!alt) return { alt: null, dropped: null };
+    if (!altWithinCap({ give: alt.give, step: st, valueOf: altValue, maxOverpay })) return { alt: null, dropped: 'over_cap' };
+    if (!S2) return { alt: null, dropped: 'confirm_dice' };
+    const after = metricOf(S2.rescore(S.applyTrade(stateBefore, me, st.team, alt.give, st.get), me).me, objective).delta;
+    const before = metricOf(S2.rescore(stateBefore, me).me, objective).delta;
+    if (!(after - before > 0)) return { alt: null, dropped: 'confirm_dice' };
+    return { alt: { ...alt, confirm_delta: after - before }, dropped: null };
+  };
+  const who = id => { const p = adapter.players.get(id) ?? adapter.players.get(Number(id)); return { name: p?.name ?? `player ${id}`, position: p?.position ?? null }; };
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
@@ -355,9 +371,16 @@ export function planLeague(adapter, settings) {
     const curve = TM ? allowed.filter(c => stepPasses(TM, { team: st.team, give: c.give, get: st.get }, tmFloor)) : allowed;
     if (TM) tmCount.ladderRows += allowed.length - curve.length;
     const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
-    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
+    const priced0 = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
+    // NEGOTIATOR-DEFAULTS (flag, default off): a defensible opening, a second genuine package, the firm text.
+    const ladder = ND ? defensibleLadder(priced0) : priced0;
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
-    const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
+    const altChecked = ND ? confirmAlt(secondPackage(ladder), st, stateBefore) : { alt: null, dropped: null };
+    const alt = altChecked.alt;
+    const holes = Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : [];
+    const message = ND
+      ? { text: firmOfferText({ who, give: offer.give, get: st.get, alt: alt?.give ?? null, holes }), facts: [], checked: true, source: 'template' }
+      : stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,
@@ -368,6 +391,7 @@ export function planLeague(adapter, settings) {
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
       wait: waitOrAct(st, adapter.players, { enabled: waitEnabled }),
+      ...(ND ? { negotiation: negotiationFor({ who, give: offer.give, get: st.get, ladder, alt, altDropped: altChecked.dropped, holes, sendWhen: m.send_when, message: message.text }) } : {}),
       ...(CP ? (() => {
         const ps = adapter.priceStep(offer.team, offer.get, offer.give);
         return { counterpart: { reply_mix: { ...M6_REPLY_PRIOR }, label: M6_LABEL, p_accept_challenger: ps.p,

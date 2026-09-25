@@ -20,6 +20,7 @@ import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
+import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -66,6 +67,22 @@ export function activityReads(rows, timing, leagueId) {
 }
 
 /** activity.manager rows for one league, newest first: live lane, plus shadow when the flag or preview is on. */
+/** Older than this, last week's margin is not last week's any more: no cool-off from it (hand-set). */
+export const MARGIN_MAX_AGE_DAYS = 7;
+
+/**
+ * NEGOTIATOR-DEFAULTS: last week's scoring margin per roster (manager_signals), for the cool-off.
+ * Only rows computed within MARGIN_MAX_AGE_DAYS of `now`; an older margin starts no cool-off.
+ */
+export function lastWeekMargins(svc, leagueId, now) {
+  const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'manager_signals'`);
+  if (!has) return new Map();
+  const since = new Date(now - MARGIN_MAX_AGE_DAYS * DAY).toISOString().replace('T', ' ').slice(0, 19);
+  return new Map(svc.db.rows(`SELECT roster_id, value FROM manager_signals
+      WHERE league_id = ? AND metric = 'last_week_margin' AND computed_at >= ?`, leagueId, since)
+    .filter(r => Number.isFinite(Number(r.value))).map(r => [String(r.roster_id), Number(r.value)]));
+}
+
 function activityRows(svc, leagueId, env = process.env) {
   const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`);
   if (!has) return [];
@@ -225,7 +242,7 @@ export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null } = {}) {
+  rescoreCache = null, env = process.env } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -313,7 +330,11 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const nameToId = name => [...players.values()].find(p => p.name === name)?.id ?? null;
   const week = svc.week.leagueCurrentWeek(lg);
   const season = lg.season ?? payload.seasonId;
-  const layer = svc.cp.counterpartyLayer(leagueId, { season, week });
+  // NEGOTIATOR-DEFAULTS (flag, default off): no post-loss "tilt window". His loss no longer raises
+  // P(yes); it means a day to cool off, then a fair offer (coolOff on the send window below).
+  const ND = negotiatorDefaultsOn(env);
+  const layer = svc.cp.counterpartyLayer(leagueId, { season, week, ...(ND ? { zero: ['recency_post_loss'] } : {}) });
+  const margins = ND ? lastWeekMargins(svc, leagueId, now) : new Map();
   const timing = svc.tactics.timingRead(leagueId, { season });
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
@@ -327,7 +348,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     if (t === me) continue;
     const m = layer.get(t) ?? null;
     const tm = timing.get(t) ?? null;
-    const send = svc.tactics.sendWindow(tm, { now });
+    const send0 = svc.tactics.sendWindow(tm, { now });
+    const send = ND ? coolOff(send0, { margin: margins.get(String(t)) ?? null, now }) : send0;
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),

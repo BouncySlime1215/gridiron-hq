@@ -10,7 +10,9 @@
  *   interest first      a short feeler before the formal proposal
  *   no pressure tricks  no door-in-the-face, no fake scarcity in any outgoing text
  *   cool-off            he just lost: wait, then a fair offer (no post-loss P(yes) boost)
- *   no-trade row        every risk mode says whether standing pat beats its best plan
+ *   alt on confirm dice the "Or X for Y" package is served only when it beats doing nothing on the
+ *                       confirm dice and stays inside the overpay cap (else alt_dropped says why)
+ * The no-trade row per risk mode is NO-TRADE-SHRINK's (modes.js#noTradeRow), not this unit's.
  *
  * Made-up league in test/fixtures/campaign-league.mjs, no DB.
  */
@@ -28,6 +30,7 @@ const { checkMessage, factsFor } = await import('../server/services/campaign/mes
 
 const AS_OF = '2026-09-24T00:00:00.000Z';
 const FLAGS = ['GRIDIRON_NEGOTIATOR_DEFAULTS', 'GRIDIRON_COACH_MESSAGES', 'GRIDIRON_PREVIEW_UNCONFIRMED'];
+const ND_ON = { GRIDIRON_NEGOTIATOR_DEFAULTS: '1' };
 const withEnv = (vals, fn) => {
   const saved = Object.fromEntries(FLAGS.map(k => [k, process.env[k]]));
   for (const k of FLAGS) delete process.env[k];
@@ -36,9 +39,10 @@ const withEnv = (vals, fn) => {
     for (const k of FLAGS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
 };
-const run = (obj = {}, adapterOpts = {}) => {
-  const a = makeAdapter(adapterOpts);
-  const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced', ...obj }) });
+// The flag reaches the planner the way the producer passes it: settings.env (never process.env).
+const run = (obj = {}, adapterOpts = {}, env = {}, wrap = a => a) => {
+  const a = wrap(makeAdapter(adapterOpts));
+  const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced', ...obj }), env });
   return { res, entry: toEntry(res, { names: a.names(), as_of: AS_OF }), names: a.names() };
 };
 const OBJECTIVES = [{}, { risk_mode: 'all_in' }, { risk_mode: 'safe' }];
@@ -56,6 +60,8 @@ test('flag: off unless GRIDIRON_NEGOTIATOR_DEFAULTS is exactly 1 (the preview sw
   assert.equal(ND.negotiatorDefaultsOn({ GRIDIRON_NEGOTIATOR_DEFAULTS: '0' }), false);
   assert.equal(ND.negotiatorDefaultsOn({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), false);
   assert.equal(ND.negotiatorDefaultsOn({ GRIDIRON_NEGOTIATOR_DEFAULTS: '1' }), true);
+  assert.equal(ND.negotiatorDefaultsOn(), false, 'no env passed: off');
+  assert.equal('noTradeRow' in ND, false, 'one producer of the no-trade row: modes.js');
 });
 
 const rung = (give, his_pct, nick_gain = 0.01, p = 0.3) => ({ give, his_pct, nick_gain, p });
@@ -151,30 +157,30 @@ test('cool-off: he lost last week -> wait a day, then a fair offer; a later wait
   assert.equal(ND.coolOff(later, { margin: -5, now }).until, later.until);
 });
 
-test('no-trade row: standing pat is the pick when a mode has no plan or its best gains nothing', () => {
-  assert.equal(ND.noTradeRow(null).pick, true);
-  assert.equal(ND.noTradeRow({ expected: -0.002, score: -0.002 }).pick, true);
-  assert.equal(ND.noTradeRow({ expected: 0.01, score: 0.01 }).pick, false);
-  assert.match(ND.noTradeRow(null).why, /no trade/i);
-});
-
 /* ------------------------------------------------------------------ the producer, flag off / on */
 
-test('flag off: no step carries negotiation and no risk mode carries a no-trade row', () => {
+test('the flag in process.env alone does nothing: the planner reads settings.env', () => {
+  withEnv(ND_ON, () => {
+    const { res } = run({});
+    for (const pb of res.playbook) assert.equal('negotiation' in pb, false);
+  });
+});
+
+test('flag off: no step carries negotiation', () => {
   withEnv({}, () => {
     for (const obj of OBJECTIVES) {
       const { res, entry } = run(obj);
       for (const pb of res.playbook) assert.equal('negotiation' in pb, false);
       for (const m of movesOf(entry)) for (const s of m.steps) assert.equal('negotiation' in s, false);
-      for (const r of entry.risk_modes.value) assert.equal('no_trade' in r, false);
     }
   });
 });
 
 test('flag on: every priced step carries the levers, openings are defensible, the entry validates', () => {
-  withEnv({ GRIDIRON_NEGOTIATOR_DEFAULTS: '1' }, () => {
+  let pricedAll = 0;
+  withEnv({}, () => {
     for (const obj of OBJECTIVES) {
-      const { res, entry } = run(obj);
+      const { res, entry } = run(obj, {}, ND_ON);
       assert.deepEqual(validateLeague(entry).errors, [], JSON.stringify(obj));
       let priced = 0;
       for (const m of movesOf(entry)) {
@@ -192,29 +198,30 @@ test('flag on: every priced step carries the levers, openings are defensible, th
           if (n.anchor && n.anchor.defensible) assert.ok(n.anchor.to_pct >= -ND.ANCHOR_FLOOR_PCT);
         }
       }
-      assert.ok(priced > 0, 'fixture has priced steps');
+      pricedAll += priced;
       for (const pb of res.playbook) if (pb.opening && pb.negotiation.anchor?.defensible) assert.ok(pb.opening.his_pct >= -ND.ANCHOR_FLOOR_PCT);
-      assert.equal(entry.risk_modes.value.length, 3);
-      for (const r of entry.risk_modes.value) assert.equal(typeof r.no_trade.pick, 'boolean');
+      // The no-trade row stays NO-TRADE-SHRINK's shape: this unit writes none of its own.
+      for (const r of entry.risk_modes.value) if (r.no_trade) assert.ok(['plan', 'no_trade'].includes(r.no_trade.pick));
     }
   });
+  assert.ok(pricedAll > 0, 'fixture has priced steps (a mode may serve no trade on the confirm dice)');
 });
 
 test('flag on: the served plan (move ids, title odds, p_yes) is the same as flag off', () => {
   for (const obj of OBJECTIVES) {
     const off = withEnv({}, () => run(obj));
-    const on = withEnv({ GRIDIRON_NEGOTIATOR_DEFAULTS: '1' }, () => run(obj));
+    const on = withEnv({}, () => run(obj, {}, ND_ON));
     const key = e => movesOf(e).map(m => [m.move_id, m.steps.map(s => [s.p_yes.value, s.title_odds_delta.value])]);
     assert.deepEqual(key(on.entry), key(off.entry));
   }
 });
 
 test('flag on: he lost last week -> send_when waits (cool-off) and the lever is tagged', () => {
-  withEnv({ GRIDIRON_NEGOTIATOR_DEFAULTS: '1' }, () => {
+  withEnv({}, () => {
     const now = Date.parse('2026-09-22T12:00:00Z');
     const lostAll = Object.fromEntries(['2', '3', '4'].map(t => [t, {
       send_when: ND.coolOff({ when: 'now', until: null, why: 'nothing argues for waiting' }, { margin: -20, now }) }]));
-    const { entry } = run({}, { managerExtra: lostAll });
+    const { entry } = run({}, { managerExtra: lostAll }, ND_ON);
     const s = entry.next_move.value.steps[0];
     assert.match(s.send_when.value, /^Wait until .*cool off/);
     assert.ok(s.negotiation.value.levers.includes('cool_off'));
@@ -222,8 +229,8 @@ test('flag on: he lost last week -> send_when waits (cool-off) and the lever is 
 });
 
 test('flag on + coach messages: the coach text is the firm text, grounded, with no soft or pressure phrasing', () => {
-  withEnv({ GRIDIRON_NEGOTIATOR_DEFAULTS: '1', GRIDIRON_COACH_MESSAGES: '1' }, () => {
-    const { entry } = run({});
+  withEnv({ GRIDIRON_COACH_MESSAGES: '1' }, () => {
+    const { entry } = run({}, {}, ND_ON);
     const { entry: out, stats } = applyCoachMessages(entry, { force: true });
     assert.deepEqual(stats.errors, []);
     for (const m of movesOf(out)) {
@@ -238,4 +245,72 @@ test('flag on + coach messages: the coach text is the firm text, grounded, with 
       }
     }
   });
+});
+
+/* ------------------------------------------------------------------ the second package on the confirm dice */
+
+const altKeys = res => [...new Set(res.deck.flatMap(c => c.playbooks ?? [c.playbook]).filter(Boolean)
+  .filter(pb => pb.negotiation?.alt_package).map(pb => pb.negotiation.alt_package.give.map(String).sort().join('+')))];
+
+test('flag on: a served second package beats doing nothing on the confirm dice and is inside the cap', () => {
+  withEnv({ GRIDIRON_COACH_MESSAGES: '1' }, () => {
+    for (const obj of OBJECTIVES) {
+      const { res } = run(obj, {}, ND_ON);
+      for (const pb of res.deck.flatMap(c => c.playbooks ?? [c.playbook]).filter(Boolean)) {
+        const n = pb.negotiation;
+        if (n?.alt_package) assert.equal(n.alt_dropped, undefined);
+        if (n?.alt_dropped) assert.ok(['confirm_dice', 'over_cap'].includes(n.alt_dropped));
+      }
+    }
+  });
+});
+
+test('flag on: a second package that loses on the confirm dice is dropped from the offer text', () => {
+  withEnv({ GRIDIRON_COACH_MESSAGES: '1' }, () => {
+    const clean = run({}, {}, ND_ON);
+    const served = altKeys(clean.res);
+    assert.ok(served.length > 0, 'the fixture serves at least one second package');
+    const poisoned = new Set(served.map(k => k.split('+')));
+    // Same league, but on every world other than the planning one (the confirm dice), a state where
+    // Nick has given away one of the served second packages scores far below doing nothing.
+    const wrap = a => {
+      const world = a.world;
+      return { ...a, world: s => {
+        const w = world(s);
+        if (s === a.seed || !w || w.fail) return w;
+        return { ...w, rescore(state, x = '1', y = null) {
+          const r = w.rescore(state, x, y);
+          const mine = new Set((state.get('1') ?? a.rosters.get('1')).map(String));
+          if (x === '1' && [...poisoned].some(g => g.every(id => !mine.has(id)))) {
+            return { ...r, me: { ...r.me, title_delta: -0.05, playoff_delta: -0.05, points_delta: -50 } };
+          }
+          return r;
+        } };
+      } };
+    };
+    const { res, entry } = run({}, {}, ND_ON, wrap);
+    const pbs = res.deck.flatMap(c => c.playbooks ?? [c.playbook]).filter(Boolean);
+    for (const k of altKeys(res)) assert.equal(served.includes(k), false, `${k} lost on the confirm dice but is still offered`);
+    assert.ok(pbs.some(pb => pb.negotiation?.alt_dropped === 'confirm_dice'), 'the drop is recorded with its reason');
+    for (const m of movesOf(entry)) for (const s of m.steps) {
+      const alt = s.negotiation?.value?.alt_package;
+      if (s.message?.status === 'ok' && !alt) assert.doesNotMatch(s.message.value, /whichever works better/);
+    }
+  });
+});
+
+test('cap rule for the second package: over the cap only as the planned premium package confirmed on fresh dice', () => {
+  const valueOf = id => ({ 1: 1000, 2: 1000, 3: 1150, 11: 2000 })[id] ?? 0;
+  const step = { give: [1, 3], get: [11] };
+  // 1 + 2 = 2000 for 2000: even, inside a 0 cap.
+  assert.equal(ND.altWithinCap({ give: [1, 2], step, valueOf, maxOverpay: 0 }), true);
+  // 1 + 3 = 2150 for 2000: +7.5%, over a 0 cap.
+  assert.equal(ND.altWithinCap({ give: [1, 3], step, valueOf, maxOverpay: 0 }), false);
+  // Same package as a premium step that has not held on the confirm dice: still over.
+  assert.equal(ND.altWithinCap({ give: [1, 3], step: { ...step, depth_premium: { pct: 0.075 } }, valueOf, maxOverpay: 0 }), false);
+  // The planned premium package, confirmed on fresh dice: allowed.
+  assert.equal(ND.altWithinCap({ give: [1, 3], step: { ...step, depth_premium: { pct: 0.075, confirmed: { points_delta: 1, title_delta: 0.01 } } },
+    valueOf, maxOverpay: 0 }), true);
+  // A different over-cap package beside a confirmed premium step: over.
+  assert.equal(ND.altWithinCap({ give: [2, 3], step: { ...step, depth_premium: { pct: 0.075, confirmed: {} } }, valueOf, maxOverpay: 0 }), false);
 });

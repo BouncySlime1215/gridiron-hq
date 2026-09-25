@@ -230,11 +230,27 @@ const flip = obj({
     { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
 }, { legs_why_not: str, reasoning: field(reasoning) });
 
+const readStatus = oneOf(['ok', 'none', 'unknown', 'unread']);
+const players = obj({ players: arr(pid), n: int(0) });
+/** HIS-SIDE-WIRE (campaign/his-side.js): the owner's needs, shops and blocks, each with its n. */
+const hisSide = obj({
+  reads: obj({ needs: readStatus, chat: readStatus, espn_block: readStatus, ledger: readStatus }),
+  needs: arr(str), target_protected: bool, text: str
+}, {
+  espn_block: players, target_on_block: bool,
+  shops: obj({ players: arr(pid), n: int(0), source: lit('chat') }),
+  protects: obj({ players: arr(pid), n: int(0), credibility: nullable(obj({ value: num, n: int(0) })) }),
+  wants: arr(pid),
+  // The seller's floor (TRADE-MEMORY ledger): what he paid for this player this season, market value.
+  floor: obj({ value: num, basis: str }),
+  currency: obj({ wants: arr(str), sells: arr(str) })
+});
+
 const target = obj({
   player: pid, owner: id, gain_if_landed: numF, p_reach: probF,
   mode_fit: field(oneOf(['fits', 'needs_all_in', 'too_risky_for_safe'])),
   why: field(str), approved: bool, is_plan_target: bool
-}, { reasoning: field(reasoning) });
+}, { reasoning: field(reasoning), his_side: field(hisSide) });
 
 const brainReport = obj({
   overall: oneOf(['passing', 'not_enough_data', 'failing']),

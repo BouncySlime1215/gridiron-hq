@@ -3333,6 +3333,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "ok",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "21",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "ok",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -7184,6 +7249,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "21",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -10465,6 +10595,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -12091,6 +12286,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },

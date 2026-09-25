@@ -17,6 +17,8 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { tradeBlocks } from '../../server/services/espn-trade-block.js';
+import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
@@ -426,6 +428,13 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     return { mult, price: (players.get(id)?.value ?? 0) * mult };
   };
 
+  // HIS-SIDE-WIRE (TM-10): ESPN's trade block from this league's payload, as planner ids (the sim's
+  // asset universe carries each player's ESPN id; an unmapped one is counted, never guessed).
+  const byEspn = new Map();
+  // espn_id 0 is a placeholder on historical rows (ONE-PLAN 4b row 5), never a real id.
+  for (const a of assets.values()) if (Number(a?.espn_id) > 0) byEspn.set(Number(a.espn_id), a.id);
+  const tradeBlock = tradeBlockRead(tradeBlocks(payload), e => byEspn.get(Number(e)) ?? null);
+
   // PLAYER-SCORE (flag GRIDIRON_PLAYER_SCORE / preview): the blue-chip board, and Nick's blue chips
   // join his untouchables so no step ever gives one away without his approval.
   const board = blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable: untouchableIds([myNick]) });
@@ -440,7 +449,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock,
     // LIVE-BLEND: which P(yes) was served and, for the blend, each model's weight and record (plans.json p_yes_basis).
     pYesBasis: svc.pyes.pYesBasis(pyTable),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),

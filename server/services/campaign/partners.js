@@ -139,6 +139,9 @@ export function shadowResponds(pr, labels) {
  * opts.league: { id, me, season } of the plan; with the flag on and no kernel passed, the kernel is built
  * from that league's completed trades as of opts.now (leagueKernel; opts.readRows replaces the DB read).
  */
+/** A manager's needs as a list of positions: array, Set (the live layer) or { position: … } map. */
+const needList = n => (n instanceof Set ? [...n] : Array.isArray(n) ? n : n && typeof n === 'object' ? Object.keys(n) : []).map(String);
+
 export function rankPartners(managers, edgeByTeam, people = null,
   { kernel = null, league = null, now = Date.now(), readRows, flag = partnerKernelFlag() } = {}) {
   let kernelStatus = kernel ? 'ok' : null;
@@ -166,7 +169,11 @@ export function rankPartners(managers, edgeByTeam, people = null,
       checked_out: !!m.checked_out, blocked: !!m.blocked, excluded: excluded(m), tier: nickTier(m),
       nick: m.nick ? nickSummary(m.nick) : null, untouchable: (m.nick?.untouchable ?? []).map(String),
       ...(adj ? { p_responds_before_counterpart: base.p, reason_chain: adj.features } : {}),
-      needs: (Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : []).map(String), sent_this_week: m.sent_this_week ?? null,
+      // `needs` is kept byte-identical (served as roster_holes). It drops a Set, which is what the live layer
+      // hands (counterparty-pricing.js#deriveRosterNeeds), so on real data it is always empty. HIS-SIDE-WIRE
+      // reads `needs_read`, which keeps the Set; not served unless GRIDIRON_HIS_SIDE=1.
+      needs: (Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : []).map(String), needs_read: needList(m.needs),
+      sent_this_week: m.sent_this_week ?? null,
       ...(flag?.on && !useKernel && kernelStatus ? { partner_kernel: { tilt: 1, basis: kernelStatus, source: KERNEL_SOURCE } } : {}),
       ...(tilt ? { p_rank: rankP, partner_kernel: { ...tilt, ...(flag.preview ? { preview: true, preview_reason: PARTNER_KERNEL_REASON } : {}) } } : {}) });
   }

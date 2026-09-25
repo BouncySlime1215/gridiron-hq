@@ -272,6 +272,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const legs = (cl?.chain ?? []).map(x => `${x.give.map(nm).join(' + ')} for ${x.get.map(nm).join(' + ')} (Team ${x.team})`);
   const finish = cl ? `${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')}` : '';
   const closestText = cl ? `the closest is ${legs.length ? `${legs.join(', then ')}, then ${finish}` : finish} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
+  // NO-TRADE-SHRINK: with no move, say that keeping the roster is the active mode's pick (its no-trade row).
+  const keepRow = (res.risk_modes ?? []).find(m => m.mode === o.risk_mode)?.no_trade;
+  const keepText = keepRow?.pick === 'no_trade' ? ` Keeping your roster is the pick in ${MODE_LABELS[o.risk_mode]} mode.` : '';
   // GETS-FLOOR: with the floor on and no move, say first that the floor is what emptied the deck.
   const gf = res.gets_floor?.mode === 'on' ? res.gets_floor : null;
   const floorName = gf ? getsFloorName(gf.floor) : null;
@@ -280,7 +283,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       : gf.refused.length ? `${gf.refused.map(r => `${nm(r.player)} ${r.score == null ? 'has no score' : `scores ${Math.round(r.score)}`}`).join('; ')}, under the ${floorName}.`
         : gf.dropped ? `${gf.dropped} candidate get${gf.dropped === 1 ? '' : 's'} under the ${floorName} ${gf.dropped === 1 ? 'was' : 'were'} skipped.` : null;
   const why = res.candidates_scored
-    ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
+    ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${keepText}${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
     : closestText ? `Nothing clears without overpaying; ${closestText}.`
       : floorText ? null : 'The planner found no trade path worth sending this week.';
   const next_move = best ? ok(best, 'plan.path') : unknown([floorText, why].filter(Boolean).join(' '), 'plan.path');
@@ -455,6 +458,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if_complete: num(m.if_complete, 'plan.path', { unit, missing: 'No plan fits this mode.' }),
     p_complete: num(m.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true, missing: 'No plan fits this mode.' }),
     first_step: m.first_step ? { partner: String(m.first_step.team), give: ids(m.first_step.give), get: ids(m.first_step.get) } : null,
+    // NO-TRADE-SHRINK: keeping today's roster, scored by the same objective (exactly 0 gain, lands for sure).
+    ...(m.no_trade ? { no_trade: { expected: num(m.no_trade.expected, 'plan.path', { unit }),
+      p_complete: num(m.no_trade.p_complete, 'plan.path', { prob: true, unit: 'probability' }),
+      pick: m.no_trade.pick, why: m.no_trade.why } } : {}),
   })), 'plan.path');
 
   const chatLabels = c => (c?.status === 'ok'
@@ -541,6 +548,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0 },
       trade_memory: res.trade_memory ?? { status: 'no_ledger', dropped_total: 0 },
+      // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink); bookkeeping only.
+      ...(res.shrink ? { shrink: res.shrink } : {}),
     },
   };
 }

@@ -13,7 +13,7 @@
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
-import { rankPlans, compareModes, tolerancesFor, MODES } from './modes.js';
+import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
@@ -247,16 +247,27 @@ export function planLeague(adapter, settings) {
   const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx);
 
   // Confirm on fresh dice: re-price the deck on an independent seed, show those numbers, drop failures.
-  let deck = deckOf(ranked, DECK_SIZE + 2);
+  // NO-TRADE-SHRINK: a card must also beat keeping the roster (score 0) under its mode on the fresh dice.
   const cSeed = confirmSeed(adapter.seed, L.id, L.fetched_at ?? '');
   const W2 = adapter.world(cSeed);
   mark('confirm_world');
   let confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'failed', reason: 'confirm world failed' };
+  const S2 = W2 && !W2.fail ? makeScorer(W2, adapter) : null;
+  // REACH-01: the objective mode's confirm counts (null when the confirm world failed).
   let confirmCounts = null;
-  if (W2 && !W2.fail) {
-    const S2 = makeScorer(W2, adapter);
-    const checked = deck.length;
-    deck = deck.map(p => {
+  // integration-7: one confirm pass for every mode (NO-TRADE-SHRINK) that keeps CAP-1C's premium re-check
+  // (a premium step must raise lineup points and title odds on the fresh dice too; no fresh dice, no premium card).
+  const confirmDeck = (rankedM, mode, tolM, ctxM) => {
+    const active = mode === objective.risk_mode;
+    const top = deckOf(rankedM, DECK_SIZE + 2);
+    if (!S2) {
+      return top.filter(p => {
+        const prem = p.steps.some(st => st.depth_premium);
+        if (prem && active) premium.confirm_failed++;
+        return !prem && p.score > 0;
+      }).slice(0, DECK_SIZE);
+    }
+    const priced = top.map(p => {
       const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
       const fresh = freshMe.map(r => metricOf(r, objective));
       const re = repricePlan(p, fresh);
@@ -268,21 +279,25 @@ export function planLeague(adapter, settings) {
         if (!h.ok) v = { ...v, verdict: 'failed', premium_failed: h.why };
         return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
       });
-      if (v.premium_failed) premium.confirm_failed++;
-      const scored = rankPlans([re], objective.risk_mode, { ...tol, max_downside_per_step: Infinity }, { ...ctx, core: null }).ranked[0];
-      return { ...re, score: scored?.score ?? -Infinity, mode: objective.risk_mode, confirm: v, planned_on: p };
-    }).filter(p => p.confirm.verdict !== 'failed');
-    confirmCounts = { checked, failed: checked - deck.length };
-    deck = deck.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
-    confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
-  } else {
-    // CAP-1C: with no fresh dice, a premium card cannot pass its confirm check, so it is not served.
-    deck = deck.filter(p => {
-      const prem = p.steps.some(st => st.depth_premium);
-      if (prem) premium.confirm_failed++;
-      return !prem;
-    }).slice(0, DECK_SIZE);
-  }
+      if (v.premium_failed && active) premium.confirm_failed++;
+      const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
+      return { ...re, score: scored?.score ?? -Infinity, mode, confirm: v, planned_on: p };
+    });
+    const kept = priced.filter(p => p.confirm.verdict !== 'failed' && p.score > 0);
+    if (active) {
+      const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
+      confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
+    }
+    return kept.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
+  };
+  const deck = confirmDeck(ranked, objective.risk_mode, tol, ctx);
+  // Each mode's pick on the same fresh dice; the active mode's is the served deck itself.
+  const confirmedBest = Object.fromEntries(MODES.map(mode => {
+    if (mode === objective.risk_mode) return [mode, deck[0] ?? null];
+    const c = ctxFor(mode);
+    return [mode, confirmDeck(rankPlans(plans, mode, c.tol, c.ctx).ranked, mode, c.tol, c.ctx)[0] ?? null];
+  }));
+  if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
   const best = deck[0] ?? null;
   // CAP-1C: a backup never proposes a premium step that did not pass its own fresh-dice check (only deck cards did).
@@ -449,7 +464,9 @@ export function planLeague(adapter, settings) {
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
-    risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 })), catch_up: catchUp, partners,
+    // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
+    shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
     reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,

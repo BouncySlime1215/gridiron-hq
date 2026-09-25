@@ -3054,6 +3054,11 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 595842253,
@@ -6950,6 +6955,11 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1212727519,
@@ -10164,6 +10174,11 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1458790284,
@@ -11945,6 +11960,11 @@
     "status": "unknown",
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
+   },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
    },
    "_run": {
     "seed": 12345,
@@ -15334,6 +15354,11 @@
     "status": "unknown",
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
+   },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
    },
    "_run": {
     "seed": 12345,

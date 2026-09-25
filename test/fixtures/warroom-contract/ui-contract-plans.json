@@ -1430,7 +1430,8 @@
     "status": "unknown",
     "source": "people.score",
     "reason": "Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview)."
-   }
+   },
+   "ladders": { "status": "unknown", "source": "plan.path", "reason": "Ladder cards are off (GRIDIRON_LADDER)." }
   },
   {
    "league": 2,
@@ -1601,7 +1602,8 @@
     "status": "unknown",
     "source": "people.score",
     "reason": "Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview)."
-   }
+   },
+   "ladders": { "status": "unknown", "source": "plan.path", "reason": "Ladder cards are off (GRIDIRON_LADDER)." }
   }
  ]
 }

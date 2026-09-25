@@ -70,6 +70,8 @@ export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 
 /** PLAYER-SCORE vocabularies (people/player-score.js LABEL_NAMES / GAP_TYPES; a test pins them equal). */
 export const SCORE_LABELS = Object.freeze(['Elite blue chip', 'Blue chip', 'Level below', 'Solid starter', 'Flex', 'Depth', 'Bench']);
 export const SCORE_GAPS = Object.freeze(['undervalued_blue_chip', 'fading_blue_chip', 'riser', 'we_value_lower', 'we_value_higher']);
+/** LADDER-01 rung tiers (campaign/ladder.js TIERS; a test pins them equal). */
+export const LADDER_TIERS = Object.freeze(['blue_chip', 'level_below', 'depth', 'unscored']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
 
 /**
@@ -314,11 +316,26 @@ export const SECTIONS = Object.freeze({
     coverage: obj({ rostered: int(0), board: int(0), score: prob, model_value: prob, fp_ros_rank: prob }),
     fp: obj({ status: oneOf(STATUSES), sync: str }, { reason: str, scrape_date: str, prev_date: str }),
     draft: obj({ season: int(2000, 2100), picks: int(0) }, { reason: str })
+  })),
+  // LADDER-01 (flag GRIDIRON_LADDER, default off): chained paths depth -> level below -> blue chip, P(yes)
+  // per rung (a guess), what a "no" leaves at each rung. Shadow: never re-ranks the deck. Optional.
+  ladders: field(obj({
+    mode: oneOf(RISK_MODES), floor: num, rank_basis: str, dice: oneOf(['planning']), basis: str, considered: int(0),
+    dropped_by_reason: map(/^[a-z_]{1,40}$/, int(0)),
+    cards: arr(obj({
+      target: pid, owner: id, climb: arr(oneOf(LADDER_TIERS), { min: 2 }), rank_basis: str,
+      rungs: arr(obj({
+        partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), get_tier: oneOf(LADDER_TIERS), p: probF, if_yes: numF,
+        on_no: obj({ kind: oneOf(['backup', 'stop']) }, { partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), expected: numF, keep: numF,
+          dice: oneOf(['confirm']) })
+      }), { min: 2 }),
+      p_complete: probF, if_complete: numF, expected: numF, confirmed_expected: numF
+    }), { max: 5 })
   }))
 });
 
 /** Sections an entry may leave out; the view then reads them as unknown. */
-export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips']);
+export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips', 'ladders']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({

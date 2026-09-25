@@ -27,7 +27,8 @@ import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
-import { makeGetsFloor } from './gets-floor.js';
+import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
+import { ladderFlag, ladderCards } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
@@ -251,11 +252,7 @@ export function planLeague(adapter, settings) {
   // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
   // floor on, every player Nick still holds at the end of the path (gets minus later gives) must pass it;
   // shadow counts the paths it would drop.
-  const failsHeld = p => {
-    const held = new Set();
-    for (const st of p.steps) { for (const id of st.give) held.delete(String(id)); for (const id of st.get) held.add(String(id)); }
-    return [...held].some(id => !floor.read(id).passes);
-  };
+  const failsHeld = p => [...heldAtEnd(p.steps)].some(id => !floor.read(id).passes);
   if (floor.sink.mode !== 'off') {
     const bad = plans.filter(failsHeld).length;
     floor.sink[floorOn ? 'paths_dropped' : 'paths_would_drop'] = bad;
@@ -340,6 +337,15 @@ export function planLeague(adapter, settings) {
   }));
   if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
+  // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths (already floored and
+  // filtered by trade memory); shadow, they move nothing served. Built after the confirm counts are taken, so
+  // their extra confirm rescores change no served count. A backup at a "no" is main's confirmedActive: it must
+  // beat doing nothing on the confirm dice, like a deck card; no confirm dice, no backup.
+  const ladders = ladderFlag(env) === 'on'
+    ? ladderCards(ranked, { mode: objective.risk_mode, scoreOf: adapter.scoreOf ?? null, floor: floor.sink.floor,
+      players: adapter.players, untouchable: adapter.untouchable ?? new Set(), objectiveUntouchables: objective.untouchables ?? [],
+      memory: TM, env, confirmed: confirmedActive, maxOverpay })
+    : null;
   const best = deck[0] ?? null;
   // CAP-1C + integration-7: a backup is re-priced on the confirm dice (premium steps re-checked there) and
   // must beat doing nothing, like a deck card.
@@ -566,6 +572,7 @@ export function planLeague(adapter, settings) {
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },
+    ...(ladders ? { ladders } : {}),
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
     reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
       bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,

@@ -117,6 +117,11 @@ export const CHECKS = Object.freeze({
     cause: 'The p10-p90 weekly range should hold 80% of real lineup scores. Realised coverage over the trailing weeks is outside 72-88%, so the width k is refit on Tuesday (range-calibration.js).',
     trust: 'Read the range as a rough band until the next refit brings coverage back inside 72-88%.',
   },
+  exgb_shadow_capture: {
+    row: null, title: 'Shadow forecasts missing for a frozen ESPN week',
+    cause: 'E-XGB (GRIDIRON_EXGB) must record every arm\'s forecast beside each week\'s frozen ESPN projection (exgb-shadow.js). A week has frozen ESPN rows but no pre-kickoff shadow forecast, so it can never be graded; once its games start it is lost.',
+    trust: 'Nothing served changes. Run exgb_shadow_predict before kickoff; check exgb_shadow_runs for the error.',
+  },
   source_age: {
     row: null, title: 'Data is older than it should be',
     cause: 'A source has not synced within its expected window.',
@@ -380,6 +385,21 @@ function rangeCoverageRow(snap) {
     { pages: inside ? [] : pages, values: c });
 }
 
+/** U0 SHADOW-LIVE: frozen ESPN weeks with no pre-kickoff E-XGB forecast (exgb-shadow.js#exgbShadowHealth). */
+function exgbShadowRow(snap) {
+  const h = snap.exgb_shadow;
+  if (!h || h.error) return unmeasured('exgb_shadow_capture', h?.error ?? 'not collected');
+  if (h.status === 'off') return row('exgb_shadow_capture', 'ok', 'E-XGB shadow forecasts are off (GRIDIRON_EXGB is not 1).', { values: h });
+  const counts = h.weeks.map(w => `week ${w.week}: ${w.shadow} forecasts / ${w.frozen} frozen`).join('; ');
+  if (h.status === 'broken') {
+    return row('exgb_shadow_capture', 'broken',
+      `Frozen ESPN rows exist but no shadow forecasts for week${h.missing.length === 1 ? '' : 's'} ${h.missing.join(', ')} (${counts}).`,
+      { values: h });
+  }
+  return row('exgb_shadow_capture', 'ok', h.weeks.length ? `Every frozen ESPN week has shadow forecasts (${counts}).`
+    : 'No frozen ESPN week yet.', { values: h });
+}
+
 const ageText = minutes => (minutes >= 120 ? `${(minutes / 60).toFixed(minutes >= 600 ? 0 : 1)} h` : `${Math.round(minutes)} min`);
 
 /**
@@ -402,6 +422,7 @@ export function evaluateSnapshot(snap, { now = Date.now(), tolerances = TOLERANC
     sourceAgeRow(snap, now),
     espnProjectionRow(snap),
     rangeCoverageRow(snap),
+    exgbShadowRow(snap),
   ];
 }
 
@@ -695,6 +716,8 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
   snap.espn_projection = attempt(() => espnWeek.espnProjectionHealth({ season: tradeWeek.season ?? SEASON,
     week: tradeWeek.week ?? week, leagueRowId: lg.id, now }));
   snap.range_coverage = attempt(() => rangeCal.trailingCoverage({ leagueId: lg.id }) ?? { error: 'range_coverage_log missing' });
+  const exgbShadow = await import('./exgb-shadow.js');
+  snap.exgb_shadow = attempt(() => exgbShadow.exgbShadowHealth({ season: tradeWeek.season ?? SEASON }));
   snap.collected_at = new Date(now).toISOString();
   return snap;
 }

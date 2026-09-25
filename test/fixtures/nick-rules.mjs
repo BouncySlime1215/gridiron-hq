@@ -27,6 +27,10 @@
  *                    package (#386): must carry a confirm-dice number, i.e. `dice: 'confirm'` with
  *                    `expected` > 0 (or `confirmed_expected` > 0). A number on the planning dice, or none,
  *                    is a violation: Nick's rule is the confirm dice, not the dice the plan was found on.
+ *   step_regret    (Nick 2026-09-25, U1c) every step of a served path (best, every deck card) beats doing
+ *                  nothing on its own, given the steps before it: steps carry cumulative deltas, so each step's
+ *                  own gain delta_i - delta_(i-1) must be > 0. (Claim paths are shadow and checked by
+ *                  claim_stranded instead: a claim step is a flip piece, not a move on its own.)
  *   FLIP-CLAIMS (Nick 2026-09-25), on every claim path SEARCH-WIDE reports (search_wide.claims.paths, shadow;
  *   every rule above applies to them too, the claim step read as Nick giving the drop for the claimed player):
  *   claim_not_flipped    every claimed player is given away by a later trade step of the same path.
@@ -46,7 +50,7 @@
 import { NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID, BLUE_CHIP } from './rule-fuzz-league.mjs';
 
 export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
-  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded']);
+  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded', 'step_regret']);
 export const DEPTH_PREMIUM = 0.12;
 const EPS = 1e-9;
 const S = x => String(x);
@@ -199,6 +203,16 @@ export function ruleViolations(adapter, res) {
     if (!c.plan) continue;
     if (c.confirm?.verdict === 'failed') bad('beats_no_trade', `deck[${j}]`, 'confirm verdict failed');
     if (!(Number(c.plan.expected) > 0)) bad('beats_no_trade', `deck[${j}]`, `confirm-dice expected ${c.plan.expected}`);
+  }
+  // step_regret: each served step's own gain (cumulative delta minus the step before's) is > 0.
+  const served = [...(res.best ? [['best', res.best]] : []), ...(res.deck ?? []).map((c, j) => [`deck[${j}]`, c.plan]).filter(([, p]) => p)];
+  for (const [name, p] of served) {
+    let before = 0;
+    for (const [i, st] of p.steps.entries()) {
+      const d = Number(st.delta);
+      if (!Number.isFinite(d) || !(d - before > 0)) { bad('step_regret', `${name}.step[${i}]`, `own gain ${d - before}`); break; }
+      before = d;
+    }
   }
   for (const [j, c] of (res.deck ?? []).entries()) {
     if (c.plan && c.beats_no_trade === false) bad('beats_no_trade', `deck[${j}]`, 'beats_no_trade false');

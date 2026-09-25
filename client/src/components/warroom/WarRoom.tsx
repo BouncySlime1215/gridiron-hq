@@ -17,6 +17,7 @@ import BrainCheckCard from './BrainCheckCard';
 import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
 import { useNegotiations } from './useWarRoom';
 import PeopleBoard, { DeckFocusBar, focusView } from './PeopleBoard';
+import BlueChipBoard from './BlueChipBoard';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
@@ -210,6 +211,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           </Panel>
           <Panel {...common('targets')} title="Suggested targets">
             <TargetPicker field={view.targets} names={view.names} big={big('targets')} onRequest={send} />
+            {view.blue_chips && view.blue_chips.status === 'ok' && <BlueChipBoard field={view.blue_chips} big={big('targets')} />}
           </Panel>
           <Panel {...common('catch')} title="Catch-up · speed">
             <CatchUp catchUp={view.catch_up} speed={view.speed_curve} groundLost={d?.ground_lost}

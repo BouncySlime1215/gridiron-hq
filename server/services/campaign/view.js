@@ -317,7 +317,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${keepText}${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
     : closestText ? `Nothing clears without overpaying; ${closestText}.`
       : floorText || ledgerText ? null : 'The planner found no trade path worth sending this week.';
-  const next_move = best ? ok(best, 'plan.path') : unknown([ledgerText, floorText, why].filter(Boolean).join(' '), 'plan.path');
+  // PUSH-01: the served reason the next move changed since the last run (no consumer reads _run).
+  const next_move = best ? ok(changed?.changed ? { ...best, change_reason: changed.reason } : best, 'plan.path') : unknown([ledgerText, floorText, why].filter(Boolean).join(' '), 'plan.path');
 
   /* ------------------------------------------------------- destination */
   // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.
@@ -530,13 +531,26 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     return { ...out, checked_out: !!p.checked_out, blocked: !!p.blocked || !!p.excluded };
   }), 'campaign.plan');
 
+  // PUSH-01: why a feasibility status moved since the previous run's served one; absent when it did not move.
+  const FEAS_TEXT = { on_track: 'on track', reachable: 'reachable with a trade', out_of_reach: 'out of reach' };
+  const statusChange = (was, now, pWas, pNow) => {
+    if (!FEAS_TEXT[was] || was === now) return {};
+    const odds = isProb(pWas) && isProb(pNow) && pct(pWas) !== pct(pNow) ? ` (chance ${pct(pWas)} -> ${pct(pNow)})` : '';
+    return { change_reason: `was ${FEAS_TEXT[was]}, now ${FEAS_TEXT[now]}${odds}` };
+  };
+  const prevField = k => (previous?.[k]?.status === 'ok' ? previous[k].value : null);
+
   const f = res.feasibility;
+  const pf = prevField('feasibility');
+  const pfp = prevField('feasibility_points');
   const feasibility = f?.kind === 'points' ? ok({
     points_per_week: f.target,
     projected_points: num(f.options?.[0]?.season_mean_after ?? f.now?.season_mean, 'sim.title', { unit: 'points_per_week' }),
     p_hit: num(f.how_likely, 'sim.title', { prob: true, unit: 'probability' }),
     by_week: week(f.by_when) ? ok(f.by_when, 'sim.title') : unknown('No option reaches the target inside the weeks simulated.', 'sim.title'),
+    status: f.status,
     ...(f.at_what_cost ? { cost_text: `${f.at_what_cost.players} player(s) over ${f.at_what_cost.steps} offer(s)` } : {}),
+    ...statusChange(pf?.status, f.status, pf?.p_hit?.value, f.how_likely),
   }, 'sim.title') : unknown(`points objective not set: this league is planned on ${LABEL[metric]}.`, 'sim.title');
 
   // FEAS-140: the points side panel, its own card. Title-odds (or playoff-odds) cost is the best
@@ -553,6 +567,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       : num(sp.cost.title_odds, 'sim.title', { unit, missing: 'No plan to price against.' }),
     bye_warnings: sp.warnings_count.bye, injury_warnings: sp.warnings_count.injury,
     ...(sp.cost.players ? { cost_text: `${sp.cost.players} player(s) over ${sp.cost.steps} offer(s)` } : {}),
+    ...statusChange(pfp?.outlook, sp.status, pfp?.p_hit?.value, sp.p_reach),
   }, 'sim.title') : unknown(o.kind === 'points' ? 'This league is already planned on points: see feasibility.'
     : 'Points side panel is off (GRIDIRON_POINTS_FEASIBILITY), or the world has no weekly lineup points.', 'sim.title');
 

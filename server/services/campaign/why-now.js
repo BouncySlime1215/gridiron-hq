@@ -15,7 +15,7 @@
  * The label moves no number: flag off vs on differs only in `why_now` paths
  * (test/radar-wire.test.js). Flag GRIDIRON_RADAR_WIRE: only =1 turns it on. Unset or anything
  * else is off, preview mode included (integration-9 policy: no unit switches on via
- * GRIDIRON_PREVIEW_UNCONFIRMED without its own flag).
+ * preview mode without its own flag).
  *
  * RADAR-GRADE: one ledger row per served flip row. A row with a direction predicts the sign of
  * the player's FantasyCalc value over GRADE_AFTER_DAYS; gradeLedger grades it once, against the

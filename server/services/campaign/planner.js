@@ -19,7 +19,9 @@ import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
 import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
+import { stopsMode, findHoles, priceHoles } from './stops.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
+import { deadlineMode, deadlineReport } from './deadline-mode.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
 import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
@@ -28,7 +30,7 @@ import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
-import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
+import { makeGetsFloor, heldAtEnd, makeStranded } from './gets-floor.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
@@ -164,6 +166,10 @@ export function planLeague(adapter, settings) {
   const floorOn = floor.sink.mode === 'on';
   // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
   const getOk = floor.sink.mode === 'off' ? null : floor.keep;
+  // FLIP-STRANDED (flag GRIDIRON_FLIP_STRANDED, on by default): what Nick holds after every leg but the last
+  // (a chained path's chip, a flip's leg-1 player) passes the same floor, so a "no" on the next leg never
+  // strands him under it. Shadow counts; '0' is off, loudly.
+  const stranded = makeStranded(adapter, { env, tolerances: objective.tolerances });
   // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
   const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
   const board = boardOf(adapter);
@@ -206,9 +212,12 @@ export function planLeague(adapter, settings) {
   // integration-7: FAIL CLOSED when the league has executed trades this season but the ledger came back
   // missing or empty: Nick's no-buy-back / no-reversal rules cannot be checked, so no move is served.
   const ledgerMissing = tmOn && Number(adapter.executedTradeRows) > 0 && !(adapter.tradeLedger?.trades?.length > 0);
-  const flip = ledgerMissing ? { ...flipAll, top: [], realised: [] }
+  const flipRuled = ledgerMissing ? { ...flipAll, top: [], realised: [] }
     : TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
   if (TM) tmCount.flips = flipAll.realised.filter(f => flipUntouched(f) && flipFails(f)).length;
+  // FLIP-STRANDED: leg 1 buys the player; if leg 2 is turned down Nick keeps him, so he must pass the floor.
+  const unstranded = list => list.filter(f => !stranded.flipStrands(f) || !stranded.on);
+  const flip = { ...flipRuled, top: unstranded(flipRuled.top), realised: unstranded(flipRuled.realised) };
 
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
@@ -352,6 +361,8 @@ export function planLeague(adapter, settings) {
     if (floorOn && claimDrops) claimDrops.floor += plans.filter(p => failsHeld(p) && hasClaim(p)).length;
     if (floorOn) plans = plans.filter(p => !failsHeld(p));
   }
+  // FLIP-STRANDED: every holding between legs, too (off: no read; shadow: counted, nothing dropped).
+  if (stranded.sink.mode !== 'off') plans = plans.filter(p => !stranded.pathStrands(p) || !stranded.on);
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
   // FLIP-CLAIMS: claim paths go through trade memory on their own, so the served counts are today's.
   const tmApplied = TM ? applyTradeMemory(plans.filter(p => !hasClaim(p)), TM, { env }) : null;
@@ -659,6 +670,13 @@ export function planLeague(adapter, settings) {
   // ladder) and the all-in mode's best plan are the two re-priced routes (speed.js).
   const conceded = best && playbook[0] ? concededPlan(best.planned_on ?? best, playbook[0].ladder) : null;
   const speed = speedCurve({ ranked, conceded, allIn: byMode.all_in[0] ?? null }, clock);
+  // TM-34 DEADLINE MODE (GRIDIRON_DEADLINE_MODE, shadow only, default off): countdown, send_by per deck step,
+  // last-call offer per partner, hold list, who goes quiet and the cost of waiting, all on the ranked paths.
+  const dlM = deadlineMode(env);
+  const deadline = dlM === 'off' ? undefined : deadlineReport({ mode: dlM, deadlineAt: L.deadline_at ?? null,
+    reviewHours: L.review_hours ?? null, now: settings.now ?? clockNow(), currentWeek: L.week, deadlineWeek: L.deadline_week ?? null,
+    ranked, deck, managers, roster: adapter.rosters.get(me) ?? [], excluded,
+    blocked: new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String)) });
 
   // Feasibility (row 9): points objective in full; player objective by path; weekly outlook always.
   let feasibility = null;
@@ -682,6 +700,18 @@ export function planLeague(adapter, settings) {
       arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
       give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
+  // STOPS-01 (GRIDIRON_STOPS: 1 serves, shadow reports, default off): bye / injury holes in Nick's weekly lineup,
+  // each priced as a plan-added stop on the ranked (rule-filtered) plans; off, nothing is computed.
+  const stopsM = stopsMode(env);
+  let stops;
+  if (stopsM !== 'off') {
+    const holes = nowWeeks ? findHoles({ weeks: nowWeeks, roster, currentWeek: L.week }) : [];
+    const blocked = new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String));
+    stops = { mode: stopsM, holes, rows: priceHoles({ holes, ranked, nowWeeks, currentWeek: L.week, daysLeftInWeek: clock.daysLeftInWeek,
+      weeklyOf: p => weeklyOf(p.steps[p.steps.length - 1].state), names: id => names(idOf(id)), blocked,
+      // integration-10a: priced against the served move's plan, covers only from plans that beat doing nothing on the confirm dice.
+      served: best?.planned_on ?? best ?? null, confirmed: p => !!confirmedActive(p) }) };
+  }
 
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
@@ -729,13 +759,14 @@ export function planLeague(adapter, settings) {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
     gets_floor: floor.sink,
+    flip_stranded: stranded.sink,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),

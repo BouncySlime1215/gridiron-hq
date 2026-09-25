@@ -42,6 +42,7 @@ export const DDL = `CREATE TABLE IF NOT EXISTS weekly_autopsy (
   optimal_expected_points REAL NOT NULL,
   starters INTEGER NOT NULL,
   unprojected_starters INTEGER NOT NULL,
+  unscored_starters INTEGER NOT NULL,
   lineup_basis TEXT NOT NULL,
   produced_at TEXT NOT NULL,
   PRIMARY KEY (league_id, season, week, team_id)
@@ -77,6 +78,10 @@ export function autopsyTeamWeek(rows, lineup = LINEUP) {
     optimal_expected_points: r2(optimal),
     starters: starters.length,
     unprojected_starters: starters.filter(r => r.projected_points == null).length,
+    // A starter with no actual stat line (bye, inactive) counts 0, exactly as ESPN scores him:
+    // the collector checks the starters sum to ESPN's team score with the same 0. Counted,
+    // not hidden, so a week with many of them can be read (or filtered) for what it is.
+    unscored_starters: starters.filter(r => r.actual_points == null).length,
   };
 }
 
@@ -94,7 +99,7 @@ export function leagueLineup(payloadText) {
 
 /**
  * Produce every finished team-week of the given leagues (default: every league with final
- * snapshots). Returns { weeks, rows, skipped_teams } counts for the tick's log line.
+ * snapshots). Returns { weeks, rows, skipped_teams, unscored_teams } counts for the tick's log line.
  */
 export function produceWeeklyAutopsy(database, { leagueIds = null, now = () => new Date().toISOString() } = {}) {
   ensureTable(database);
@@ -106,11 +111,11 @@ export function produceWeeklyAutopsy(database, { leagueIds = null, now = () => n
     FROM league_roster_snapshots WHERE league_id = ? AND season = ? AND scoring_period_id = ? AND source = 'final'`);
   const payloadOf = database.prepare('SELECT payload FROM leagues WHERE id = ?');
   const put = database.prepare(`INSERT OR REPLACE INTO weekly_autopsy (league_id, season, week, team_id, actual_points,
-      expected_points, optimal_expected_points, starters, unprojected_starters, lineup_basis, produced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      expected_points, optimal_expected_points, starters, unprojected_starters, unscored_starters, lineup_basis, produced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const lineups = new Map();
   const at = now();
-  let rows = 0, skipped = 0;
+  let rows = 0, skipped = 0, unscoredTeams = 0;
   const weeks = new Set();
   database.exec('BEGIN');
   try {
@@ -126,8 +131,9 @@ export function produceWeeklyAutopsy(database, { leagueIds = null, now = () => n
         const a = autopsyTeamWeek(teamRows, lineup);
         if (!a) { skipped++; continue; }
         put.run(p.league_id, p.season, p.week, team, a.actual_points, a.expected_points, a.optimal_expected_points,
-          a.starters, a.unprojected_starters, basis, at);
+          a.starters, a.unprojected_starters, a.unscored_starters, basis, at);
         rows++;
+        if (a.unscored_starters) unscoredTeams++;
       }
       weeks.add(`${p.league_id}:${p.season}:${p.week}`);
     }
@@ -136,5 +142,5 @@ export function produceWeeklyAutopsy(database, { leagueIds = null, now = () => n
     database.exec('ROLLBACK');
     throw e;
   }
-  return { weeks: weeks.size, rows, skipped_teams: skipped };
+  return { weeks: weeks.size, rows, skipped_teams: skipped, unscored_teams: unscoredTeams };
 }

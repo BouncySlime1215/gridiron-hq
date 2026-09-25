@@ -12,7 +12,7 @@
  * Off unless GRIDIRON_SOURCE_TABLES=1 (sources/flag.js): off, it prints one line and
  * touches nothing. Prints one summary line:
  *
- *   source_tables: autopsy 3 weeks 30 rows; moves captured 1, settled 1 (graded 1)
+ *   source_tables: autopsy 3 weeks 30 rows (0 with a starter who has no stat line); moves captured 1, settled 1 (graded 1), retrying 0
  *
  * A league whose capture or settle throws is reported on the line and the others go on;
  * exit 1 when anything failed. Importing this file runs nothing.
@@ -69,13 +69,14 @@ export function captureAll(database, P, { entries, generated_at = null, leagues 
 
 /** Settle every captured row whose week is now final. deps: { leagueRow, teams(lg), reprice(lg, row, move) }. */
 export function settleAll(database, P, { leagues = null, deps, now }) {
-  const out = { settled: 0, graded: 0, failed: [] };
+  const out = { settled: 0, graded: 0, retrying: 0, failed: [] };
   for (const row of P.dueRows(database)) {
     if (leagues && !leagues.includes(Number(row.league_id))) continue;
     try {
       const lg = deps.leagueRow(Number(row.league_id));
       if (!lg) throw new Error('league row gone');
       const r = P.settleRow(database, row, { teams: () => deps.teams(lg), reprice: (rw, m) => deps.reprice(lg, rw, m), now });
+      if (r.retry) { out.retrying++; continue; }
       out.settled++;
       if (r.graded) out.graded++;
     } catch (err) {
@@ -134,8 +135,8 @@ export async function main({ argv = process.argv.slice(2), env = process.env, lo
   const cap = captureAll(db, P, { ...plans, leagues, deps, now });
   const set = settleAll(db, P, { leagues, deps, now });
   failed.push(...cap.failed, ...set.failed);
-  log(`source_tables: autopsy ${autopsy ? `${autopsy.weeks} weeks ${autopsy.rows} rows` : 'FAILED'}; `
-    + `moves captured ${cap.captured}${plans.reason ? ` (${plans.reason})` : ''}, settled ${set.settled} (graded ${set.graded})`
+  log(`source_tables: autopsy ${autopsy ? `${autopsy.weeks} weeks ${autopsy.rows} rows (${autopsy.unscored_teams} with a starter who has no stat line)` : 'FAILED'}; `
+    + `moves captured ${cap.captured}${plans.reason ? ` (${plans.reason})` : ''}, settled ${set.settled} (graded ${set.graded}), retrying ${set.retrying}`
     + (failed.length ? ` | ERROR ${failed.join(' | ')}` : ''));
   return failed.length ? 1 : 0;
 }

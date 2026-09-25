@@ -31,17 +31,23 @@
  * It feeds a grader and moves no served number.
  */
 
+import { PINNED_NEVER_GIVE, PINNED_NEVER_GET } from '../../campaign/never-give.js';
+
 export const TABLE = 'planner_move_outcomes';
 export const ARMS = Object.freeze(['planner', 'finder', 'greedy']);
 /** The greedy baseline's fairness window on the market screen (e4-planner-replay.mjs#greedyMove). */
 export const GREEDY_SCREEN = Object.freeze({ low: -12, high: 18 });
 /**
- * Nick's hard filters, applied to the greedy baseline so it is a move he could actually make:
- * never give Nico Collins (160), Chase Brown (80) or A.J. Brown (277; his conditional rule is
- * not modelled by a baseline, so he is never given); never get Chris Olave.
+ * Nick's hard filters, applied to the greedy baseline so it is a move he could actually make.
+ * The ids are the one pinned list (campaign/never-give.js, #398): never give Nico Collins (160),
+ * Chase Brown (80) or A.J. Brown (277); never get Chris Olave (290). The name check on Olave
+ * also holds when a roster's ids do not resolve.
  */
-export const GREEDY_NEVER_GIVE = Object.freeze(['160', '80', '277']);
+export const GREEDY_NEVER_GIVE = PINNED_NEVER_GIVE;
+export const GREEDY_NEVER_GET = PINNED_NEVER_GET;
 export const GREEDY_NEVER_GET_NAMES = Object.freeze(['chris olave']);
+/** Ticks a week may retry a failed re-price before it settles as ungraded. */
+export const MAX_SETTLE_ATTEMPTS = 4;
 
 export const DDL = `CREATE TABLE IF NOT EXISTS planner_move_outcomes (
   league_id INTEGER NOT NULL,
@@ -61,6 +67,7 @@ export const DDL = `CREATE TABLE IF NOT EXISTS planner_move_outcomes (
   greedy_gain REAL,
   greedy_gain_se REAL,
   settle_note TEXT,
+  settle_attempts INTEGER NOT NULL DEFAULT 0,
   settled_at TEXT,
   PRIMARY KEY (league_id, season, week)
 )`;
@@ -106,19 +113,25 @@ export function finderArm(best) {
  * his lineup points, never touching GREEDY_NEVER_GIVE or getting GREEDY_NEVER_GET_NAMES.
  */
 export function greedyMove({ teams, me, lineupPoints, positions = ['QB', 'RB', 'WR', 'TE'],
-  neverGive = GREEDY_NEVER_GIVE, neverGetNames = GREEDY_NEVER_GET_NAMES, screen = GREEDY_SCREEN }) {
+  neverGive = GREEDY_NEVER_GIVE, neverGet = GREEDY_NEVER_GET, neverGetNames = GREEDY_NEVER_GET_NAMES, screen = GREEDY_SCREEN }) {
   const mine = teams.find(t => String(t.roster_id) === String(me));
   if (!mine) return armError(`team ${me} not in the league's rosters`);
   const blockGive = new Set(neverGive.map(String));
+  const blockGetIds = new Set(neverGet.map(String));
   const blockGet = new Set(neverGetNames.map(n => n.toLowerCase()));
   const tradable = p => positions.includes(p.position) && Number(p.value) > 0;
+  // No market value on any of his players means the values failed to load, not that no fair
+  // deal exists: that is an ungradable arm, never a "do nothing" that would settle as gain 0.
+  if (!mine.players.some(p => positions.includes(p.position) && Number(p.value) > 0)) {
+    return armError(`no market values on team ${me}'s players`);
+  }
   const gives = mine.players.filter(p => tradable(p) && !blockGive.has(String(p.id)));
   const now = lineupPoints(mine.players);
   let best = null;
   for (const t of teams) {
     if (String(t.roster_id) === String(me)) continue;
     for (const get of t.players) {
-      if (!tradable(get) || blockGet.has(String(get.name ?? '').toLowerCase())) continue;
+      if (!tradable(get) || blockGetIds.has(String(get.id)) || blockGet.has(String(get.name ?? '').toLowerCase())) continue;
       for (const give of gives) {
         const pct = (Number(give.value) - Number(get.value)) / Number(get.value) * 100;
         if (!(pct >= screen.low && pct <= screen.high)) continue;
@@ -179,10 +192,14 @@ export function moveProblems(teams, me, move) {
 /**
  * Settle one captured row. deps: { teams(row) -> rosters now, reprice(row, move) -> { title_delta,
  * title_delta_se } | { error } }. Writes the gains (NULL where an arm cannot be graded) and a note.
+ * A failed re-price is transient: the row stays unsettled (settle_attempts + 1) and the next tick
+ * retries it, up to MAX_SETTLE_ATTEMPTS; only then does it settle with that arm NULL. Players who
+ * left the rosters, or an arm whose capture failed, settle NULL at once (retrying cannot fix them).
  */
-export function settleRow(database, row, { teams, reprice, now = () => new Date().toISOString() }) {
+export function settleRow(database, row, { teams, reprice, now = () => new Date().toISOString(),
+  maxAttempts = MAX_SETTLE_ATTEMPTS }) {
   const out = {}, notes = [];
-  let rosters = null;
+  let rosters = null, transient = false;
   for (const a of ARMS) {
     let arm;
     try { arm = JSON.parse(row[`${a}_arm`]); } catch (e) { arm = armError(`unreadable arm: ${e.message}`); }
@@ -191,18 +208,28 @@ export function settleRow(database, row, { teams, reprice, now = () => new Date(
     rosters = rosters ?? teams(row);
     const problems = moveProblems(rosters, row.me, arm.move);
     if (problems.length) { out[a] = { gain: null, se: null }; notes.push(`${a}: ${problems.join('; ')}`); continue; }
-    const r = reprice(row, arm.move);
+    let r;
+    try { r = reprice(row, arm.move); } catch (e) { r = { error: String(e?.message ?? e) }; }
     if (!r || r.error || !Number.isFinite(r.title_delta)) {
       out[a] = { gain: null, se: null };
+      transient = true;
       notes.push(`${a}: reprice failed (${String(r?.error ?? 'no title_delta').slice(0, 120)})`);
       continue;
     }
     out[a] = { gain: r.title_delta, se: Number.isFinite(r.title_delta_se) ? r.title_delta_se : null };
   }
+  const attempts = Number(row.settle_attempts ?? 0) + 1;
+  const note = notes.length ? notes.join(' | ').slice(0, 1000) : null;
+  if (transient && attempts < maxAttempts) {
+    database.prepare(`UPDATE planner_move_outcomes SET settle_attempts = ?, settle_note = ?
+      WHERE league_id = ? AND season = ? AND week = ?`)
+      .run(attempts, `attempt ${attempts} of ${maxAttempts}: ${note}`.slice(0, 1000), row.league_id, row.season, row.week);
+    return { graded: false, retry: true, gains: out, notes };
+  }
   database.prepare(`UPDATE planner_move_outcomes SET planner_gain = ?, planner_gain_se = ?, finder_gain = ?,
-      finder_gain_se = ?, greedy_gain = ?, greedy_gain_se = ?, settle_note = ?, settled_at = ?
+      finder_gain_se = ?, greedy_gain = ?, greedy_gain_se = ?, settle_note = ?, settle_attempts = ?, settled_at = ?
     WHERE league_id = ? AND season = ? AND week = ?`)
     .run(out.planner.gain, out.planner.se, out.finder.gain, out.finder.se, out.greedy.gain, out.greedy.se,
-      notes.length ? notes.join(' | ').slice(0, 1000) : null, now(), row.league_id, row.season, row.week);
-  return { graded: ARMS.every(a => out[a].gain != null), gains: out, notes };
+      note, attempts, now(), row.league_id, row.season, row.week);
+  return { graded: ARMS.every(a => out[a].gain != null), retry: false, gains: out, notes };
 }

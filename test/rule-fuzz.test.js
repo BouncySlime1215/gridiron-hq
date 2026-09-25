@@ -123,6 +123,17 @@ test('the oracle catches each rule on a hand-built result', () => {
     const got = countByRule(ruleViolations(a, { ...res, best: p }));
     assert.ok(got[rule] > 0, `${rule} not caught: ${JSON.stringify(got)}`);
   }
+  // Flip claims (Nick 2026-09-25): a claimed free agent traded away later passes between legs; claimed and
+  // kept, or got by trade, a sub-83 piece between legs fails.
+  const blueThere = a.rosters.get(other).find(id => id !== cheap && id !== OLAVE_ID && a.scoreOf(id).score >= 83);
+  const fa = 7777;
+  const faClaim = step('free_agent', [mine.filter(id => id > 999)[2]], [fa]);
+  const stranded = steps => countByRule(ruleViolations(a, { ...res, best: plan(steps) })).stranded_hold;
+  if (blueThere) {
+    assert.equal(stranded([{ ...faClaim, claim: true }, step(other, [fa, mine.filter(id => id > 999)[1]], [blueThere])]), 0, 'a claim flipped later passes');
+    assert.equal(stranded([{ ...faClaim, claim: true }, step(other, [mine.filter(id => id > 999)[1]], [blueThere])]), 1, 'a claim held at the end fails');
+    assert.equal(stranded([step(other, [mine.filter(id => id > 999)[2]], [cheap]), step(other, [cheap, mine.filter(id => id > 999)[1]], [blueThere])]), 1, 'a traded-for sub-83 intermediate fails');
+  }
   // Sending back a player Nick got is not itself a rule break (only the two-way undo is).
   const gotBack = moves.find(m => m.to === me);
   const oneWay = countByRule(ruleViolations(a, { ...res, best: plan([step(gotBack.from, [gotBack.player], [cheap])]) }));

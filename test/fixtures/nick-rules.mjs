@@ -22,7 +22,9 @@
  *                  steps, a flip's leg 1, a LADDER-01 card's rungs), every player Nick then holds that he
  *                  did not start with scores 83+: if the next leg is turned down he keeps him. Each leg's
  *                  own never-give, overpay and buy-back checks are the offer rules above (every leg is an
- *                  offer), so this rule only adds the floor on what he holds in between.
+ *                  offer), so this rule only adds the floor on what he holds in between. Flip claims
+ *                  (Nick 2026-09-25): a player got by a waiver claim (step.claim) and traded away in a
+ *                  later leg of the same path is exempt; claimed and kept, he is not.
  *   beats_no_trade every move served as something to send beats doing nothing on the confirm dice:
  *                  - deck cards: confirm.verdict is not 'failed', beats_no_trade is not false, and the
  *                    confirm-dice expected gain (plan.expected) is > 0;
@@ -120,10 +122,14 @@ export function strandedAfterLegs(steps, startIds) {
   const start = new Set((startIds ?? []).map(S));
   const held = new Set(start);
   const out = [];
+  const flipClaim = new Set();
+  for (const [i, st] of steps.entries()) {
+    if (st.claim) for (const id of st.get) if (steps.slice(i + 1).some(x => x.give.map(S).includes(S(id)))) flipClaim.add(S(id));
+  }
   for (const [i, st] of steps.entries()) {
     for (const id of st.give) held.delete(S(id));
     for (const id of st.get) held.add(S(id));
-    if (i < steps.length - 1) for (const id of held) if (!start.has(id)) out.push({ leg: i, player: id });
+    if (i < steps.length - 1) for (const id of held) if (!start.has(id) && !flipClaim.has(id)) out.push({ leg: i, player: id });
   }
   return out;
 }

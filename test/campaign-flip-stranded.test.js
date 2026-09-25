@@ -12,7 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { heldAfterEachLeg, strandedHolds, flipStrandedFlag, FLIP_STRANDED_ENV, FLIP_STRANDED_OFF_WARNING, heldAtEnd } =
+const { heldAfterEachLeg, strandedHolds, isFlipPieceClaim, flipStrandedFlag, FLIP_STRANDED_ENV, FLIP_STRANDED_OFF_WARNING, heldAtEnd } =
   await import('../server/services/campaign/gets-floor.js');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
@@ -39,6 +39,24 @@ test('strandedHolds: only the legs before the last; ids are strings; the end is 
   // Three legs: each hold before the last is read once per leg it is held after.
   assert.deepEqual(strandedHolds([{ give: [1], get: [50] }, { give: [2], get: [51] }, { give: [50, 51], get: [99] }], passes),
     [{ leg: 0, player: '50' }, { leg: 1, player: '50' }, { leg: 1, player: '51' }]);
+});
+
+test('flip claims (Nick 2026-09-25): a waiver claim traded away later in the same path is exempt between legs', () => {
+  const passes = id => String(id) === '99';
+  const claim = { team: 'free_agent', claim: true, give: [3], get: [70] };
+  const flipped = [claim, { team: '2', give: [70, 1], get: [99] }];
+  assert.equal(isFlipPieceClaim(claim, flipped), true);
+  assert.deepEqual(strandedHolds(flipped, passes), [], 'a claim flipped later passes');
+  // A claim never traded away is held at the end: no exemption (and GETS-FLOOR checks the end).
+  const kept = [claim, { team: '2', give: [1], get: [99] }];
+  assert.equal(isFlipPieceClaim(claim, kept), false);
+  assert.deepEqual(strandedHolds(kept, passes), [{ leg: 0, player: '70' }], 'a claim held at the end fails');
+  // The same player got by TRADE is not exempt: only the claim source is.
+  const traded = [{ ...claim, team: '4', claim: undefined }, flipped[1]];
+  assert.equal(isFlipPieceClaim(traded[0], traded), false);
+  assert.deepEqual(strandedHolds(traded, passes), [{ leg: 0, player: '70' }], 'a traded-for sub-83 intermediate fails');
+  // A step outside the path is never a flip piece.
+  assert.equal(isFlipPieceClaim(claim, [flipped[1]]), false);
 });
 
 test('the flag: on by default, shadow counts, only an explicit 0 turns it off, loudly', () => {

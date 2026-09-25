@@ -12,6 +12,9 @@ Modes
   (default)       incremental: only rows with ROWID > MAX(msg_id) already stored
   --classify      after extracting, run the Jev classifier on unlabeled rows
   --rollup        recompute per-manager chat profile tables from the labels
+  --screenshots   OCR new trade screenshots (group + league-mate DMs) on this Mac and
+                  parse them into screenshot_trades (scripts/chat/screenshot_offers.py;
+                  on-device Vision, no network; prints counts only)
 
 Run it whenever the laptop is on (Nick, 2026-09-17: "have it backfill chats when
 the laptop is on — and then rediagnose the new ones and add it to our database
@@ -22,6 +25,7 @@ Requires Full Disk Access for the terminal/Claude (already granted). Output DB
 except message text sent to Jev under standard retention (Nick's choice).
 """
 import argparse, json, os, sqlite3, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
@@ -350,6 +354,8 @@ def main():
     ap.add_argument('--full', action='store_true')
     ap.add_argument('--classify', action='store_true')
     ap.add_argument('--rollup', action='store_true')
+    ap.add_argument('--screenshots', action='store_true')
+    ap.add_argument('--app-db', default=None, help='app DB for --screenshots (read-only)')
     a = ap.parse_args()
     new = extract(full=a.full)
     failed = 0
@@ -364,6 +370,12 @@ def main():
     after, retryable, given_up, errors = classifier_failures()
     this_run = report_classifier_failures(before, after, errors, retryable, given_up)
     if a.rollup: rollup()
+    if a.screenshots:
+        # Local only: Vision OCR under a no-network sandbox; OCR text stays in this DB and
+        # never enters `messages`, so the classifier above never sends it anywhere.
+        import screenshot_offers
+        counts = screenshot_offers.run(SRC, OUT, a.app_db or screenshot_offers.default_app_db())
+        print('screenshot_offers_status ' + json.dumps(counts))
     # One machine-readable line, always last before any exit: the refresh loop turns it
     # into the sync_log 'league_chat' row (partial while failures are outstanding).
     print('league_chat_status ' + json.dumps({

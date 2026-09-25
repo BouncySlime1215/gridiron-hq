@@ -355,6 +355,11 @@ const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
  * same construction for the League Hub card.
  */
 export function startSitWeekPoints(p, season, week) {
+  // PROJ-ESPN: the served week is unknown (stale ESPN capture, or none before his kickoff):
+  // say so (null), never fall back to another number.
+  if (p?.week_projection?.status === 'unknown') {
+    return { week_points: null, vegas: { multiplier: 1, line: null, applied: false }, unknown: p.week_projection.reason };
+  }
   // BROKEN-G flag on: the asset already carries blend.week (blend-week.js), built
   // this same way once per universe; read it instead of lifting a second time.
   if (Number.isFinite(p?.blend_week)) {

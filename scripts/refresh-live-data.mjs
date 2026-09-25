@@ -88,6 +88,10 @@ export const FANTASY_LIVE_JOBS = [
   // capture window (Tue after waivers, Sat morning, 2 h before each kickoff) it fetches
   // nothing. The loop is the only thing that runs it while SCHEDULER_DISABLED=1.
   'espn_weekly_projection_capture',
+  // PROJ-ESPN (#446): the served weekly projection is the frozen ESPN capture above; this logs
+  // our own number as a shadow, the weekly ranges' realised coverage (+ the Tuesday k refit
+  // rule) and the per-offer value-gain features. Hourly by its own maxAge.
+  'proj_espn',
   // 2026-09-18 structural relook: both fully configured in scheduler.js already
   // (refreshNflModelGrowth, refreshFfOpportunity) but scheduler-only, so player_week_usage
   // was stuck at the season's first week while SCHEDULER_DISABLED=1 — silently inverting

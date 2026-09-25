@@ -1299,6 +1299,16 @@ async function refreshEspnWeeklyProjectionCapture() {
   return runEspnWeeklyProjectionCapture();
 }
 
+/**
+ * PROJ-ESPN (#446): the shadow log of our own weekly projection beside the served frozen ESPN
+ * one, the weekly-range coverage log and its Tuesday k refit rule, and the offer value-gain
+ * log (server/services/proj-espn-job.js). Hourly; cheap when nothing changed.
+ */
+async function refreshProjEspn() {
+  const { runProjEspnJob } = await import('./proj-espn-job.js');
+  return runProjEspnJob();
+}
+
 export const JOBS = {
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1372,6 +1382,8 @@ export const JOBS = {
   // usable closing reference for settlement and so finals land within the hour.
   espn_weekly_projection_capture: { run: refreshEspnWeeklyProjectionCapture, maxAgeMinutes: 15, tier: 'live',
     offThread: true, label: 'Frozen pre-kickoff ESPN weekly projections (E-XGB; append-only)' },
+  proj_espn: { run: refreshProjEspn, maxAgeMinutes: 60, tier: 'live', offThread: true,
+    label: 'PROJ-ESPN: weekly projection shadow log, range coverage + k refit, offer value-gain log' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
   nfl_forward_settle: { run: refreshForwardSettlement, maxAgeMinutes: 30, tier: 'live',
     label: 'Settle forward picks (CLV grading) shortly after a game goes final' },

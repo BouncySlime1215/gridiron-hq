@@ -28,6 +28,7 @@ import { basis02Flag } from './sim-basis.js';
 import { gameShocksFlag } from './correlation.js';
 import { tradeWeekContext } from './trade-engine.js';
 import { oneWorldFlag, oneWorldSeed, oneWorldPreviewFields, rangeFromPool } from './one-world.js';
+import { projEspnFlag, espnSnapshotStamp } from './espn-week-projection.js';
 
 /**
  * Runs in the one world: the count every trade delta already uses
@@ -50,7 +51,10 @@ function snapshotKey(lg) {
     from_week: simStartWeek(lg), scoring: scoringFor(lg), basis: (rosBasisFlag().on ? 'ros' : 'last_season') + (basis02Flag().on ? '+basis02' : ''),
     runs: ONE_WORLD_RUNS,
     // GAME-SHOCKS: a flag flip is a new world; absent when off, so the key is unchanged.
-    ...(gameShocksFlag().on ? { game_shocks: true } : {})
+    ...(gameShocksFlag().on ? { game_shocks: true } : {}),
+    // PROJ-ESPN: the weekly range reads the served ESPN centres and width k off the world's
+    // asset universe, so a new capture (or a refit k) is a new snapshot. Absent when off.
+    ...(projEspnFlag().on ? { proj_espn: espnSnapshotStamp({ season, week, leagueRowId: lg.id }) } : {})
   });
 }
 

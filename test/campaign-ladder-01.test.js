@@ -229,3 +229,72 @@ test('the schema\'s rung tiers are the module\'s', async () => {
   assert.deepEqual([...LADDER_TIERS], [...L.TIERS]);
   assert.ok(OPTIONAL_SECTIONS.includes('ladders'), 'a file written before LADDER-01 still validates');
 });
+
+/* --------------------------------- review fixes (coordinator batch-B on #394) */
+
+test('review 1: everything Nick holds at the end must be 83+, not only the target (1-for-2 rung)', () => {
+  // Rung 1 takes 5 AND 6 for 1; rung 2 spends 5 on the Blue-chip 7. 6 (score 60) is still held.
+  const sc3 = { ...sc, 6: 60 };
+  const players3 = new Map([...players, ['6', { value: 0 }]]);
+  const held = plan('7', [step('2', ['1'], ['5', '6']), step('3', ['5'], ['7'])]);
+  const out = ladderCards([held], { mode: 'balanced', scoreOf: id => (sc3[id] == null ? null : { score: sc3[id] }), players: players3 });
+  assert.equal(out.cards.length, 0);
+  assert.equal(out.dropped_by_reason.held_below_floor, 1);
+  // An unscored held piece fails closed.
+  const out2 = ladderCards([plan('7', [step('2', ['1'], ['5', '98']), step('3', ['5'], ['7'])])],
+    { mode: 'balanced', scoreOf: scoreOf2, players: new Map([...players, ['98', { value: 0 }]]) });
+  assert.equal(out2.dropped_by_reason.held_unscored, 1);
+  // Spent on later: a piece given on is not held.
+  assert.equal(cardsFor([plan('7', [step('2', ['1'], ['5']), step('3', ['5'], ['7'])])]).cards.length, 1);
+});
+
+test('review 2: a backup is offered only when it beats doing nothing on the confirm dice; else labelled planning dice', () => {
+  const a = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.05)]);
+  const b = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.04)]);
+  const card = out => out.cards.find(x => x.rungs[1].partner === '3');
+  // No confirm dice: the backup is shown, labelled as a planning-dice number.
+  const plain = card(cardsFor([a, b]));
+  assert.equal(plain.rungs[1].on_no.kind, 'backup');
+  assert.equal(plain.rungs[1].on_no.dice, 'planning');
+  // Confirm dice say b does not beat doing nothing: no backup, stop.
+  const failed = card(cardsFor([a, b], { confirmed: () => null }));
+  assert.equal(failed.rungs[1].on_no.kind, 'stop');
+  // Confirm dice keep b: its confirm-dice expected is what the card shows.
+  const held = card(cardsFor([a, b], { confirmed: q => (q === b ? 0.02 : 0.03) }));
+  assert.equal(held.rungs[1].on_no.kind, 'backup');
+  assert.equal(held.rungs[1].on_no.dice, 'confirm');
+  assert.equal(held.rungs[1].on_no.expected, 0.02);
+});
+
+test('review 3: any player Nick sold is never bought back on any rung (sold set, 290 still pinned)', () => {
+  const buyback = plan('7', [step('2', ['1'], ['171']), step('3', ['171'], ['7'])]);
+  const ps = new Map([...players, ['171', { value: 100 }]]);
+  const out = ladderCards([buyback], { mode: 'balanced', scoreOf: scoreOf2, players: ps, sold: new Set(['171']) });
+  assert.equal(out.cards.length, 0);
+  assert.equal(out.dropped_by_reason.sold, 1);
+  // A function works too (trade memory's excluded(id)).
+  assert.equal(ladderCards([buyback], { mode: 'balanced', scoreOf: scoreOf2, players: ps, sold: id => (id === '171' ? 'sold_recently' : null) })
+    .dropped_by_reason.sold, 1);
+  // 290 stays pinned with no sold set at all.
+  assert.equal(cardsFor([plan('7', [step('2', ['1'], ['290']), step('3', ['290'], ['7'])])]).dropped_by_reason.never_get, 1);
+});
+
+test('review 4: the destination\'s untouchables are applied beside adapter.untouchable', () => {
+  const p = plan('7', [step('2', ['2'], ['5']), step('3', ['5'], ['7'])]);
+  const out = cardsFor([p], { objectiveUntouchables: ['2'] });
+  assert.equal(out.cards.length, 0);
+  assert.equal(out.dropped_by_reason.gives_untouchable, 1);
+});
+
+test('review 4 + 5: planner passes objective untouchables; the section says planning dice', () => {
+  const off = run({ GRIDIRON_LADDER: '1' });
+  const given = new Set(off.res.ladders.cards.flatMap(c => c.rungs.flatMap(r => r.give)));
+  assert.ok(given.size > 0, 'control: the fixture ladders give something');
+  const ban = [...given][0];
+  const a = makeAdapter();
+  a.scoreOf = id => ({ score: SCORE_FIX[id] ?? 30 });
+  const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced', untouchables: [ban] }), env: { GRIDIRON_LADDER: '1' } });
+  for (const c of res.ladders.cards) for (const r of c.rungs) assert.ok(!r.give.includes(ban));
+  assert.equal(off.entry.ladders.value.dice, 'planning');
+  assert.match(off.entry.ladders.value.basis, /planning dice/);
+});

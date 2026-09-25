@@ -49,3 +49,23 @@ Scores given in the test: 11 = 90, 22 = 85, 12 = 75, 32 = 70, 13 = 60.
 | all_in | 1 / 5 | 0 / 5 | 11, 22 |
 
 Shadow: 2 would-drop (12 and 13), served output unchanged.
+
+## Review round 1 (coordinator review on the PR)
+
+RED `b549e59` · GREEN follows · 4 new or changed cases fail
+on the first GREEN, pass after.
+
+- **Flip leg 2 is a final get.** Nick ends a flip holding leg 2's players.
+  `flipLegs` and `flipMap` now take the floor's `getOk`; a flip the floor
+  empties says `no_leg_floor` ("every fair package from Team B for him is under
+  your get floor"). Fixture, flag on, all modes: legs ending on 12 (75) x4 and
+  32 (70) x1 -> 0.
+- **A 2-for-1 filler rides the final leg**, so it is floored too. Target 22:
+  fillers 24 / 25 (score 20) -> none.
+- **Never give 160, 80, 277** (`never-give.js`), pinned by id on Nick's roster,
+  so the rule holds with no notes. 277 is pinned until AJ-HEALTHY prices him
+  (ONE-PLAN night 5). A test gives the same three players other ids and shows
+  they get traded, so the pin is what protects them.
+- `min_get_score` can only raise the floor above 83. Shadow scans the same
+  candidates as on, so `would_drop` equals on's `dropped`. The card wording
+  comes from one `floorName`.

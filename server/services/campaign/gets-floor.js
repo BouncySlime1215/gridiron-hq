@@ -28,11 +28,14 @@ export function getsFloorFlag(env = {}) {
   return 'off';
 }
 
-/** The destination's min_get_score when it is a number >= 0, else the default. */
+/** The destination's min_get_score may only RAISE the floor (Nick's 83 is the least); anything else is the default. */
 export function getFloorOf(tol) {
   const v = Number(tol?.min_get_score);
-  return tol?.min_get_score != null && Number.isFinite(v) && v >= 0 ? v : DEFAULT_GET_FLOOR;
+  return tol?.min_get_score != null && Number.isFinite(v) ? Math.max(DEFAULT_GET_FLOOR, v) : DEFAULT_GET_FLOOR;
 }
+
+/** How a card names the floor: "Blue chip floor (83+)", "Blue chip floor (88+)". */
+export const floorName = floor => `Blue chip floor (${floor}+)`;
 
 /** One player against the floor. scoreOf: adapter.scoreOf (id -> { score, label } | null), or null. */
 export function floorRead(scoreOf, pid, floor) {
@@ -46,9 +49,10 @@ export function floorRead(scoreOf, pid, floor) {
 }
 
 /**
- * The planner's floor for one league run. keep(pid): whether the target may be searched (always true
- * unless the flag is on); every read is counted once per player, so `dropped` counts every candidate get
- * the floor skipped (targets and the suggestions list alike). refuse(pid): a target Nick named.
+ * The planner's floor for one league run. keep(pid): whether a player may be a final get (a target,
+ * a 1-for-2 filler on the final leg, a flip's leg-2 player); always true unless the flag is on. Every
+ * read is counted once per player, so `dropped` (on) and `would_drop` (shadow, which reads the same
+ * candidates as on) count every candidate get the floor skipped. refuse(pid): a target Nick named.
  */
 export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
   const mode = getsFloorFlag(env);
@@ -73,6 +77,7 @@ export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
   };
   return {
     sink,
+    read,
     keep: pid => (mode === 'off' ? true : read(pid).passes || mode !== 'on'),
     refuse: pid => {
       const r = read(pid);

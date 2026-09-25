@@ -26,6 +26,7 @@ import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
 import { makeGetsFloor } from './gets-floor.js';
+import { withNeverGive } from './never-give.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -95,6 +96,8 @@ export function planLeague(adapter, settings) {
   // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
   const CP = adapter.counterparts ?? null;
   if (CP) adapter = withCounterparts(adapter, CP);
+  // NEVER-GIVE: Nico Collins, Chase Brown and A.J. Brown are never offered, notes or no notes.
+  adapter = withNeverGive(adapter);
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -117,9 +120,15 @@ export function planLeague(adapter, settings) {
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
   const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
   const overpay = newOverpaySink(maxOverpay);
+  // GETS-FLOOR (flag GRIDIRON_GETS_FLOOR: 1 on, shadow, unset off): the final get must score 83+ on the blue-chip
+  // score. On, a target under the floor is never searched and the next one that passes takes its slot.
+  const floor = makeGetsFloor(adapter, { env, tolerances: objective.tolerances });
+  const floorOn = floor.sink.mode === 'on';
+  // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
+  const getOk = floor.sink.mode === 'off' ? null : floor.keep;
   const vals = playerValues(S, adapter, objective);
   mark('values');
-  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
+  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay, getOk,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
 
   mark('flip');
@@ -134,15 +143,12 @@ export function planLeague(adapter, settings) {
   const untouchable = adapter.untouchable ?? new Set();
   const refused = [];
   const wanted = [];
-  // GETS-FLOOR (flag GRIDIRON_GETS_FLOOR: 1 on, shadow, unset off): the final get must score 83+ on the blue-chip
-  // score. On, a target under the floor is never searched and the next one that passes takes its slot.
-  const floor = makeGetsFloor(adapter, { env, tolerances: objective.tolerances });
-  const floorOn = floor.sink.mode === 'on';
+  // Shadow scans the same candidates as on (so would_drop matches on's dropped) and serves the unfloored list.
   const floored = n => {
-    if (!floorOn) return upgrades.slice(0, n);
+    if (floor.sink.mode === 'off') return upgrades.slice(0, n);
     const out = [];
-    for (const pid of upgrades) { if (out.length >= n) break; if (floor.keep(pid)) out.push(pid); }
-    return out;
+    for (const pid of upgrades) { if (out.length >= n) break; if (floor.read(pid).passes) out.push(pid); }
+    return floorOn ? out : upgrades.slice(0, n);
   };
   const want = (pid, named = false) => {
     if (pid == null) return;
@@ -158,7 +164,7 @@ export function planLeague(adapter, settings) {
   if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   mark('search');

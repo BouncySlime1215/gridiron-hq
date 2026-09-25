@@ -25,6 +25,7 @@ import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
+import { floorName as getsFloorName } from './gets-floor.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -256,7 +257,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
   // GETS-FLOOR: with the floor on and no move, say first that the floor is what emptied the deck.
   const gf = res.gets_floor?.mode === 'on' ? res.gets_floor : null;
-  const floorName = gf ? `${gf.floor === 83 ? 'Blue chip floor' : 'get floor'} (${gf.floor}+)` : null;
+  const floorName = gf ? getsFloorName(gf.floor) : null;
   const floorText = !gf ? null
     : gf.source === 'none' ? `The ${floorName} is on but there is no player score this run, so no get can be certified.`
       : gf.refused.length ? `${gf.refused.map(r => `${nm(r.player)} ${r.score == null ? 'has no score' : `scores ${Math.round(r.score)}`}`).join('; ')}, under the ${floorName}.`

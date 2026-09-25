@@ -101,7 +101,9 @@ export interface Target {
 }
 
 export interface BuyLow {
-  role: 'detected' | 'confirmed';
+  /** 2: gap only (served since 2026-09-25); 1: usage up + gap. */
+  rule: 1 | 2;
+  role?: 'detected' | 'confirmed';
   points_below_expected: number;
   games: number;
   usage_change: number | null;

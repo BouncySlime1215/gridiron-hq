@@ -11,7 +11,7 @@
  */
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { scoreBuyLow, priorGames, BUY_LOW_RULE } from '../../server/services/campaign/buy-low.js';
+import { scoreBuyLow, scoreBuyLowV2, priorGames, BUY_LOW_RULE } from '../../server/services/campaign/buy-low.js';
 
 const SEASONS = [2023, 2024, 2025];
 const WEEKS = { from: 4, to: 15 };
@@ -31,14 +31,14 @@ function rng(seed) {
 }
 const mean = xs => xs.reduce((s, x) => s + x, 0) / xs.length;
 
-export function loadGames(db) {
+export function loadGames(db, { seasons = SEASONS } = {}) {
   const rows = db.prepare(`SELECT o.player_gsis_id AS gsis, o.position, o.season, o.week,
       o.expected_fantasy_points AS xfp, o.actual_fantasy_points AS act, u.target_share, u.carries, u.targets
     FROM nfl_ffopportunity_weekly o
     LEFT JOIN players p ON p.gsis_id = o.player_gsis_id
     LEFT JOIN player_week_usage u ON u.player_id = p.id AND u.season = o.season AND u.week = o.week
     WHERE o.season BETWEEN ? AND ? AND o.week <= ? AND o.position IN ('QB','RB','WR','TE')`)
-    .all(SEASONS[0] - 1, SEASONS[SEASONS.length - 1], BUY_LOW_RULE.last_regular_week);
+    .all(Math.min(...seasons) - 1, Math.max(...seasons), BUY_LOW_RULE.last_regular_week);
   const by = new Map();
   const seen = new Set();
   for (const r of rows) {
@@ -54,10 +54,10 @@ export function loadGames(db) {
 }
 
 /** Every eligible player-week (prereg "Test"), with the detector's read as of that week. */
-export function buildRows(players) {
+export function buildRows(players, { seasons = SEASONS } = {}) {
   const out = [];
   for (const [gsis, p] of players) {
-    for (const season of SEASONS) {
+    for (const season of seasons) {
       for (let W = WEEKS.from; W <= WEEKS.to; W++) {
         const T = priorGames(p.games, { season, week: W }).filter(g => g.season === season).sort((a, b) => a.week - b.week).slice(-3);
         if (T.length < 2) continue;
@@ -69,6 +69,7 @@ export function buildRows(players) {
         const prior3 = mean(T.map(g => g.act));
         out.push({ gsis, season, W, position: p.position, prior3, xfpT, gain: mean(next.map(g => g.act)) - prior3,
           flag: read.buy_low === true, role: read.role, status: read.status,
+          flagV2: scoreBuyLowV2(p, { season, week: W }).buy_low === true,
           gapOnly: (xfpT - prior3) * T.length / (T.length + BUY_LOW_RULE.shrink_games) >= BUY_LOW_RULE.min_gap_ppg });
       }
     }
@@ -99,6 +100,8 @@ export function effects(rows, { isFlag = r => r.flag, matchXfp = false, subset =
 }
 
 /** Mean effect with a percentile bootstrap CI over player-season clusters. */
+export { rng, mean, POSITIONS, MIN_ROWS, B, SEED };
+
 export function bootstrap(eff, { b = B, seed = SEED } = {}) {
   if (!eff.length) return { n: 0, clusters: 0, estimate: null, lo: null, hi: null };
   const cl = new Map();

@@ -9,7 +9,7 @@
  * 'no_games' / 'no_baseline'; it is never thrown and never an empty 'ok'.
  */
 
-import { scoreBuyLow, BUY_LOW_RULE } from './buy-low.js';
+import { scoreBuyLow, scoreBuyLowV2, SERVED_RULE, BUY_LOW_RULE } from './buy-low.js';
 
 const IN = ids => ids.map(() => '?').join(', ');
 
@@ -19,10 +19,11 @@ function hasTable(db, name) {
 
 /**
  * @param db { row, rows } (server/db/index.js shape)
- * @param opts { season, week (weeks < week are read), ids (app player ids) }
+ * @param opts { season, week (weeks < week are read), ids (app player ids), rule (1 | 2, default the served rule) }
  * @returns { reads: Map String(id) -> scoreBuyLow result, sources }
  */
-export function readBuyLow(db, { season, week, ids }) {
+export function readBuyLow(db, { season, week, ids, rule = SERVED_RULE }) {
+  const score = rule === 1 ? scoreBuyLow : scoreBuyLowV2;
   const want = [...new Set((ids ?? []).map(Number).filter(Number.isInteger))];
   const sources = { ffopportunity: { status: 'ok', rows: 0, missing_gsis: 0 }, usage: { status: 'ok', rows: 0 } };
   const reads = new Map();
@@ -58,7 +59,7 @@ export function readBuyLow(db, { season, week, ids }) {
     }
   }
   for (const p of base) {
-    reads.set(String(p.id), scoreBuyLow({ position: p.position, games: [...games.get(String(p.id)).values()] }, { season, week }));
+    reads.set(String(p.id), score({ position: p.position, games: [...games.get(String(p.id)).values()] }, { season, week }));
   }
   return { reads, sources };
 }

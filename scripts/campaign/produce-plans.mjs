@@ -565,9 +565,13 @@ async function main() {
       keep: written === file ? [] : written.leagues.map(e => String(e.league)).filter(id => !ranIds.has(id)) });
     // PUSH-01: the plans file is already live; a push failure is reported on the summary line, never hidden.
     // Only the leagues this run planned are diffed; kept leagues keep their push state.
+    // Plan item 16: a move is pushed only when it passes the ONE rule gate (never-give.js#ruleGate), read
+    // against the plans file just written; a league the gate does not apply to (no my_team_id) fails closed.
     const { runPushAlerts } = await import('../../server/services/campaign/push-alerts.js');
+    const { ruleGate } = await import('../../server/services/campaign/never-give.js');
+    const gateFor = leagueId => { const g = ruleGate(svc.db, { leagueId, plansPath: out, env }); return g.applies ? g : null; };
     let pushLine;
-    try { pushLine = (await runPushAlerts(svc.db.db, file, { env })).line; } catch (e) {
+    try { pushLine = (await runPushAlerts(svc.db.db, file, { env, gateFor })).line; } catch (e) {
       console.error(`[warroom] push alerts: ${e.stack ?? e}`);
       pushLine = `FAILED ${String(e.message ?? e).slice(0, 200)}`;
     }

@@ -11,7 +11,9 @@ export const name = '091_warroom_push_alerts';
  * `warroom_push_alerts` — the outbox and its history, one row per change.
  * status: 'queued' (waiting: quiet hours, no channel, or a retry), 'sent',
  * 'superseded' (a newer change for the same league and kind replaced it before
- * delivery), 'failed' (three send attempts failed; `error` says why). The partial
+ * delivery), 'failed' (three send attempts failed; `error` says why), 'blocked'
+ * (plan item 16: the move broke one of Nick's rules or did not beat doing nothing;
+ * `reason` lists which; never sent). The partial
  * unique index keeps at most one queued alert per league and kind.
  *
  * Written and read only by server/services/campaign/push-alerts.js, called from
@@ -37,7 +39,7 @@ export function up(db) {
       to_value TEXT NOT NULL,
       reason TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'superseded', 'failed')),
+      status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'superseded', 'failed', 'blocked')),
       attempts INTEGER NOT NULL DEFAULT 0,
       sent_at TEXT,
       channel TEXT,

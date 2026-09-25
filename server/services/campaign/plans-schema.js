@@ -297,13 +297,14 @@ export const SECTIONS = Object.freeze({
   // LADDER-01 (flag GRIDIRON_LADDER, default off): chained paths depth -> level below -> blue chip, P(yes)
   // per rung (a guess), what a "no" leaves at each rung. Shadow: never re-ranks the deck. Optional.
   ladders: field(obj({
-    mode: oneOf(RISK_MODES), floor: num, rank_basis: str, considered: int(0),
+    mode: oneOf(RISK_MODES), floor: num, rank_basis: str, dice: oneOf(['planning']), basis: str, considered: int(0),
     dropped_by_reason: map(/^[a-z_]{1,40}$/, int(0)),
     cards: arr(obj({
       target: pid, owner: id, climb: arr(oneOf(LADDER_TIERS), { min: 2 }), rank_basis: str,
       rungs: arr(obj({
         partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), get_tier: oneOf(LADDER_TIERS), p: probF, if_yes: numF,
-        on_no: obj({ kind: oneOf(['backup', 'stop']) }, { partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), expected: numF, keep: numF })
+        on_no: obj({ kind: oneOf(['backup', 'stop']) }, { partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), expected: numF, keep: numF,
+          dice: oneOf(['planning', 'confirm']) })
       }), { min: 2 }),
       p_complete: probF, if_complete: numF, expected: numF
     }), { max: 5 })

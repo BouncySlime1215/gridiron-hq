@@ -161,10 +161,6 @@ export function planLeague(adapter, settings) {
   const pool = objective.kind === 'player' ? plans.filter(p => String(p.target) === String(objective.target)) : plans;
   const { tol, ctx } = ctxFor(objective.risk_mode);
   const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx);
-  // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths; shadow, they move nothing served.
-  const ladders = ladderFlag(env) === 'on'
-    ? ladderCards(ranked, { mode: objective.risk_mode, scoreOf: scoreReader(adapter), players: adapter.players, untouchable, maxOverpay })
-    : null;
 
   // Confirm on fresh dice: re-price the deck on an independent seed, show those numbers, drop failures.
   let deck = deckOf(ranked, DECK_SIZE + 2);
@@ -172,8 +168,9 @@ export function planLeague(adapter, settings) {
   const W2 = adapter.world(cSeed);
   mark('confirm_world');
   let confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'failed', reason: 'confirm world failed' };
+  let S2 = null;
   if (W2 && !W2.fail) {
-    const S2 = makeScorer(W2, adapter);
+    S2 = makeScorer(W2, adapter);
     deck = deck.map(p => {
       const fresh = p.steps.map(st => metricOf(S2.rescore(st.state, me).me, objective));
       const re = repricePlan(p, fresh);
@@ -187,6 +184,19 @@ export function planLeague(adapter, settings) {
     deck = deck.slice(0, DECK_SIZE);
   }
   mark('confirm_rescore');
+  // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths; shadow, they move nothing
+  // served. Built after the confirm counts are taken, so their extra confirm rescores change no served count.
+  // A backup at a "no" must beat doing nothing on the confirm dice (the deck's rule); the rest is planning dice.
+  const confirmedExpected = p => {
+    const re = repricePlan(p, p.steps.map(st => metricOf(S2.rescore(st.state, me).me, objective)));
+    const v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+    return v.verdict === 'failed' ? null : v.confirmed_expected;
+  };
+  const ladders = ladderFlag(env) === 'on'
+    ? ladderCards(ranked, { mode: objective.risk_mode, scoreOf: scoreReader(adapter), players: adapter.players, untouchable,
+      objectiveUntouchables: objective.untouchables ?? [], sold: adapter.sold ?? null,
+      confirmed: S2 ? confirmedExpected : null, maxOverpay })
+    : null;
   const best = deck[0] ?? null;
   const backups = best ? backupBranches(best.planned_on ?? best, ranked) : [];
 

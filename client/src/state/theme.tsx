@@ -5,11 +5,6 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
  * kept per browser in localStorage. The resolved theme lives on <html data-theme>, which
  * tokens.css and the Tailwind palette (tailwind.config.js) read; index.html sets it before the
  * first paint with the same rule, so a dark system never flashes light.
- *
- * The War Room reads and flips it through two window events (warroom/useDocTheme.ts), so its
- * compiled test harness needs nothing from outside its folder:
- *   'gridiron:set-theme'     detail 'light' | 'dark' | 'system'  -> the choice changes
- *   'gridiron:theme-changed' detail 'light' | 'dark'             -> after <html> changed
  */
 export type ThemePref = 'system' | 'light' | 'dark';
 export type Theme = 'light' | 'dark';
@@ -24,7 +19,6 @@ export const resolveTheme = (pref: ThemePref): Theme => (pref === 'system' ? (me
 function apply(theme: Theme) {
   const el = document.documentElement;
   if (el.dataset.theme !== theme) el.dataset.theme = theme;
-  window.dispatchEvent(new CustomEvent('gridiron:theme-changed', { detail: theme }));
 }
 
 const ThemeContext = createContext<{ pref: ThemePref; theme: Theme; setPref: (p: ThemePref) => void }>({
@@ -47,10 +41,5 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     m.addEventListener('change', onChange);
     return () => m.removeEventListener('change', onChange);
   }, [pref]);
-  useEffect(() => {
-    const onSet = (e: Event) => { const d = (e as CustomEvent).detail; if (d === 'light' || d === 'dark' || d === 'system') setPref(d); };
-    window.addEventListener('gridiron:set-theme', onSet);
-    return () => window.removeEventListener('gridiron:set-theme', onSet);
-  }, [setPref]);
   return <ThemeContext.Provider value={{ pref, theme, setPref }}>{children}</ThemeContext.Provider>;
 }

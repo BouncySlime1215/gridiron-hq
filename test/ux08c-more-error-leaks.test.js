@@ -172,7 +172,8 @@ const CATCH_SITES = [
     shows: "Couldn't simulate title odds. Try again in a moment." },
   { site: 'TradeCard.tsx:202 (explain)', file: 'components/TradeCard.tsx', anchor: "leagueId}/explain",
     shows: "Couldn't explain that trade. Try again in a moment." },
-  { site: 'ManagerBoard.tsx:92 (set tier)', file: 'components/brain/ManagerBoard.tsx', anchor: 'brain/managers/',
+  // Trades cleanup part 2: the tier write moved into the one manager card (ManagerCard.tsx).
+  { site: 'ManagerCard.tsx (set tier)', file: 'components/brain/ManagerCard.tsx', anchor: 'brain/managers/',
     shows: 'Could not save that tier. Try again in a moment.' },
 ];
 
@@ -325,7 +326,7 @@ test('control/documentation: Model.tsx is not imported by any router file (out o
 
 // nav is untouched by any of this
 test('nav: none of the edited files touch the nav/route list', () => {
-  for (const rel of ['pages/TeamDetail.tsx', 'components/TradeCard.tsx', 'components/brain/ManagerBoard.tsx']) {
+  for (const rel of ['pages/TeamDetail.tsx', 'components/TradeCard.tsx', 'components/brain/ManagerBoard.tsx', 'components/brain/ManagerCard.tsx']) {
     const src = readSrc(rel);
     assert.ok(!/NAV_TABS|<nav\b/.test(src), `${rel} does not define nav`);
   }

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Field, Move, ReplyKind, WarRoomView } from './types';
 import { REASONING_SLOTS, namer, teamLabel } from './types';
 import { Val } from './FieldState';
@@ -8,10 +8,12 @@ import { HisScreenToggle, hisScreenPath } from './HisScreen';
 import { useHisScreen } from './useWarRoom';
 import { CopyBlock, CopyButton, Ladder, messageLabel } from './cardParts';
 import { heroStatus, isGuess, playerParts, valueEdgeText } from './heroStatus';
-import Avatar from './Avatar';
+import { HeadshotContext } from './Avatar';
+import TradeSides from './TradeSides';
 import Icon from './icons';
 import { useSpotlight } from './spotlight';
 import CountUp from './CountUp';
+import ChanceStat from './ChanceStat';
 
 /**
  * WAR-ROOM-UI v2: the NEXT MOVE as one clean hero card. Only what decides the send is
@@ -43,6 +45,9 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
   const noise = isOk(s.title_odds_delta) && s.title_odds_delta.clears_2se === false;
   const both = isOk(titleNow) && isOk(s.title_after);
   const spot = useSpotlight<HTMLElement>();
+  // The one give/get block (TradeSides), with this page's headshots (ESPN only; initials otherwise).
+  const shots = useContext(HeadshotContext);
+  const toSide = (id: string) => { const p = playerParts(n.one(id).name); return { id, name: p.name, pos: p.pos, headshot: (shots?.[String(id)] ?? '').startsWith('https://a.espncdn.com/') ? shots![String(id)] : null, title: n.one(id).name }; };
 
   return (
     <article className="wr-hero-card" data-testid="hero-card" aria-label="Next move" {...spot.handlers} ref={spot.ref}>
@@ -58,16 +63,11 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
         </span>
       </div>
 
-      <div className="wr-hero-deal">
-        <Side label="You give" ids={s.give} n={n} side="give" />
-        <span className="wr-hero-arrow" aria-hidden><Icon name="arrow" size={20} /></span>
-        <Side label="You get" ids={s.get} n={n} side="get" />
-      </div>
+      <TradeSides give={s.give.map(toSide)} get={s.get.map(toSide)} />
 
       <div className="wr-hero-nums">
-        <Metric label="Chance he says yes" testid="hero-chance"
-          big={<BigVal f={s.p_yes} fmt={v => pct(v)} />}
-          pills={isGuess(s.p_yes) ? <span className="wr-pill2 wr-pill2-amber" title="Built on an unvalidated model: treat as a guess">guess</span> : null} />
+        <ChanceStat size="big" testid="hero-chance" value={isOk(s.p_yes) ? s.p_yes.value : null}
+          big={<BigVal f={s.p_yes} fmt={v => pct(v)} />} guess={isGuess(s.p_yes)} />
         <Metric label="Title odds if he says yes" testid="hero-odds"
           big={both
             ? <><BigVal f={titleNow} fmt={v => pct(v, 1)} /><span className="wr-hero-to"> → </span><BigVal f={s.title_after} fmt={v => pct(v, 1)} /></>
@@ -167,26 +167,6 @@ function WalkHint({ s, text }: { s: Step; text: (ids: string[]) => string }) {
   return isOk(s.walk_away) ? <span>{text(s.walk_away.value.max_give)} for {text(s.get)}</span> : <Val f={s.walk_away} fmt={() => ''} />;
 }
 
-function Side({ label, ids, n, side }: { label: string; ids: string[]; n: Namer; side: 'give' | 'get' }) {
-  return (
-    <div className="wr-hero-side" data-side={side}>
-      <div className="wr-k">{label}</div>
-      <div className="wr-pchips">
-        {ids.map(id => {
-          const p = playerParts(n.one(id).name);
-          return (
-            <span key={id} className="wr-pchip" data-player={id} title={n.one(id).name}>
-              <Avatar id={id} name={p.name} size={44} />
-              <span className="wr-pchip-n">{p.name}</span>
-              {p.pos && <span className="wr-pchip-p">{p.pos}</span>}
-            </span>
-          );
-        })}
-        {!ids.length && <span className="wr-muted">nothing</span>}
-      </div>
-    </div>
-  );
-}
 
 function Metric({ label, big, sub, pills, testid }: { label: string; big: ReactNode; sub?: ReactNode; pills?: ReactNode; testid: string }) {
   return (
@@ -204,21 +184,37 @@ function BigVal({ f, fmt }: { f: Field<number> | undefined; fmt: (v: number) => 
   return isOk(f) ? <CountUp to={f.value} fmt={fmt} /> : <Val f={f} fmt={fmt} />;
 }
 
-/** Value edge: the offer's market read from the his-screen route (precomputed for deck moves). */
-function ValueEdge({ leagueId, offer }: { leagueId: number; offer: { partner: string; give: string[]; get: string[] } }) {
-  const { data, loading, error } = useHisScreen(hisScreenPath(leagueId, offer));
+/** How long the value edge may load before it says so instead of a skeleton. */
+export const VALUE_EDGE_WAIT_MS = 10_000;
+
+/**
+ * Value edge: the offer's market read from the his-screen route (precomputed for deck moves).
+ * A read that has not answered in VALUE_EDGE_WAIT_MS reads "not available" with the reason,
+ * never an endless skeleton; a late answer still replaces it.
+ */
+export function ValueEdge({ leagueId, offer, waitMs = VALUE_EDGE_WAIT_MS }: { leagueId: number; offer: { partner: string; give: string[]; get: string[] }; waitMs?: number }) {
+  const path = hisScreenPath(leagueId, offer);
+  const { data, loading, error } = useHisScreen(path);
+  const [timedOut, setTimedOut] = useState<string | null>(null);
+  useEffect(() => {
+    if (data || error) return;
+    const t = setTimeout(() => setTimedOut(path), waitMs);
+    return () => clearTimeout(t);
+  }, [path, data, error, waitMs]);
   const market = data?.enabled && !data.error ? data.market : undefined;
+  const slow = timedOut === path && !data && !error;
   const reason = error ?? data?.error ?? (data && !data.enabled ? data.reason : undefined)
-    ?? (market && market.pct == null ? 'He gives nothing with a market value.' : undefined);
+    ?? (market && market.pct == null ? 'He gives nothing with a market value.' : undefined)
+    ?? (slow ? `His screen has not answered in ${Math.round(waitMs / 1000)} s; open His screen to try again.` : undefined);
   const edge = market && market.pct != null ? valueEdgeText(market.pct) : null;
   return (
     <div className="wr-metric" data-testid="hero-value">
       <div className="wr-metric-l">Value edge</div>
       <div className={`wr-metric-v${edge ? ` wr-tone-${edge.tone}` : ''}`}>
-        {edge ? edge.big : loading && !data ? <span className="wr-skel" role="status" aria-label="Loading the value edge" />
-          : <span className="wr-unk" data-state="unknown" title={reason}>{NOT_COMPUTED}</span>}
+        {edge ? edge.big : loading && !data && !slow ? <span className="wr-skel" role="status" aria-label="Loading the value edge" />
+          : <span className="wr-unk" data-state="unknown" title={reason}>{slow ? 'not available' : NOT_COMPUTED}</span>}
       </div>
-      <div className="wr-metric-s">{edge ? edge.note : null}</div>
+      <div className="wr-metric-s">{edge ? edge.note : slow ? 'still working it out' : null}</div>
     </div>
   );
 }

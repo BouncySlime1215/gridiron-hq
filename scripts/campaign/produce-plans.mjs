@@ -89,6 +89,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -353,6 +354,8 @@ export async function buildPlansFile(leagues, {
             read_error: brain.read.error } : { status: 'not_read' },
           // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
+          // DRAFT-ID-MAP (shadow): join counts, only when GRIDIRON_DRAFT_ID_MAP gave the adapter a draft read.
+          ...(adapter.draft ? { draft_id_map: draftSummary(adapter.draft) } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.

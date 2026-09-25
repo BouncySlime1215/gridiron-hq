@@ -17,6 +17,7 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { draftCapital, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -190,7 +191,7 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null } = {}) {
+  rescoreCache = null, draftIdMap = draftIdMapEnabled() } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -374,6 +375,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.
     untouchable: untouchableIds([...managers.values()].map(m => m.nick).concat([myNick])),
     ...(finder ? { finderBest } : {}),
+    // DRAFT-ID-MAP (shadow, GRIDIRON_DRAFT_ID_MAP=1): draft capital by players.espn_id, owner from these rosters.
+    ...(draftIdMap ? { draft: draftCapital(svc.db, { leagueId, season, rosters }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

@@ -24,7 +24,7 @@
  *                  own never-give, overpay and buy-back checks are the offer rules above (every leg is an
  *                  offer), so this rule only adds the floor on what he holds in between. Flip claims
  *                  (Nick 2026-09-25): a player got by a waiver claim (step.claim) and traded away in a
- *                  later leg of the same path is exempt; claimed and kept, he is not.
+ *                  later trade (not claim) leg of the same path is exempt; claimed and kept, he is not.
  *   beats_no_trade every move served as something to send beats doing nothing on the confirm dice:
  *                  - deck cards: confirm.verdict is not 'failed', beats_no_trade is not false, and the
  *                    confirm-dice expected gain (plan.expected) is > 0;
@@ -34,16 +34,26 @@
  *                    package (#386): must carry a confirm-dice number, i.e. `dice: 'confirm'` with
  *                    `expected` > 0 (or `confirmed_expected` > 0). A number on the planning dice, or none,
  *                    is a violation: Nick's rule is the confirm dice, not the dice the plan was found on.
+ *   FLIP-CLAIMS (Nick 2026-09-25), on every claim path SEARCH-WIDE reports (search_wide.claims.paths, shadow;
+ *   every rule above applies to them too, the claim step read as Nick giving the drop for the claimed player):
+ *   claim_not_flipped    every claimed player is given away by a later trade step of the same path.
+ *   claim_protected_drop the drop is never 160 / 80 / 277, one of Nick's untouchables (notes or the
+ *                        objective's), a Blue chip (83+) or unscored.
+ *   claim_stranded       the path is priced on the confirm dice (`dice: 'confirm'`) and its expected gain,
+ *                        recomputed here from the steps' p and delta with the stranded branch (claim done,
+ *                        flip declined) in it, is > 0.
  *
  * Surfaces covered (offersOf): best plan; every deck card, each of its playbooks' opening, walk-away,
  * ladder packages, reply-table next moves and negotiation.alt_package (#386); backups; the risk-mode
  * sheet's first steps; flip legs; catch-up items that name a deal (plan_key: desperate, swing);
- * LADDER-01 cards' rungs and each rung's on_no move (#394); suggestions and targets. A surface a PR
+ * LADDER-01 cards' rungs and each rung's on_no move (#394); suggestions and targets; SEARCH-WIDE's claim
+ * paths (search_wide.claims.paths and shadow_best, FLIP-CLAIMS). A surface a PR
  * adds that is not listed here is NOT checked.
  */
 import { NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID, BLUE_CHIP } from './rule-fuzz-league.mjs';
 
 export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
+  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded',
   'stranded_hold']);
 export const DEPTH_PREMIUM = 0.12;
 const EPS = 1e-9;
@@ -54,6 +64,25 @@ export function dealOfKey(key) {
   const parts = typeof key === 'string' ? key.split('|') : [];
   if (parts.length !== 3 || !parts[1] || !parts[2]) return null;
   return { team: parts[0], give: parts[1].split('+'), get: parts[2].split('+') };
+}
+
+/** SEARCH-WIDE's reported claim paths ({ partner } steps) as plans ({ team } steps): [[surface, plan]]. */
+export function claimPathsOf(res) {
+  const c = res.search_wide?.claims;
+  const asPlan = p => ({ ...p, steps: (p.steps ?? []).map(st => ({ ...st, team: st.team ?? st.partner })) });
+  return [...(c?.paths ?? []).map((p, i) => [`search_wide.claims.paths[${i}]`, asPlan(p)]),
+    ...(c?.shadow_best ? [['search_wide.claims.shadow_best', asPlan(c.shadow_best)]] : [])];
+}
+
+/** A path's expected gain from its own steps (p, delta): every place it can stop, the stranded branches included. */
+export function ownExpected(steps) {
+  let reach = 1, ev = 0, before = 0;
+  for (const st of steps) {
+    ev += reach * (1 - Number(st.p)) * before;
+    reach *= Number(st.p);
+    before = Number(st.delta);
+  }
+  return ev + reach * before;
 }
 
 /** Every offer the result shows Nick: { surface, team, give, get, step, final }, plus the plans. */
@@ -74,6 +103,7 @@ export function offersOf(res) {
     if (alt) add(`${name}.negotiation.alt_package`, st.team, alt.give, alt.get ?? st.get, st);
   };
   if (res.best) plans.push(['best', res.best]);
+  plans.push(...claimPathsOf(res));
   for (const [j, c] of (res.deck ?? []).entries()) {
     if (!c.plan) continue;
     plans.push([`deck[${j}]`, c.plan]);
@@ -124,7 +154,7 @@ export function strandedAfterLegs(steps, startIds) {
   const out = [];
   const flipClaim = new Set();
   for (const [i, st] of steps.entries()) {
-    if (st.claim) for (const id of st.get) if (steps.slice(i + 1).some(x => x.give.map(S).includes(S(id)))) flipClaim.add(S(id));
+    if (st.claim) for (const id of st.get) if (steps.slice(i + 1).some(x => !x.claim && x.give.map(S).includes(S(id)))) flipClaim.add(S(id));
   }
   for (const [i, st] of steps.entries()) {
     for (const id of st.give) held.delete(S(id));
@@ -232,6 +262,25 @@ export function ruleViolations(adapter, res) {
     if (!blue(s.player)) bad('final_get', 'suggestions', `${s.player} scores ${score(s.player)}`);
     if (isOlave(s.player)) bad('no_olave', 'suggestions', S(s.player));
     if (sold.has(S(s.player))) bad('no_buyback', 'suggestions', S(s.player));
+  }
+  // FLIP-CLAIMS: the claim paths SEARCH-WIDE reports.
+  const untouched = new Set([...(adapter.untouchable ?? []), ...(res.objective?.untouchables ?? [])].map(S));
+  for (const [name, p] of claimPathsOf(res)) {
+    for (const [i, st] of p.steps.entries()) {
+      if (!st.claim) continue;
+      for (const id of st.get.map(S)) {
+        if (!p.steps.slice(i + 1).some(x => !x.claim && x.give.map(S).includes(id))) bad('claim_not_flipped', name, `${id} claimed and never traded away`);
+      }
+      for (const id of st.give.map(S)) {
+        const sc = score(id);
+        if (pinned.has(id) || untouched.has(id) || !Number.isFinite(sc) || sc >= BLUE_CHIP) bad('claim_protected_drop', name, `drops ${id} (score ${sc})`);
+      }
+    }
+    if (p.steps.some(st => st.claim)) {
+      const ev = ownExpected(p.steps);
+      if (p.dice !== 'confirm') bad('claim_stranded', name, `priced on the ${p.dice ?? 'no'} dice`);
+      else if (!(ev > 0)) bad('claim_stranded', name, `confirm-dice expected ${ev} with the stranded branch`);
+    }
   }
   for (const t of res.targets ?? []) {
     if (isOlave(t)) bad('no_olave', 'targets', S(t));

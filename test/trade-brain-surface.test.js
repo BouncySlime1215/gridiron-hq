@@ -40,7 +40,8 @@ const code = src => src
   .replace(/^\s*\/\/.*$/gm, '')
   .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
-const page = read('client/src/pages/TradeBrain.tsx');
+// UI consolidation: Trade Brain's tabs became Trades → People (pages/Trades.tsx); the surface is read there.
+const page = read('client/src/pages/Trades.tsx');
 const board = read('client/src/components/brain/ManagerBoard.tsx');
 const slate = read('client/src/components/brain/ProposalSlate.tsx');
 const brainTypes = read('client/src/components/brain/types.ts');
@@ -54,7 +55,7 @@ test('the Trade Brain page is a lazy route and a registered destination', () => 
   // UI consolidation: the Trades area is the code-split route and it imports Trade Brain.
   assert.match(app, /lazy\(\(\) => import\('\.\/pages\/Trades'\)\)/,
     'the Trades area (which holds TradeBrain) is code-split like every other page');
-  assert.match(read('client/src/pages/Trades.tsx'), /import TradeBrain from '\.\/TradeBrain'/);
+  assert.match(read('client/src/pages/Trades.tsx'), /import ManagerBoard from '\.\.\/components\/brain\/ManagerBoard'/);
   assert.match(app, /path="\/trades"/, 'the Trades area is mounted at a route');
   assert.match(app, /path="\/trade-brain"/, 'and the old URL is still a route (a redirect), not NotFound');
   // NAV_GROUPS is the single constant that feeds the sidebar, the command
@@ -64,11 +65,14 @@ test('the Trade Brain page is a lazy route and a registered destination', () => 
   // /trade-brain redirects there, so the nav and the palette name /trades.
   assert.match(nav, /to: '\/trades'/, 'the Trades area is registered in NAV_GROUPS');
   assert.match(nav, /'\/trades':/, 'with a palette note of its own');
-  assert.match(read('client/src/pages/Trades.tsx'), /<TradeBrain \/>/, 'the Trades area renders Trade Brain');
+  assert.match(read('client/src/pages/Trades.tsx'), /<ManagerBoard leagueId=\{activeId\}/, 'the Trades area renders the manager board (People)');
+  assert.match(read('client/src/pages/Trades.tsx'), /<ProposalSlate leagueId=\{activeId\} \/>/, 'and Write proposals');
 });
 
-test('Trade Lab points at it, since building a deal and reading a manager are different jobs', () => {
-  assert.match(read('client/src/pages/TradeLab.tsx'), /to="\/trade-brain"/);
+test('building a deal and reading a manager are different views of one area', () => {
+  // Trade Lab pointed at Trade Brain; both are now views of Trades (Go get / Find deals / Build, and People).
+  const t = read('client/src/pages/Trades.tsx');
+  for (const v of ['goget', 'find', 'build', 'people']) assert.match(t, new RegExp(`\\{ id: '${v}', label:`), `Trades has the ${v} view`);
 });
 
 /* --------------------------------------- 2. every palette destination exists */

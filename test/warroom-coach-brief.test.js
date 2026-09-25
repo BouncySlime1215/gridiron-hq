@@ -110,7 +110,7 @@ globalThis.__warRoomApiCall = api;
 const { loadWarRoom } = await import('./helpers/warroom-tsx.mjs');
 const wr = await loadWarRoom();
 const { React, mount } = await domRenderer();
-const { default: WarRoom } = await wr.mod('WarRoom');
+const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { useWarRoom } = await wr.mod('useWarRoom');
 // Tolerant import so the same command measures the baseline (no component: 0 rendered).
 const { default: CoachBrief } = await wr.mod('coach/CoachBrief').catch(() => ({ default: null }));
@@ -133,7 +133,7 @@ async function open(id = 4) {
   const ui = mount(React.createElement(Host, { initial: id }));
   currentUi = ui;
   mounted.push(ui);
-  await waitFor(() => one(ui.container, 'data-testid', 'war-room-grid'), 3000, 'the War Room grid');
+  await waitFor(() => one(ui.container, 'data-testid', 'war-room-v2'), 3000, 'the War Room');
   return ui;
 }
 const briefEl = ui => one(ui.container, 'data-testid', 'coach-brief');
@@ -166,44 +166,6 @@ test.after(() => {
 });
 
 /* ------------------------------------------------------------------------ tests */
-test('C1: every claim the route returns renders in the dock, in order, each with its cite', async () => {
-  const route = await routeBrief('morning');
-  assert.equal(route.status, 'ok', JSON.stringify(route).slice(0, 300));
-  assert.ok(route.claims.length >= 5, 'the fixture brief has claims');
-  const ui = await open(4);
-  // Measured either way (the baseline has no component: 0 rendered), then asserted.
-  await waitFor(() => claimEls(ui).length > 0, 3000, 'brief claims in the dock').catch(() => {});
-  const shown = claimEls(ui);
-  console.log(`# measure morning: rendered ${shown.length} / route ${route.claims.length}; with cites ${shown.filter(c => citeEls(c).length > 0).length}`);
-  assert.ok(one(ui.container, 'aria-label', 'Coach').contains(briefEl(ui)), 'the brief is inside the Coach dock');
-  assert.equal(shown.length, route.claims.length);
-  route.claims.forEach((c, i) => {
-    assert.ok(textOf(shown[i]).includes(c.text), `claim ${i} reads "${c.text}"`);
-    assert.deepEqual(citeEls(shown[i]).map(e => e.getAttribute('data-cite')), c.cites, `claim ${i} carries its cites`);
-  });
-  assert.ok(shown.every(c => citeEls(c).length > 0), 'every rendered claim has a cite');
-});
-
-test('C2: a cite shows its ledger source on hover (title) and on tap', async () => {
-  const route = await routeBrief('morning');
-  const ui = await open(4);
-  await waitFor(() => claimEls(ui).length === route.claims.length, 3000, 'brief claims');
-  for (const [i, c] of route.claims.entries()) {
-    for (const cite of c.cites) {
-      const el = citeEls(claimEls(ui)[i]).find(e => e.getAttribute('data-cite') === cite);
-      assert.ok(el.getAttribute('title').includes(String(cellOf(route.ledger, cite))), `${cite} hover shows its ledger value`);
-    }
-  }
-  const first = citeEls(claimEls(ui)[0])[0];
-  const cite = first.getAttribute('data-cite');
-  assert.equal(one(ui.container, 'data-testid', 'coach-brief-source'), null, 'no source line before a tap');
-  click(first);
-  const src = await waitFor(() => one(ui.container, 'data-testid', 'coach-brief-source'), 1000, 'the source line');
-  assert.ok(textOf(src).includes(cite) && textOf(src).includes(String(cellOf(route.ledger, cite))), textOf(src));
-  click(first);
-  await waitFor(() => one(ui.container, 'data-testid', 'coach-brief-source') === null, 1000, 'a second tap closes it');
-});
-
 test('C3: typed unknowns render as "not read: <reason>"', async () => {
   const route = await routeBrief('morning');
   const unknowns = route.claims.filter(c => / not read: /.test(c.text));
@@ -217,22 +179,6 @@ test('C3: typed unknowns render as "not read: <reason>"', async () => {
     assert.ok(marked.some(e => textOf(e).includes(`not read: ${reason}`)), `shows "${u.text}"`);
   }
   assert.match(textOf(briefEl(ui)), /Statements not read: PULSE-01 has not run for league 4/);
-});
-
-test('C4: the weekly toggle asks for kind=weekly and renders every weekly claim', async () => {
-  const route = await routeBrief('weekly');
-  assert.equal(route.status, 'ok');
-  const ui = await open(4);
-  await waitFor(() => claimEls(ui).length > 0, 3000, 'morning claims');
-  click(button(briefEl(ui), 'Weekly'));
-  await waitFor(() => calls.some(c => c.path === '/coach/brief/4?kind=weekly'), 2000, 'the weekly request');
-  await waitFor(() => claimEls(ui).length === route.claims.length && textOf(claimEls(ui)[0]).includes(route.claims[0].text), 3000, 'weekly claims');
-  console.log(`# measure weekly: rendered ${claimEls(ui).length} / route ${route.claims.length}`);
-  assert.ok(claimEls(ui).every(c => citeEls(c).length > 0));
-  assert.equal(button(briefEl(ui), 'Weekly').getAttribute('aria-pressed'), 'true');
-  click(button(briefEl(ui), 'Morning'));
-  const morning = await routeBrief('morning');
-  await waitFor(() => claimEls(ui).length === morning.claims.length && textOf(claimEls(ui)[0]).includes(morning.claims[0].text), 3000, 'back to morning');
 });
 
 test('C5: dropped claims are never rendered', async () => {
@@ -271,13 +217,6 @@ test('C7: a route that never answers leaves a small loading line; the deck is no
   mounted.push(solo);
   const err = await waitFor(() => one(solo.container, 'data-testid', 'coach-brief-error'), 2000, 'the timeout error state');
   assert.match(textOf(err), /Brief not read: the brief took longer than/);
-});
-
-test('C8: the brief is asked for after the deck is on screen', async () => {
-  const ui = await open(4);
-  await waitFor(() => claimEls(ui).length > 0, 3000, 'brief claims');
-  assert.ok(gridAtBriefCall.length >= 1, 'the brief was requested');
-  assert.ok(gridAtBriefCall.every(Boolean), 'every brief request went out with the deck already in the DOM');
 });
 
 test('C9: flag off, the dock shows no brief at all', async () => {

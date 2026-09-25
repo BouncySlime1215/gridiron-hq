@@ -14,6 +14,13 @@ export const TARGET_LEAGUE_ID = 4;
  * after that, and whenever Nick picks a league himself, his pick stands.
  * Pure so a test can call it: returns the id to switch to, or null to stay.
  */
+/** WR-L4: the War Room opens on the target league once per page load; after that Nick's pick stands. */
+let openedOnTarget = false;
+/** Test hook: forget that this page load already opened on the target league. */
+export function __resetOpening() { openedOnTarget = false; }
+export const wasOpenedOnTarget = () => openedOnTarget;
+export function markOpenedOnTarget() { openedOnTarget = true; }
+
 export function openingLeague(leagues: LeagueChoice[], activeId: number | null, target: number | null | undefined,
   alreadyDefaulted: boolean): number | null {
   if (alreadyDefaulted || target == null) return null;

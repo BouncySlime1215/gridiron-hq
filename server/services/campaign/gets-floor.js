@@ -136,20 +136,7 @@ export function heldAfterEachLeg(steps) {
   });
 }
 
-/**
- * Flip claims (Nick 2026-09-25): a free agent got by a waiver claim (step.claim) may be held between legs
- * only as a flip piece, i.e. every player the claim brings in is traded away in a later leg of the same
- * path and so is never held at its end. The ONE rule for it: the claim side (SEARCH-WIDE claim steps)
- * reads this too. A player got by trade is never a flip piece. Claims still obey every other rule
- * (never-get, sold, protected drops, beats doing nothing); this only exempts them from the floor between legs.
- */
-export function isFlipPieceClaim(step, path) {
-  if (step?.claim !== true || !step.get?.length) return false;
-  const i = (path ?? []).indexOf(step);
-  if (i < 0) return false;
-  const laterGives = new Set(path.slice(i + 1).flatMap(st => st.give.map(String)));
-  return step.get.every(id => laterGives.has(String(id)));
-}
+// Flip claims: isFlipPieceClaim (below, FLIP-CLAIMS #435) is the ONE rule on a claim held between legs.
 
 /** Holdings after each leg but the last that fail `passes(id)`, flip-piece claims exempt: [{ leg (0-based), player }]. */
 export function strandedHolds(steps, passes) {
@@ -194,4 +181,22 @@ export function makeStranded(adapter, { env = {}, tolerances = null } = {}) {
     return true;
   };
   return { sink, on: mode === 'on', pathStrands: p => check(p.steps, 'paths'), flipStrands: f => check(flipSteps(f), 'flips') };
+}
+
+/**
+ * FLIP-CLAIMS x FLIP-STRANDED (coordinator 2026-09-25): the ONE rule on a waiver claim held between legs.
+ * A claim step (step.claim === true, partner free_agent) is a flip piece when every player it claims is
+ * traded away by a later (non-claim) step of the same path. Only a flip-piece claim may be held between
+ * legs under the Blue chip floor; a player Nick TRADES for and holds between legs must pass the floor
+ * (FLIP-STRANDED), and nothing may be held under it at the end (GETS-FLOOR, heldAtEnd).
+ * path: the steps array, or a plan carrying `steps`; `step` must be one of them (by reference, so "later"
+ * is well defined). Anything else, or a step that is not a claim, is false (fails closed).
+ */
+export function isFlipPieceClaim(step, path) {
+  const steps = Array.isArray(path) ? path : path?.steps;
+  if (step?.claim !== true || !Array.isArray(steps)) return false;
+  const i = steps.indexOf(step);
+  if (i < 0 || !step.get?.length) return false;
+  const later = steps.slice(i + 1).filter(s => s?.claim !== true);
+  return step.get.every(id => later.some(s => (s.give ?? []).some(g => String(g) === String(id))));
 }

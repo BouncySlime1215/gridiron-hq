@@ -129,13 +129,54 @@ export function hisSide({ player, owner, partner = null, model = null, block = n
   return { status: 'ok', value };
 }
 
+/**
+ * CHAT-TRADE-INTEREST (shadow): people/chat-trade-interest.js#readChatTradeInterest -> per roster, the
+ * planner ids he has shown he would give and wants (his own finalize drafts and trade-analyzer screens
+ * in the league chat). idOfEspn(espnId) -> planner id or null; an unmapped id is counted, never guessed.
+ * -> { status: 'ok', by_team: { [roster]: { wants, would_give, n } }, rows, unmapped } | { status, reason }
+ */
+export function chatInterestRead(read, idOfEspn) {
+  if (!read || read.status !== 'ok') return { status: read?.status ?? 'unread', reason: read?.reason ?? 'not read' };
+  const by_team = {};
+  let unmapped = 0;
+  const map = side => side.map(p => {
+    const id = p.espn_id == null ? null : idOfEspn(p.espn_id);
+    if (id == null) unmapped++;
+    return id == null ? null : String(id);
+  }).filter(x => x != null);
+  for (const r of read.rows) {
+    const t = (by_team[String(r.roster_id)] ??= { wants: [], would_give: [], n: 0 });
+    t.n++;
+    for (const id of map(r.wants)) if (!t.wants.includes(id)) t.wants.push(id);
+    for (const id of map(r.would_give)) if (!t.would_give.includes(id)) t.would_give.push(id);
+  }
+  return { status: 'ok', by_team, rows: read.rows.length, unmapped };
+}
+
+/** One target against the owner's chat interest: has the owner shown he would give him, or wants him? Null: nothing read. */
+export function chatInterestShadow(interest, owner, player) {
+  if (interest?.status !== 'ok') return null;
+  const t = interest.by_team?.[String(owner)];
+  if (!t) return { owner_would_give: false, owner_wants: false, n: 0 };
+  return { owner_would_give: t.would_give.includes(String(player)), owner_wants: t.wants.includes(String(player)), n: t.n };
+}
+
 /** The ESPN block read for the summary: a broken id map shows as an unmapped count, never as an empty block. */
 const blockStatus = b => (!b ? { status: 'unread' } : b.status === 'ok' ? { status: 'ok', unmapped: b.unmapped ?? 0 }
   : { status: String(b.status), reason: String(b.reason ?? '') });
 
-/** `_run.inputs.his_side`: the per-target read status, ids only (the shadow measurement). block: the adapter's read or null. */
-export function hisSideSummary(rows, on, block = null) {
+/**
+ * `_run.inputs.his_side`: the per-target read status, ids only (the shadow measurement). block: the adapter's
+ * read or null. interest: chatInterestRead or null; when given, `chat_interest` logs, per target, whether its
+ * owner has shown in chat that he would give him or wants him (shadow: nothing served reads it).
+ */
+export function hisSideSummary(rows, on, block = null, interest = null) {
+  const ci = interest == null ? {} : { chat_interest: interest.status !== 'ok'
+    ? { status: String(interest.status), reason: String(interest.reason ?? '') }
+    : { status: 'ok', rows: interest.rows, teams: Object.keys(interest.by_team).length, unmapped: interest.unmapped,
+      targets: rows.map(r => ({ player: r.player, owner: r.owner, ...chatInterestShadow(interest, r.owner, r.player) })) } };
   return {
+    ...ci,
     flag: on ? 'on' : 'shadow',
     espn_block: blockStatus(block),
     ok: rows.filter(r => r.hs.status === 'ok').length, of: rows.length,

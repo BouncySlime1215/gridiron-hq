@@ -24,7 +24,7 @@ const { normaliseObjective } = await import('../server/services/campaign/objecti
 const { rankPlans, tolerancesFor, MODES } = await import('../server/services/campaign/modes.js');
 const { nickOverpays } = await import('../server/services/campaign/search.js');
 const { makeFuzzLeague, rng, NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID } = await import('./fixtures/rule-fuzz-league.mjs');
-const { ruleViolations, countByRule, finalGets, dealOfKey, RULES } = await import('./fixtures/nick-rules.mjs');
+const { ruleViolations, countByRule, finalGets, dealOfKey, RULES, ownExpected } = await import('./fixtures/nick-rules.mjs');
 
 const CORPUS = JSON.parse(readFileSync(new URL('./fixtures/rule-fuzz-seeds.json', import.meta.url), 'utf8'));
 const envInt = (k, d) => (Number.isInteger(Number(process.env[k])) && process.env[k] !== '' && process.env[k] != null ? Number(process.env[k]) : d);
@@ -312,5 +312,91 @@ test('finalGets: a chip picked up and spent is not final; one kept is', () => {
   const steps = [{ give: [1], get: [50] }, { give: [50, 2], get: [99] }];
   assert.deepEqual(finalGets({ steps }, [1, 2, 3]), ['99']);
   assert.deepEqual(finalGets({ steps: [{ give: [1], get: [50] }, { give: [2], get: [99] }] }, [1, 2, 3]).sort(), ['50', '99']);
-  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade', 'stranded_hold']);
+  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
+    'claim_not_flipped', 'claim_protected_drop', 'claim_stranded', 'stranded_hold']);
+});
+
+/* ------------------------------ FLIP-CLAIMS: claims as flip pieces, SEARCH-WIDE on */
+
+/**
+ * Nick 2026-09-25: a waiver claim is a step only as a flip piece. The sweep plans made-up leagues that carry a
+ * free-agent pool (makeFuzzLeague(seed, { claims: true })) with SEARCH-WIDE on, and the oracle reads every claim
+ * path the planner reports (search_wide.claims.paths, shadow) against every rule, the three claim rules included.
+ * Budgets are cut so the sweep stays in CI time; the rules do not depend on the budget.
+ */
+const CLAIM_N = envInt('RULE_FUZZ_CLAIMS_N', CORPUS.claims_sweep?.count ?? 40);
+const CLAIM_BASE = envInt('RULE_FUZZ_CLAIMS_BASE', CORPUS.claims_sweep?.base ?? 1);
+const CLAIM_SEEDS = Array.from({ length: CLAIM_N }, (_, i) => CLAIM_BASE + i);
+const WIDE_ENV = { GRIDIRON_SEARCH_WIDE: '1', GRIDIRON_SEARCH_WIDE_CANDIDATES: '300', GRIDIRON_SEARCH_WIDE_RESCORES: '600' };
+const claimRuns = new Map();
+function runClaims(mode) {
+  if (claimRuns.has(mode)) return claimRuns.get(mode);
+  const out = [];
+  for (const seed of CLAIM_SEEDS) {
+    const a = makeFuzzLeague(seed, { claims: true });
+    const res = planLeague(a, { objective: normaliseObjective({ risk_mode: mode }), env: WIDE_ENV });
+    assert.equal(res.error, undefined, `claims seed ${seed} ${mode}: ${res.error}`);
+    out.push({ seed, a, res, v: ruleViolations(a, res) });
+  }
+  claimRuns.set(mode, out);
+  return out;
+}
+
+test('the oracle catches each claim rule on a hand-built claim path', () => {
+  const a = makeFuzzLeague(7, { claims: true });
+  const me = a.league.me, mine = a.rosters.get(me);
+  const other = [...a.rosters.keys()].find(t => t !== me);
+  const depth = mine.find(id => id > 999 && a.scoreOf(id).score < 83);
+  const blue = mine.find(id => id > 999 && a.scoreOf(id).score >= 83) ?? NICO_COLLINS;
+  const fa = 3001;
+  const theirs = a.rosters.get(other).find(id => id !== OLAVE_ID);
+  const st = (partner, give, get, p, delta, claim = false) => ({ partner, give: give.map(String), get: get.map(String), p, delta, ...(claim ? { claim } : {}) });
+  const path = (steps, dice = 'confirm') => ({ search_wide: { claims: { paths: [{ dice, expected: ownExpected(steps), steps }] } } });
+  const base = { deck: [], suggestions: [], targets: [], flip: { realised: [] }, best: null };
+  const got = r => countByRule(ruleViolations(a, { ...base, ...r }));
+  const flipped = [st('free_agent', [depth], [fa], 0.7, 0), st(other, [fa], [theirs], 0.5, 0.02)];
+  assert.equal(got(path(flipped)).claim_not_flipped, 0);
+  assert.equal(got(path([st(other, [mine[0]], [theirs], 0.5, 0.02), st('free_agent', [depth], [fa], 0.7, 0.03, true)])).claim_not_flipped, 1, 'claim at the end');
+  const withClaim = s => s.map((x, i) => (i === 0 ? { ...x, claim: true } : x));
+  assert.equal(got(path(withClaim(flipped))).claim_not_flipped, 0);
+  assert.equal(got(path(withClaim([st('free_agent', [depth], [fa], 0.7, 0), st(other, [mine[0]], [theirs], 0.5, 0.02)]))).claim_not_flipped, 1, 'claimed, then kept');
+  for (const d of [NICO_COLLINS, CHASE_BROWN, blue]) {
+    assert.ok(got(path(withClaim([st('free_agent', [d], [fa], 0.7, 0), st(other, [fa], [theirs], 0.5, 0.02)]))).claim_protected_drop > 0, `drop ${d}`);
+  }
+  assert.equal(got(path(withClaim(flipped))).claim_protected_drop, 0);
+  const obj = got({ ...path(withClaim(flipped)), objective: { untouchables: [String(depth)] } });
+  assert.equal(obj.claim_protected_drop, 1, 'an objectives-file untouchable');
+  // Stranded: claim done, flip declined leaves -0.05; the finish gains 0.02 at p 0.1: EV < 0.
+  assert.equal(got(path(withClaim([st('free_agent', [depth], [fa], 0.9, -0.05), st(other, [fa], [theirs], 0.1, 0.02)]))).claim_stranded, 1);
+  assert.equal(got(path(withClaim(flipped), 'planning')).claim_stranded, 1, 'not priced on the confirm dice');
+  assert.equal(got(path(withClaim(flipped))).claim_stranded, 0);
+  assert.ok(Math.abs(ownExpected([{ p: 0.9, delta: -0.05 }, { p: 0.1, delta: 0.02 }]) - (0.9 * 0.9 * -0.05 + 0.9 * 0.1 * 0.02)) < 1e-12);
+});
+
+for (const mode of MODES) {
+  test(`fuzz claims ${mode}: every rule holds on every claim path (SEARCH-WIDE on)`, t => {
+    const rs = runClaims(mode);
+    const bad = rs.flatMap(r => r.v.map(v => ({ seed: r.seed, ...v })));
+    const paths = rs.reduce((s, r) => s + (r.res.search_wide?.claims?.paths?.length ?? 0), 0);
+    const built = rs.reduce((s, r) => s + (r.res.search_wide?.claims?.built ?? 0), 0);
+    const why = {};
+    for (const r of rs) for (const [k, n] of Object.entries(r.res.search_wide?.claims?.dropped_by_reason ?? {})) why[k] = (why[k] ?? 0) + n;
+    t.diagnostic(`claims seeds ${CLAIM_BASE}..${CLAIM_BASE + CLAIM_N - 1}: built ${built}, reported ${paths} in ${rs.filter(r => r.res.search_wide?.claims?.paths?.length).length} leagues; dropped ${JSON.stringify(why)}`);
+    assert.equal(bad.length, 0, `${mode}: ${bad.length} violations; first: ${bad.slice(0, 5).map(b => `seed ${b.seed} ${b.rule} ${b.surface} ${b.detail}`).join(' | ')}`);
+    // Not vacuous: claims were built and some reached the oracle.
+    assert.ok(built > 0, `${mode}: no claim built in ${rs.length} leagues`);
+    assert.ok(paths > 0, `${mode}: no claim path reported in ${rs.length} leagues`);
+  });
+}
+
+test('fuzz claims: no served step is a claim, and the sold free agent is never claimed', () => {
+  for (const mode of MODES) {
+    for (const r of runClaims(mode)) {
+      const served = JSON.stringify([r.res.deck, r.res.best, r.res.backups, r.res.risk_modes, r.res.catch_up]);
+      assert.equal(served.includes('free_agent'), false, `claims seed ${r.seed} ${mode}: a claim reached a served surface`);
+      const soldFa = (r.a.tradeLedger?.trades ?? []).some(t => t.tx_id === `tx-${r.seed}-fa`);
+      const claimed = (r.res.search_wide?.claims?.paths ?? []).flatMap(p => p.steps.filter(st => st.claim).flatMap(st => st.get));
+      if (soldFa) assert.ok(!claimed.includes('3000'), `claims seed ${r.seed} ${mode}: sold 3000 claimed`);
+    }
+  }
 });

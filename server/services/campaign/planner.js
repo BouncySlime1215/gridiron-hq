@@ -34,7 +34,8 @@ import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
-import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability } from './search-wide.js';
+import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability,
+  claimRule, strandedBranch, CLAIM_CONFIRM_MAX } from './search-wide.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -286,6 +287,7 @@ export function planLeague(adapter, settings) {
   const fresh = () => adapter.cacheStats?.()?.misses ?? S.count();
   const fresh0 = wideOn ? fresh() : 0;
   let wideBase = null;
+  let claimCtx = null;
   if (wideOn) {
     const tierFloor = floor.sink.floor;
     const scoreOf = typeof adapter.scoreOf === 'function' ? adapter.scoreOf : null;
@@ -293,22 +295,50 @@ export function planLeague(adapter, settings) {
     // #406 finding 1: a claim carries the league's waiver-win rate as its p; no rate, no claims.
     const claimP = claimProbability(adapter.waiverRecord);
     wideSink.claims.p_yes = claimP;
-    const claimPool = claimP.status === 'ok' ? claimPoolOf(adapter, neverDrop) : [];
+    // FLIP-CLAIMS: no player Nick sold this season is claimable (whole season, no price-fall exception).
+    const soldAll = new Set(TM ? [...TM.sold.keys()].map(String) : []);
+    const claimPool = claimP.status === 'ok' ? claimPoolOf(adapter, neverDrop, soldAll) : [];
     wideSink.claims.pool = claimPool.length;
+    const dropOk = makeDropOk({ scoreOf, floor: tierFloor, untouchable: neverDrop });
+    claimCtx = { dropOk, valueOf: id => adapter.players.get(id)?.value ?? adapter.players.get(Number(id))?.value ?? null,
+      maxOverpay, sold: soldAll };
     wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool, claimP: claimP.p,
       // #406 finding 5b: LADDER-01 owns the tier; the lateral rule reads it (one classification, not two).
       tierOk: id => tierOfPlayer(scoreOf, id, tierFloor) === 'blue_chip',
-      dropOk: makeDropOk({ scoreOf, floor: tierFloor, untouchable: neverDrop }),
-      rescoresLeft: () => wideSink.budget.rescores - (fresh() - fresh0) };
+      dropOk };
   }
   let plans = [];
   wanted.forEach((target, i) => {
-    const wide = wideOn ? { ...wideBase, candidates: wideSink.used.extras
-      + Math.floor((wideSink.budget.candidates - wideSink.used.extras) / (wanted.length - i)) } : null;
+    // Budget fix (#435): both budgets are split across the targets left, as candidates always were, so an
+    // early target can no longer spend the whole rescore budget and leave the rest silently unscored.
+    let wide = null, r0 = 0, e0 = 0, rShare = 0;
+    if (wideOn) {
+      r0 = fresh(); e0 = wideSink.used.extras;
+      rShare = Math.floor((wideSink.budget.rescores - (r0 - fresh0)) / (wanted.length - i));
+      wide = { ...wideBase, candidates: e0 + Math.floor((wideSink.budget.candidates - e0) / (wanted.length - i)),
+        rescoresLeft: () => rShare - (fresh() - r0) };
+    }
     plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
       depthPremium, board, premiumSink: premium, untouchables: objective.untouchables, wide }));
+    if (wide) {
+      wideSink.per_target.push({ target: String(target), candidates: wide.candidates - e0, rescores: rShare,
+        extras: wideSink.used.extras - e0, rescores_used: fresh() - r0, budget_hit: wide.target_hit ?? null });
+    }
   });
   if (wideOn) wideSink.used.rescores = fresh() - fresh0;
+  // FLIP-CLAIMS: every claim path passes the one claim rule (search-wide.js#claimRule) or is dropped by reason.
+  const claimDrops = wideSink?.claims.dropped_by_reason;
+  const hasClaim = p => p.steps.some(isClaim);
+  const countClaimDrops = (before, after, why) => {
+    if (claimDrops) claimDrops[why] += before.filter(hasClaim).length - after.filter(hasClaim).length;
+  };
+  if (claimCtx) {
+    plans = plans.filter(p => {
+      const why = hasClaim(p) ? claimRule(p.steps, claimCtx) : null;
+      if (why) claimDrops[why]++;
+      return !why;
+    });
+  }
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   // FC-VALUE (integration-8): every player a served move gives or gets must carry a FantasyCalc value (the one
@@ -316,37 +346,38 @@ export function planLeague(adapter, settings) {
   // unpriced players out of targets, gives and flips; this is the backstop and the count.
   const unpricedId = id => { const v = adapter.players.get(id)?.value ?? adapter.players.get(Number(id))?.value; return !(Number.isFinite(v) && v >= 0); };
   const noFc = p => p.steps.some(st => [...st.give, ...st.get].some(unpricedId));
-  const fcDropped = plans.filter(noFc).length;
-  if (fcDropped) plans = plans.filter(p => !noFc(p));
+  const fcDropped = plans.filter(p => noFc(p) && !hasClaim(p)).length;
+  if (claimDrops) claimDrops.no_fc_value += plans.filter(p => noFc(p) && hasClaim(p)).length;
+  if (plans.some(noFc)) plans = plans.filter(p => !noFc(p));
   // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
   // floor on, every player Nick still holds at the end of the path (gets minus later gives) must pass it;
   // shadow counts the paths it would drop.
   const failsHeld = p => [...heldAtEnd(p.steps)].some(id => !floor.read(id).passes);
   if (floor.sink.mode !== 'off') {
-    const bad = plans.filter(failsHeld).length;
+    const bad = plans.filter(p => failsHeld(p) && !hasClaim(p)).length;
     floor.sink[floorOn ? 'paths_dropped' : 'paths_would_drop'] = bad;
-    if (floorOn && bad) plans = plans.filter(p => !failsHeld(p));
+    if (floorOn && claimDrops) claimDrops.floor += plans.filter(p => failsHeld(p) && hasClaim(p)).length;
+    if (floorOn) plans = plans.filter(p => !failsHeld(p));
   }
   // FLIP-STRANDED: every holding between legs, too (off: no read; shadow: counted, nothing dropped).
   if (stranded.sink.mode !== 'off') plans = plans.filter(p => !stranded.pathStrands(p) || !stranded.on);
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
-  const tmApplied = TM ? applyTradeMemory(plans, TM, { env }) : null;
-  if (tmApplied) plans = tmApplied.plans;
-  // SEARCH-WIDE: claim paths left after the hard filters (GETS-FLOOR holds the claimed player to 83+ too).
-  if (wideSink) wideSink.claims.kept = plans.filter(p => p.steps.some(isClaim)).length;
+  // FLIP-CLAIMS: claim paths go through trade memory on their own, so the served counts are today's.
+  const tmApplied = TM ? applyTradeMemory(plans.filter(p => !hasClaim(p)), TM, { env }) : null;
+  const tmClaims = TM && claimDrops ? applyTradeMemory(plans.filter(hasClaim), TM, { env }).plans : plans.filter(hasClaim);
+  if (claimDrops) countClaimDrops(plans, tmClaims, 'trade_memory');
+  if (tmApplied) plans = [...tmApplied.plans, ...tmClaims];
   // #406 finding 3: the War Room has no claim step yet (NextMoveDeck, HeroCard, Negotiate and the
   // "I sent it" flow treat every partner as a team), so a served claim would read "send to free_agent"
   // with send buttons. Until a UI unit renders "Claim X, drop Y", claim paths are SHADOW: scored and
-  // reported (search_wide.claims.shadow_best), never ranked into the deck, next move or any served number.
+  // reported (search_wide.claims), never ranked into the deck, next move or any served number.
+  // FLIP-CLAIMS: they are re-priced on the confirm dice below (stranded branch included) before one is kept.
+  let claimPlans = [];
   if (wideSink) {
-    const claimPlans = plans.filter(p => p.steps.some(isClaim));
-    plans = plans.filter(p => !p.steps.some(isClaim));
-    const top = claimPlans.reduce((b, p) => (b == null || p.expected > b.expected ? p : b), null);
+    claimPlans = plans.filter(hasClaim);
+    plans = plans.filter(p => !hasClaim(p));
     wideSink.claims.served = false;
     wideSink.claims.why_not_served = 'the War Room has no claim step yet, so claim paths are shadow (never in the deck)';
-    wideSink.claims.shadow_best = top ? { expected: top.expected, dice: 'planning', target: String(top.target),
-      steps: top.steps.map(st => ({ partner: String(st.team), give: st.give.map(String), get: st.get.map(String), p: st.p,
-        ...(st.claim ? { claim: true } : {}) })) } : null;
   }
   mark('search');
 
@@ -438,6 +469,35 @@ export function planLeague(adapter, settings) {
   }));
   if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
+  // FLIP-CLAIMS (Nick 2026-09-25): a claim path is kept only when it beats doing nothing on the confirm dice
+  // under the active mode, the same gate as a served card. The confirm price holds the stranded branch (the
+  // claim went through, the flip leg did not: Nick holds the free agent and has lost the drop) at the flip
+  // leg's P(yes). Shadow: after the served confirm counts are taken, so no served number moves.
+  if (wideSink) {
+    const cd = wideSink.claims.dropped_by_reason;
+    const byPlan = [...claimPlans].sort((a, b) => b.expected - a.expected);
+    cd.not_confirmed += Math.max(0, byPlan.length - CLAIM_CONFIRM_MAX);
+    const kept = [], stranded = [];
+    for (const p of byPlan.slice(0, CLAIM_CONFIRM_MAX)) {
+      // No confirm dice, no claim (fails closed, as a served card).
+      if (!S2) { cd.confirm_failed++; continue; }
+      const c = priceOnConfirm(p, objective.risk_mode, tol, ctx, false);
+      // confirm.js#confirmVerdict fails exactly when the confirm-dice expected is <= 0: it does not beat doing nothing.
+      if (c.confirm.verdict !== 'failed' && !Number.isFinite(c.score)) { cd.mode_tolerance++; continue; }
+      if (c.confirm.verdict === 'failed' || !(c.beats_no_trade && c.expected > 0)) { cd.claim_stranded++; stranded.push(c); continue; }
+      kept.push(c);
+    }
+    kept.sort((a, b) => b.expected - a.expected);
+    const pathOf = c => ({ expected: c.expected, dice: 'confirm', target: String(c.target), stranded_branch: strandedBranch(c.steps),
+      steps: c.steps.map(st => ({ partner: String(st.team), give: st.give.map(String), get: st.get.map(String), p: st.p, delta: st.delta,
+        ...(st.claim ? { claim: true } : {}), ...(st.depth_premium ? { depth_premium: st.depth_premium } : {}) })) });
+    wideSink.claims.kept = kept.length;
+    wideSink.claims.paths = kept.slice(0, 10).map(pathOf);
+    wideSink.claims.shadow_best = wideSink.claims.paths[0] ?? null;
+    // The closest claim path that lost on the confirm dice (why no claim survives, when none does). Never served.
+    const miss = stranded.reduce((b, c) => (b == null || c.expected > b.expected ? c : b), null);
+    wideSink.claims.best_stranded = miss ? { ...pathOf(miss), why: 'claim_stranded' } : null;
+  }
   // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths (already floored and
   // filtered by trade memory); shadow, they move nothing served. Built after the confirm counts are taken, so
   // their extra confirm rescores change no served count. A backup at a "no" is main's confirmedActive: it must
@@ -711,6 +771,8 @@ export function planLeague(adapter, settings) {
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     // HIS-SIDE-WIRE: ESPN's trade block as the adapter read it (null: not read); the view reads it per target.
     trade_block: adapter.tradeBlock ?? null,
+    // CHAT-TRADE-INTEREST (shadow): the adapter's read of chat_trade_interest (null: not read).
+    chat_interest: adapter.chatInterest ?? null,
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

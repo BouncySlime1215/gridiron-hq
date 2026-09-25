@@ -172,9 +172,6 @@ const move = obj({
   delta_final: numF,
   expected: numF,
   reasoning: field(reasoning)
-}, {
-  // TRADE-MEMORY (a): the card buys back a player Nick sold inside the window, after his price fell 10%+.
-  buy_back: arr(obj({ player: pid, was: num, now: num, text: str }), { min: 1 })
 });
 
 const destination = obj({

@@ -1,7 +1,7 @@
 /**
  * TRADE-MEMORY (ONE-PLAN 4c): the planner remembers this season's executed trades.
- *  (a) a player Nick gave away in the last 4 weeks is not a target, unless his market value fell
- *      10%+ since; then the card says "buy-back: price fell from X to Y";
+ *  (a) a player Nick gave away this season is never a target, a get or a flip buy, from any team,
+ *      whatever his price did since (Nick, 2026-09-24: no buy-backs, no value-drop exception);
  *  (b) a counterparty's price for a player he acquired this season has a floor at what he paid, and
  *      his currency is read from what he gave up (shadow: reported, moves nothing unless the flag is on);
  *  (c) no offer undoes a trade Nick and that counterparty made this season.
@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const tm = await import('../server/services/campaign/trade-memory.js');
-const { executedTrades, tradeMemory, stepMemory, applyTradeMemory, TRADE_MEMORY_WINDOW_DAYS, BUYBACK_FALL, FLOOR_FLAG } = tm;
+const { executedTrades, tradeMemory, stepMemory, applyTradeMemory, FLOOR_FLAG } = tm;
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
 const { toEntry, plansFile } = await import('../server/services/campaign/view.js');
@@ -70,25 +70,16 @@ const ledger = (then = {}) => ({
 });
 const memOf = (then) => tradeMemory(ledger(then), { me: '1', valueNow: id => P.get(id)?.value ?? 0, positionOf: id => P.get(id)?.position ?? null });
 
-test('(a) a player Nick sold inside the window is excluded; outside it he is not', () => {
-  assert.equal(TRADE_MEMORY_WINDOW_DAYS, 28);
+test('(a) every player Nick sold this season is excluded, however long ago and whatever his price did', () => {
   const mem = memOf();
-  assert.equal(mem.excluded(1), 'sold_recently');
-  assert.equal(mem.buyBack(1), null);
-  assert.equal(mem.excluded(6), null, 'sold 40 days ago: outside the 4-week window');
+  assert.equal(mem.excluded(1), 'sold_player');
+  assert.equal(mem.excluded(6), 'sold_player', 'sold 40 days ago: still excluded, there is no window');
   assert.equal(mem.excluded(5), null, 'never sold');
-});
-
-test('(a) a buy-back is allowed once his price fell 10%+, and the card says so', () => {
-  assert.equal(BUYBACK_FALL, 0.10);
-  // O was 6,500 when Nick sold him; 5,796 now is a 10.8% fall.
-  const mem = memOf({ 1: 6500 });
-  assert.equal(mem.excluded(1), null);
-  assert.deepEqual(mem.buyBack(1), { player: 1, was: 6500, now: 5796, text: 'buy-back: price fell from 6,500 to 5,796' });
-  // A 9% fall is not enough.
-  assert.equal(memOf({ 1: 6369 }).excluded(1), 'sold_recently');
-  // No price on the day he sold: no fall can be shown, so he stays excluded.
-  assert.equal(memOf({ 1: null }).excluded(1), 'sold_recently');
+  // A 10.8% fall (6,500 then, 5,796 now) is no exception, and neither is a price that doubled or vanished.
+  for (const then of [6500, 2000, null]) assert.equal(memOf({ 1: then }).excluded(1), 'sold_player');
+  assert.equal(typeof mem.buyBack, 'undefined', 'there is no buy-back path');
+  assert.equal(tm.TRADE_MEMORY_WINDOW_DAYS, undefined);
+  assert.equal(tm.BUYBACK_FALL, undefined);
 });
 
 test('(b) the counterparty price floor is what he paid, and his currency is what he gave up', () => {
@@ -104,14 +95,14 @@ test('(b) the counterparty price floor is what he paid, and his currency is what
   assert.equal(two.floorOf('7', 5).floor, 1500);
 });
 
-test('stepMemory: Olave for two RBs is flagged three ways; a fair WR offer after a price fall is not', () => {
+test('stepMemory: Olave for two RBs is flagged three ways; a fair WR offer clears the shadow checks but not the rule', () => {
   const mem = memOf();
   const olave = { team: '7', give: [3, 4], get: [1] };
   const r = stepMemory(mem, olave);
-  assert.deepEqual(r.hard, ['sold_recently']);
+  assert.deepEqual(r.hard, ['sold_player']);
   assert.deepEqual(r.shadow, ['below_his_floor', 'wrong_currency'], '5,503 of RBs is under the 5,705 he paid, and he sold RBs to get a WR');
   const fell = memOf({ 1: 6500 });
-  assert.deepEqual(stepMemory(fell, olave).hard, [], 'a buy-back after a 10%+ fall is allowed');
+  assert.deepEqual(stepMemory(fell, olave).hard, ['sold_player'], 'a 10%+ fall is no buy-back exception');
   assert.deepEqual(stepMemory(fell, { team: '7', give: [5, 4], get: [1] }).shadow, [], '5,920 incl. a WR clears his floor and his currency');
 });
 
@@ -119,8 +110,8 @@ test('(c) an offer that undoes a trade Nick and that counterparty made this seas
   const mem = memOf();
   // Give C back to roster 7 and get O back: the 9/17 trade undone.
   assert.ok(stepMemory(mem, { team: '7', give: [2], get: [1] }).hard.includes('reversal'));
-  // Even 40 days on, with roster 3: TE 7 back for X.
-  assert.deepEqual(stepMemory(mem, { team: '3', give: [7], get: [6] }).hard, ['reversal']);
+  // Even 40 days on, with roster 3: TE 7 back for X (X is also a sold player).
+  assert.deepEqual(stepMemory(mem, { team: '3', give: [7], get: [6] }).hard, ['sold_player', 'reversal']);
   // Returning only one side is not an undo.
   assert.deepEqual(stepMemory(mem, { team: '3', give: [7], get: [99] }).hard, []);
 });
@@ -133,7 +124,8 @@ test('applyTradeMemory: hard reasons always drop; shadow reasons drop only with 
   mem.floors.set('7:99', { floor: 5705, at: ago(1), paid_with: [2], basis: 'value_at_trade' });
   const off = applyTradeMemory(plans, mem, {});
   assert.equal(off.plans.length, 1);
-  assert.deepEqual(off.dropped, { sold_recently: 1, reversal: 1, below_his_floor: 0, wrong_currency: 0 });
+  // Every reversal also gets back a sold player, so each drops under sold_player first.
+  assert.deepEqual(off.dropped, { sold_player: 2, reversal: 0, below_his_floor: 0, wrong_currency: 0 });
   // wrong_currency twice: Olave for RBs, and a TE back to roster 3, who sold his TE for X.
   assert.deepEqual(off.shadow, { below_his_floor: 2, wrong_currency: 2 });
   assert.equal(off.floor_on, false);
@@ -185,16 +177,23 @@ test('planner: a player Nick sold 10 days ago is no longer a target, a get or a 
   }
 });
 
-test('planner: after a 10%+ fall P11 is a buy-back, labelled on the card', () => {
-  const { a, res } = plan('all_in', { tradeLedger: fixtureLedger({ then11: 5000 }) });
-  assert.ok(res.targets.map(Number).includes(11));
-  const card = res.deck.find(c => c.plan.steps.some(s => s.get.map(Number).includes(11)));
-  assert.ok(card, 'a card buys P11 back');
-  assert.deepEqual(card.plan.buy_back, [{ player: 11, was: 5000, now: 4200, text: 'buy-back: price fell from 5,000 to 4,200' }]);
-  const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
-  const move = [entry.next_move, ...(entry.alternatives.value ?? [])].map(m => m.value ?? m).find(m => m?.buy_back);
-  assert.equal(move.buy_back[0].text, 'buy-back: price fell from 5,000 to 4,200');
-  assert.deepEqual(validateLeague(entry).errors, []);
+test('planner: no buy-back of a sold player from any team, even after a 16% price fall', () => {
+  // Nick sold P11 to team 2 (5,000 then, 4,200 now) and P21 to team 4, who has since passed him on to team 3.
+  const L = { now: NOW, valueAt: id => (id === 11 ? 5000 : null),
+    trades: [{ tx_id: 'b1', at: ago(10), moves: [{ player: 11, from: '1', to: '2' }, { player: 6, from: '2', to: '1' }] },
+      { tx_id: 'b2', at: ago(60), moves: [{ player: 21, from: '1', to: '4' }, { player: 7, from: '4', to: '1' }] },
+      { tx_id: 'b3', at: ago(30), moves: [{ player: 21, from: '4', to: '3' }, { player: 33, from: '3', to: '4' }] }] };
+  for (const mode of ['balanced', 'all_in']) {
+    const { a, res } = plan(mode, { tradeLedger: L });
+    for (const pid of [11, 21]) {
+      assert.ok(!res.targets.map(Number).includes(pid), `${mode}: P${pid} is not a target`);
+      assert.ok(!gets(res).includes(pid), `${mode}: no card gets P${pid}`);
+      assert.ok(!res.flip.realised.some(f => Number(f.player) === pid), `${mode}: no flip buys P${pid}`);
+    }
+    assert.deepEqual([...res.trade_memory.sold_players].sort(), ['11', '21']);
+    const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
+    assert.deepEqual(validateLeague(entry).errors, []);
+  }
 });
 
 test('view: _run.dropped_by_reason.trade_memory prints the count, and the file validates', () => {
@@ -249,42 +248,31 @@ test('league-adapter tradeLedger: reads executed trades and the price on the tra
 
 /* ------------------------------------------------ review fixes (PR #379) */
 
-test('(a) no price now (missing or 0) is unknown, never a 100% fall: he stays excluded', () => {
-  const mem = tradeMemory(ledger({ 1: 5000 }), { me: '1', valueNow: id => (id === 1 ? 0 : P.get(id)?.value ?? 0), positionOf: id => P.get(id)?.position ?? null });
-  assert.equal(mem.excluded(1), 'sold_recently');
-  assert.equal(mem.buyBack(1), null);
-  const missing = tradeMemory(ledger({ 1: 5000 }), { me: '1', valueNow: id => (id === 1 ? undefined : P.get(id)?.value ?? 0), positionOf: id => P.get(id)?.position ?? null });
-  assert.equal(missing.excluded(1), 'sold_recently');
-});
+// Team 3 bought P21 from team 4 for P32 (3,000 then), so his floor on P21 is 3,000. The ladder builds its own
+// packages from Nick's whole roster; with the floor flag on, no opening, walk-away or rung may sit under it.
+const floorLedger = { now: NOW, valueAt: id => (id === 32 ? 3000 : null),
+  trades: [{ tx_id: 'l1', at: ago(7), moves: [{ player: 21, from: '4', to: '3' }, { player: 32, from: '3', to: '4' }] }] };
 
-// Nick sent P21 to team 3 for P4 last week. A planned 'get P21 for P6 + P7' passes, but the ladder
-// builds its own packages from the whole roster: an opening of 'P4 + P7 for P21' undoes that trade.
-const ladderLedger = { now: NOW, valueAt: () => null,
-  trades: [{ tx_id: 'l1', at: ago(7), moves: [{ player: 21, from: '1', to: '3' }, { player: 4, from: '3', to: '1' }] }] };
-const reverses = (a, team, give, get) => String(team) === '3' && give.map(Number).includes(4) && get.map(Number).includes(21);
-
-test('the offer ladder (opening, walk-away, curve) never serves a reversal', () => {
+test('the offer ladder (opening, walk-away, rungs) is held to the same memory as the planned step', () => {
   const { stepPasses } = tm;
   let checked = 0, removed = 0;
   for (const mode of ['balanced', 'all_in']) {
-    for (const buyBack of [false, true]) {
-      // With a 10%+ fall P21 is a buy-back, so the planner does build P21 cards; the ladder must still not give P4.
-      const L = { ...ladderLedger, valueAt: id => (buyBack && id === 21 ? 5000 : null) };
-      const { res } = plan(mode, { tradeLedger: L });
-      for (const c of res.deck) {
-        for (const pb of [c.playbook, ...(c.playbooks ?? [])].filter(Boolean)) {
-          const st = c.plan.steps[pb.step_index];
-          for (const row of [pb.opening, pb.walk_away, pb.ladder?.indifference, ...(pb.ladder?.ladder ?? [])].filter(r => r?.give)) {
-            assert.ok(!reverses(null, st.team, row.give, st.get), `${mode}: ladder gives P4 back for P21`);
-            checked++;
-          }
+    const { a, res } = plan(mode, { tradeLedger: floorLedger, env: { [FLOOR_FLAG]: '1' } });
+    const v = ids => ids.reduce((s, id) => s + (a.players.get(id)?.value ?? 0), 0);
+    for (const c of res.deck) {
+      for (const pb of [c.playbook, ...(c.playbooks ?? [])].filter(Boolean)) {
+        const st = c.plan.steps[pb.step_index];
+        if (!(String(st.team) === '3' && st.get.map(Number).includes(21))) continue;
+        for (const row of [pb.opening, pb.walk_away, pb.ladder?.indifference, ...(pb.ladder?.ladder ?? [])].filter(r => r?.give)) {
+          assert.ok(v(row.give) >= 3000 || st.get.length > 1, `${mode}: a ladder row offers ${v(row.give)} under his 3,000 floor`);
+          checked++;
         }
       }
-      removed += res.trade_memory.removed.ladder_rows;
     }
+    removed += res.trade_memory.removed.ladder_rows;
   }
-  assert.ok(checked > 0);
-  assert.ok(removed >= 1, 'the fixture ladder had reversal rows to remove');
+  assert.ok(checked > 0, 'the fixture served P21 cards with a ladder');
+  assert.ok(removed >= 1, 'the fixture ladder had rows under the floor to remove');
   assert.equal(typeof stepPasses, 'function');
 });
 
@@ -295,6 +283,6 @@ test('a sold player set as the goal is refused with a reason, and dropped_total 
   assert.deepEqual(res.trade_memory.refused_targets, ['11']);
   assert.ok(!res.targets.map(Number).includes(11));
   const d = res.trade_memory.dropped;
-  assert.equal(res.trade_memory.dropped_total, d.sold_recently + d.reversal + d.below_his_floor + d.wrong_currency);
+  assert.equal(res.trade_memory.dropped_total, d.sold_player + d.reversal + d.below_his_floor + d.wrong_currency);
   assert.ok(res.trade_memory.removed.targets >= 1);
 });

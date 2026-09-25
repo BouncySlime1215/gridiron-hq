@@ -48,3 +48,23 @@ TE to roster 3, who sold his TE this season, so 2 is right.
 
 `test/campaign-trade-memory.test.js`: 13 pass, 0 fail. Full suite, lint,
 typecheck and `check:wiring`: see the PR body.
+
+## 5. Nick's rule, 2026-09-24 night: no buy-backs at all
+
+Nick: "NO buy-backs of sold players from any team, with no value-drop
+exception", on by default. ONE-PLAN 4c's 4-week window and 10%-fall exception
+are removed:
+
+- `trade-memory.js`: every player Nick sent away in any trade this season is
+  `sold_player` (was `sold_recently`), whoever holds him now. `buyBack`,
+  `TRADE_MEMORY_WINDOW_DAYS` and `BUYBACK_FALL` are gone; so is `move.buy_back`
+  in the plans contract.
+- A reversal always gets back a sold player, so every reversal now drops under
+  `sold_player` first; `reversal` stays as a label.
+- Proving tests (each fails on the previous commit):
+  `planner: no buy-back of a sold player from any team, even after a 16% price
+  fall` (P21 sold to team 4, passed on to team 3: never a target, get or flip)
+  and `(a) every player Nick sold this season is excluded, however long ago and
+  whatever his price did`. The ladder test now proves the ladder is held to the
+  floor with its flag on (fails with the ladder filter removed:
+  "a ladder row offers 2700 under his 3,000 floor").

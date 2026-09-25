@@ -1,10 +1,8 @@
 /**
  * TRADE-MEMORY (ONE-PLAN 4c): the planner remembers this season's executed trades.
  *
- *  (a) a player Nick gave away in the last TRADE_MEMORY_WINDOW_DAYS is never a target, a get or a flip
- *      buy, unless his market value fell BUYBACK_FALL or more since the trade; then he is a buy-back and
- *      the card says "buy-back: price fell from X to Y". No price on the trade day: no fall can be shown,
- *      so he stays excluded.
+ *  (a) a player Nick gave away in any trade this season is never a target, a get or a flip buy, from
+ *      any team. Nick's rule (2026-09-24): no buy-backs of sold players, no value-drop exception.
  *  (b) a counterparty's floor for a player he bought this season is what he paid: the market value, on
  *      the trade day, of what he gave, split across what he got by what each was worth then. His currency
  *      is the positions he gave up (sells) and took in (wants), net over his season's trades.
@@ -16,15 +14,11 @@
  * Pure: the ledger (trades, the clock, the price-on-a-day reader) comes in from the adapter
  * (scripts/campaign/league-adapter.mjs#tradeLedger; tests hand one in). No DB, env or clock here.
  */
-export const TRADE_MEMORY_WINDOW_DAYS = 28;
-export const BUYBACK_FALL = 0.10;
 export const FLOOR_FLAG = 'GRIDIRON_TRADE_MEMORY_FLOOR';
-const DAY = 864e5;
-const HARD = ['sold_recently', 'reversal'];
+const HARD = ['sold_player', 'reversal'];
 const SHADOW = ['below_his_floor', 'wrong_currency'];
 
 const toMsDefault = v => { const t = Date.parse(v ?? ''); return Number.isFinite(t) ? t : null; };
-const fmt = n => Math.round(n).toLocaleString('en-US');
 
 /**
  * league_transactions_raw rows -> executed trades. An executed trade is the TRADE_ACCEPT / PROCESS /
@@ -59,7 +53,7 @@ export function executedTrades(rows, { idOfEspn, toMs = toMsDefault }) {
  * ledger: { now, trades: [{ tx_id, at, moves: [{ player, from, to }] }], valueAt(id, atMs) -> number|null }.
  * opts: { me, valueNow(id) -> number, positionOf(id) -> string|null, holderOf(id) -> team|null (optional) }.
  */
-export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null, windowDays = TRADE_MEMORY_WINDOW_DAYS, fall = BUYBACK_FALL }) {
+export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null }) {
   const now = ledger.now;
   const trades = ledger.trades ?? [];
   const then = (id, at) => { const v = ledger.valueAt?.(id, at); return Number.isFinite(v) ? v : null; };
@@ -105,15 +99,10 @@ export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null,
         nickTrades.set(team, list);
       }
     }
+    // (a) every player Nick sent away this season, whoever holds him now and whatever his price did since.
     for (const m of t.moves) {
-      if (m.from !== String(me) || now - t.at > windowDays * DAY) continue;
-      const was = then(m.player, t.at);
-      const cur = valueNow(m.player);
-      // No price now (missing or 0) is unknown, not a 100% fall: he stays excluded.
-      const fell = was != null && was > 0 && Number.isFinite(cur) && cur > 0 ? (was - cur) / was : null;
-      const buyback = fell != null && fell >= fall - 1e-12;
-      sold.set(String(m.player), { player: m.player, at: t.at, to: m.to, was, now: cur, fell, buyback,
-        text: buyback ? `buy-back: price fell from ${fmt(was)} to ${fmt(cur)}` : null });
+      if (m.from !== String(me)) continue;
+      sold.set(String(m.player), { player: m.player, at: t.at, to: m.to });
     }
   }
 
@@ -125,9 +114,8 @@ export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null,
   }
 
   return {
-    me: String(me), now, windowDays, fall, trades: trades.length, sold, floors, currency, nickTrades, valueNow, positionOf,
-    excluded(id) { const s = sold.get(String(id)); return s && !s.buyback ? 'sold_recently' : null; },
-    buyBack(id) { const s = sold.get(String(id)); return s?.buyback ? { player: s.player, was: s.was, now: s.now, text: s.text } : null; },
+    me: String(me), now, trades: trades.length, sold, floors, currency, nickTrades, valueNow, positionOf,
+    excluded(id) { return sold.has(String(id)) ? 'sold_player' : null; },
     floorOf(team, id) { return floors.get(`${team}:${id}`) ?? null; },
     currencyOf(team) { return currency.get(String(team)) ?? { wants: [], sells: [] }; },
   };
@@ -138,7 +126,7 @@ export function stepMemory(mem, step) {
   const team = String(step.team);
   const give = step.give.map(String), get = step.get.map(String);
   const hard = [], shadow = [];
-  if (get.some(id => mem.excluded(id))) hard.push('sold_recently');
+  if (get.some(id => mem.excluded(id))) hard.push('sold_player');
   if ((mem.nickTrades.get(team) ?? []).some(t => get.some(id => t.nickGave.has(id)) && give.some(id => t.nickGot.has(id)))) hard.push('reversal');
   const v = id => Math.max(0, Number(mem.valueNow(id)) || 0);
   const floors = step.get.map(id => mem.floorOf(team, id));
@@ -170,8 +158,7 @@ export function applyTradeMemory(plans, mem, { env = {} } = {}) {
     for (const k of soft) shadow[k]++;
     const why = hard ?? (on ? soft[0] : undefined);
     if (why) { dropped[why]++; continue; }
-    const bb = [...new Set(p.steps.flatMap(s => s.get.map(String)))].map(id => mem.buyBack(id)).filter(Boolean);
-    kept.push(bb.length ? { ...p, buy_back: bb } : p);
+    kept.push(p);
   }
   return { plans: kept, dropped, shadow, floor_on: on };
 }
@@ -191,10 +178,9 @@ export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, 
   if (!mem) return { status: 'no_ledger', dropped_total: 0 };
   const d = { ...dropped };
   return {
-    status: 'on', window_days: mem.windowDays, buyback_fall: mem.fall, trades: mem.trades, unmapped,
+    status: 'on', trades: mem.trades, unmapped,
     floor: on ? 'filter' : 'shadow',
-    sold_recently: [...mem.sold.values()].filter(s => !s.buyback).map(s => String(s.player)),
-    buy_backs: [...mem.sold.values()].filter(s => s.buyback).map(s => ({ player: String(s.player), was: s.was, now: s.now, text: s.text })),
+    sold_players: [...mem.sold.keys()],
     floors: [...mem.floors].map(([k, f]) => ({ key: k, floor: f.floor, basis: f.basis })),
     currency: Object.fromEntries(mem.currency),
     dropped: d, shadow, removed: { targets, flips, ladder_rows: ladderRows }, refused_targets: refused.map(String),

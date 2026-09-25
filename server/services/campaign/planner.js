@@ -129,7 +129,7 @@ export function planLeague(adapter, settings) {
     : null;
   const tmCount = { targets: 0, flips: 0, ladderRows: 0, refused: [] };
   const tmFloor = floorOn(env);
-  // (a) a flip that buys a player Nick just sold is a buy-back like any other; (c) neither leg may undo a trade.
+  // (a) a flip never buys back a player Nick sold this season; (c) neither leg may undo a trade.
   const flipFails = f => {
     if (TM.excluded(f.player)) return true;
     if (!f.legs) return false;

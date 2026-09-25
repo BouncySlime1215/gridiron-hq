@@ -44,6 +44,7 @@ delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, row, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
+const { priceForRules } = await import('./fixtures/rule-gate.mjs');
 await runMigrations();
 const { hashSessionToken } = await import('../server/platform/auth.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
@@ -69,6 +70,10 @@ function account(subject, token) {
 }
 run(`INSERT INTO leagues (id, platform, league_id, season, name, payload, team_count, my_team_id, fetched_at)
      VALUES (1, 'espn', 'neg-1', 2026, 'League A', '{"teams":[]}', 12, '1', '2026-09-24T05:00:00Z')`);
+// RULES-EVERYWHERE: the made-up league priced and scored for Nick's rule gate (Nick's P1-P7 low, the rest
+// high, every player on a test-only served board), never this machine's plans file (rules: own test).
+process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'no-plans.json');
+priceForRules(db, { leagueId: 1, mine: [1, 2, 3, 4, 5, 6, 7], theirs: [11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35] });
 const owner = account('owner', 'owner-token');
 account('stranger', 'stranger-token');
 run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (1, ?, 'commissioner')`, owner);
@@ -709,4 +714,28 @@ test('preview prefixes the countdown\'s sentences', async () => {
     const { thread } = (await call(base, { body: { move_id: MOVE.move_id, step_index: 0 } })).body;
     assert.ok(thread.countdown.basis.startsWith(PREVIEW_PREFIX));
   });
+});
+
+// RULES-EVERYWHERE (surface: War Room negotiation): no thread is opened, so no reply table is served,
+// for a move whose step gets a player Nick sold this season. Made-up ledger row; removed after.
+test('RULES-EVERYWHERE: "I sent it" on a step that gets a player Nick sold this season is refused, counted', async () => {
+  fresh();
+  const getId = Number(STEP.get[0]);
+  const had = row('SELECT id FROM players WHERE id = ?', getId);
+  if (!had) run(`INSERT INTO players (id, name, position, espn_id) VALUES (?, 'Sold Guy', 'WR', ?)`, getId, 9900 + getId);
+  else run('UPDATE players SET espn_id = ? WHERE id = ?', 9900 + getId, getId);
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, processed_at, items_json, first_seen_at, last_seen_at)
+       VALUES (1, 2026, 'rules-sold', 'TRADE_ACCEPT', 'EXECUTED', 'PROCESS', '2026-09-10T12:00:00Z', ?, 'now', 'now')`,
+  JSON.stringify([{ playerId: 9900 + getId, fromTeamId: 1, toTeamId: Number(STEP.partner), type: 'TRADE' }]));
+  try {
+    await withEnv(LIVE, async () => {
+      const r = await call(base, { body: { move_id: MOVE.move_id, step_index: 0 } });
+      assert.equal(r.status, 422);
+      assert.equal(r.body.dropped_by_rule, 1);
+      assert.equal(row('SELECT COUNT(*) AS n FROM negotiation_threads').n, 0);
+    });
+  } finally {
+    run(`DELETE FROM league_transactions_raw WHERE tx_id = 'rules-sold'`);
+    fresh();
+  }
 });

@@ -37,8 +37,10 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
-import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
+import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION, gateProposals }
   from '../services/trade-proposals.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
+import { ruleGate, idsOf } from '../services/campaign/never-give.js';
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { recordRoute } from '../services/rec-ledger.js';
 import { offerLoopFields } from '../services/offer-loop-flag.js';
@@ -171,7 +173,9 @@ r.get('/:leagueId/post-draft-plan', (req, res, next) => {
       // selfScout already runs bestLineup() under the SCORED (K/DEF-excluded) slot
       // set — reuse its lineup rather than recomputing it.
       lineup: scout.lineup,
-      trades
+      trades,
+      // RULES-EVERYWHERE: ideas findTrades dropped for breaking one of Nick's hard rules.
+      dropped_by_rule: trades?.dropped_by_rule ?? 0
     });
   } catch (e) { next(e); }
 });
@@ -853,6 +857,11 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     const result = await proposalsFor(lg.id, {
       ideas, universe, call: liveCaller(callClaude), cache: dbCache(lg.id),
     });
+    // RULES-EVERYWHERE: a written-up proposal can combine the ideas it cites, so it is gated again on
+    // its own package (names read back to ids through those ideas; an unreadable name fails closed).
+    // Gated before the ledger write, so the ledger records what was served.
+    const gated = gateProposals(ruleGate({ row, rows }, { leagueId: lg.id, teamId: found?.me?.roster_id ?? req.query.team_id ?? lg.my_team_id }), result, ideas);
+    const served = Array.isArray(result?.proposals) ? { ...result, proposals: gated.kept } : result;
     // THE LEDGER WRITE, HERE AND NOWHERE DOWNSTREAM. This is the only layer that
     // holds both the whole slate that passed the edge test and the model's answer,
     // so it is the only layer that can see which candidates were considered and
@@ -873,12 +882,13 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     let ledger = null;
     try {
       ledger = recordProposalSlate(lg.id, lg.season ?? null, {
-        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,
+        ideas, result: served, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,
       });
     } catch (e) {
       ledger = { state: 'write_failed', reason: String(e?.message ?? e) };
     }
-    res.json({ ...result, outcome_ledger: ledger });
+    res.json({ ...served, outcome_ledger: ledger,
+      dropped_by_rule: (found?.dropped_by_rule ?? 0) + gated.dropped_by_rule });
   } catch (e) { next(e); }
 });
 
@@ -1433,6 +1443,12 @@ r.post('/:leagueId/explain', async (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const d = req.body?.deal;
     if (!d?.me || !d?.them) return res.status(400).json({ error: 'deal required' });
+    // RULES-EVERYWHERE: no message is drafted for a deal that breaks one of Nick's hard rules.
+    const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: req.body?.team_id ?? lg.my_team_id });
+    const ruled = gate.filter([d], x => ({ give: idsOf(x.me.gives), get: idsOf(x.me.gets), partner: x.partner_id }));
+    if (!ruled.kept.length) {
+      return res.status(422).json({ error: "This deal breaks one of Nick's hard rules, so no message is drafted.", dropped_by_rule: 1 });
+    }
 
     const fmtSide = s => `${s.owner}: sends ${s.gives.map(p => p.name).join(' + ') || 'nothing'}; ` +
       `lineup ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}), ` +
@@ -1449,6 +1465,13 @@ r.post('/:leagueId/explain', async (req, res, next) => {
     // more piece" suggestion in the counter-read could name exactly the player you
     // marked protected.
     const untouchables = Array.isArray(req.body?.untouchables) ? req.body.untouchables.filter(Boolean) : [];
+    // RULES-EVERYWHERE: Nick's pinned never-give players are untouchable in the free text too.
+    if (gate.applies) {
+      for (const id of gate.rules.neverGive) {
+        const nm = row('SELECT name FROM players WHERE id = ?', Number(id))?.name;
+        if (nm && !untouchables.includes(nm)) untouchables.push(nm);
+      }
+    }
 
     const msg = await callClaude({
       feature: 'trade-explain',
@@ -1471,7 +1494,7 @@ Respond with ONLY JSON:
  "walk_away":"one sentence — the point at which I decline",
  "risk":"one sentence — the single way this deal goes badly for me"}`
     });
-    res.json(parseJson(msg));
+    res.json({ ...parseJson(msg), dropped_by_rule: 0 });
   } catch (e) { next(e); }
 });
 

@@ -8,6 +8,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-find-trades-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 // Side-effect imports: same "~40 files create tables on import" wiring the
@@ -37,6 +38,8 @@ function insertLeague(id, payload) {
        roster_positions, espn_s2, swid, connection_status)
        VALUES (?, 'espn', ?, 2026, 'FT League', ?, 6, '1', ?, 'x', 'y', 'connected')`,
     id, `espn-ft-${id}`, JSON.stringify(payload), JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']));
+  // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+  priceLeagueForRules(db, rows('SELECT id, payload, my_team_id FROM leagues WHERE id = ?', id)[0]);
 }
 
 // Six real drafted teams (not just two) — a small but genuine multi-partner

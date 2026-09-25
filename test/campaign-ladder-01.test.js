@@ -23,7 +23,13 @@ const { toEntry } = await import('../server/services/campaign/view.js');
 const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const L = await import('../server/services/campaign/ladder.js');
-const { ladderFlag, ladderCards, tierOf, LADDER_ENV, FINAL_FLOOR, LEVEL_BELOW, NEVER_GIVE, NEVER_GET, ALL_IN_GUESS_MAX_RUNGS } = L;
+const { ladderFlag, ladderCards, tierOf, LADDER_ENV, LEVEL_BELOW, ALL_IN_GUESS_MAX_RUNGS } = L;
+// Batch B: the ladder keeps no copy of Nick's lists or floor; it reads main's.
+const { PINNED_NEVER_GIVE: NEVER_GIVE, PINNED_NEVER_GET: NEVER_GET } = await import('../server/services/campaign/never-give.js');
+const GF = await import('../server/services/campaign/gets-floor.js');
+const { tradeMemory } = await import('../server/services/campaign/trade-memory.js');
+const { readFileSync } = await import('node:fs');
+const { pathExpectation } = await import('../server/services/campaign/paths.js');
 
 /* ------------------------------------------------------------- the rule */
 
@@ -35,8 +41,8 @@ test('flag: off by default, "1" on, "0" off; no preview auto-on', () => {
   assert.equal(ladderFlag({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), 'off');
 });
 
-test("Nick's constants: floor 83, level below 74, pinned never-give / never-get ids, Fuck-it 2 rungs", () => {
-  assert.equal(FINAL_FLOOR, 83);
+test("Nick's constants: main's floor 83, level below 74, main's pinned never-give / never-get ids, Fuck-it 2 rungs", () => {
+  assert.equal(GF.DEFAULT_GET_FLOOR, 83);
   assert.equal(LEVEL_BELOW, 74);
   assert.deepEqual([...NEVER_GIVE].sort(), ['160', '277', '80']);
   assert.deepEqual([...NEVER_GET], ['290']);
@@ -248,33 +254,42 @@ test('review 1: everything Nick holds at the end must be 83+, not only the targe
   assert.equal(cardsFor([plan('7', [step('2', ['1'], ['5']), step('3', ['5'], ['7'])])]).cards.length, 1);
 });
 
-test('review 2: a backup is offered only when it beats doing nothing on the confirm dice; else labelled planning dice', () => {
+test('review 2 / Batch B: a backup comes only from main\'s confirm-dice gate (confirmedActive); no confirm dice, no backup', () => {
   const a = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.05)]);
   const b = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.04)]);
   const card = out => out.cards.find(x => x.rungs[1].partner === '3');
-  // No confirm dice: the backup is shown, labelled as a planning-dice number.
+  // No confirm dice: never a planning-dice backup (main: no confirm dice, no served move). The rung says stop.
   const plain = card(cardsFor([a, b]));
-  assert.equal(plain.rungs[1].on_no.kind, 'backup');
-  assert.equal(plain.rungs[1].on_no.dice, 'planning');
-  // Confirm dice say b does not beat doing nothing: no backup, stop.
+  assert.equal(plain.rungs[1].on_no.kind, 'stop');
+  // confirmedActive says b does not beat doing nothing: no backup, stop.
   const failed = card(cardsFor([a, b], { confirmed: () => null }));
   assert.equal(failed.rungs[1].on_no.kind, 'stop');
-  // Confirm dice keep b: its confirm-dice expected is what the card shows.
-  const held = card(cardsFor([a, b], { confirmed: q => (q === b ? 0.02 : 0.03) }));
+  // confirmedActive returns b re-priced on the confirm dice: the card shows that plan's confirm-dice expected.
+  const reB = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.02)]);
+  const held = card(cardsFor([a, b], { confirmed: q => (q === b ? reB : null) }));
   assert.equal(held.rungs[1].on_no.kind, 'backup');
   assert.equal(held.rungs[1].on_no.dice, 'confirm');
-  assert.equal(held.rungs[1].on_no.expected, 0.02);
+  assert.equal(held.rungs[1].on_no.expected, pathExpectation(reB.steps).expected, 'the re-priced plan\'s number, not the planning one');
+  assert.notEqual(held.rungs[1].on_no.expected, pathExpectation(b.steps).expected);
 });
 
-test('review 3: any player Nick sold is never bought back on any rung (sold set, 290 still pinned)', () => {
+// Main's trade memory on a made-up ledger: Nick (team '0') sold 171 to team '9' and got 172 back.
+const memFor = () => tradeMemory({ now: 1e12, valueAt: () => 100, trades: [{ tx_id: 't1', at: 1e12 - 1,
+  moves: [{ player: '171', from: '0', to: '9' }, { player: '172', from: '9', to: '0' }] }] },
+{ me: '0', valueNow: () => 100, positionOf: () => 'WR' });
+
+test('review 3 / Batch B: main\'s trade memory: no player Nick sold comes back from ANY team, on any rung (290 still pinned)', () => {
+  // Bought back from team '2', not the team he sold to ('9'): still a buy-back.
   const buyback = plan('7', [step('2', ['1'], ['171']), step('3', ['171'], ['7'])]);
-  const ps = new Map([...players, ['171', { value: 100 }]]);
-  const out = ladderCards([buyback], { mode: 'balanced', scoreOf: scoreOf2, players: ps, sold: new Set(['171']) });
+  const ps = new Map([...players, ['171', { value: 100 }], ['172', { value: 100 }]]);
+  const out = ladderCards([buyback], { mode: 'balanced', scoreOf: scoreOf2, players: ps, memory: memFor() });
   assert.equal(out.cards.length, 0);
   assert.equal(out.dropped_by_reason.sold, 1);
-  // A function works too (trade memory's excluded(id)).
-  assert.equal(ladderCards([buyback], { mode: 'balanced', scoreOf: scoreOf2, players: ps, sold: id => (id === '171' ? 'sold_recently' : null) })
-    .dropped_by_reason.sold, 1);
+  // The last rung counts too.
+  const late = plan('171', [step('2', ['1'], ['5']), step('3', ['5'], ['171'])]);
+  assert.equal(ladderCards([late], { mode: 'balanced', scoreOf: id => ({ score: 90 }), players: ps, memory: memFor() }).dropped_by_reason.sold, 1);
+  // Control: with no ledger the same path is a card (the rule, not a typo, drops it).
+  assert.equal(ladderCards([buyback], { mode: 'balanced', scoreOf: id => ({ score: 90 }), players: ps }).cards.length, 1);
   // 290 stays pinned with no sold set at all.
   assert.equal(cardsFor([plan('7', [step('2', ['1'], ['290']), step('3', ['290'], ['7'])])]).dropped_by_reason.never_get, 1);
 });
@@ -297,4 +312,48 @@ test('review 4 + 5: planner passes objective untouchables; the section says plan
   for (const c of res.ladders.cards) for (const r of c.rungs) assert.ok(!r.give.includes(ban));
   assert.equal(off.entry.ladders.value.dice, 'planning');
   assert.match(off.entry.ladders.value.basis, /planning dice/);
+});
+
+/* --------------------------------- Batch B (main decf7ebf): main's rules, one copy */
+
+test('Batch B: the ladder keeps no second copy of Nick\'s lists, floor or held-set', () => {
+  const src = readFileSync(new URL('../server/services/campaign/ladder.js', import.meta.url), 'utf8');
+  for (const lit of ["'160'", "'80'", "'277'", "'290'"]) assert.ok(!src.includes(lit), `no pinned id literal ${lit}`);
+  assert.equal(L.NEVER_GIVE, undefined);
+  assert.equal(L.NEVER_GET, undefined);
+  assert.equal(L.FINAL_FLOOR, undefined);
+  assert.equal(L.heldAtEnd, undefined, 'held-at-end lives in gets-floor.js, shared with the planner');
+  assert.deepEqual([...GF.heldAtEnd([step('2', ['1'], ['5', '6']), step('3', ['5'], ['7'])])].sort(), ['6', '7']);
+});
+
+test('Batch B: main\'s floor on everything held: a destination min_get_score raises it, a lower one never loosens it', () => {
+  // 7 scores 90, 8 scores 82 (under 83). With floor 91 the 90 target fails too.
+  const p7 = plan('7', [step('2', ['1'], ['5']), step('3', ['5'], ['7'])]);
+  assert.equal(cardsFor([p7], { floor: 91 }).dropped_by_reason.final_below_floor, 1);
+  assert.equal(cardsFor([p7], { floor: 91 }).floor, 91);
+  const p8 = plan('8', [step('2', ['1'], ['5']), step('3', ['5'], ['8'])]);
+  assert.equal(cardsFor([p8], { floor: 50 }).dropped_by_reason.final_below_floor, 1, '83 is the least');
+  assert.equal(cardsFor([p8], { floor: 50 }).floor, 83);
+  // Held: rung 1 is a 1-for-2 whose second player (9, score 76) is never given on.
+  const held = plan('7', [step('2', ['1'], ['5', '9']), step('3', ['5'], ['7'])]);
+  assert.equal(cardsFor([held]).dropped_by_reason.held_below_floor, 1);
+});
+
+test('Batch B through the planner: GETS-FLOOR=0 does not open the ladder floor; no confirm dice, no backup', () => {
+  // Floor switched off by hand in the planner: ladder cards still hold everything they keep to 83+.
+  const a = makeAdapter();
+  a.scoreOf = id => ({ score: SCORE_FIX[id] ?? 30 });
+  const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { GRIDIRON_LADDER: '1', GRIDIRON_GETS_FLOOR: '0' } });
+  for (const c of res.ladders.cards) {
+    assert.ok((SCORE_FIX[c.target] ?? 30) >= 83);
+    const held = GF.heldAtEnd(c.rungs.map(r => ({ give: r.give, get: r.get })));
+    for (const id of held) assert.ok((SCORE_FIX[id] ?? 30) >= 83, `held ${id} is 83+`);
+  }
+  // No confirm world: every "no" is a stop.
+  const b = makeAdapter();
+  b.scoreOf = id => ({ score: SCORE_FIX[id] ?? 30 });
+  const world = b.world.bind(b);
+  b.world = seed => (seed === b.seed ? world(seed) : { fail: 'no confirm dice (test)' });
+  const r2 = planLeague(b, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { GRIDIRON_LADDER: '1' } });
+  for (const c of r2.ladders.cards) for (const r of c.rungs) assert.equal(r.on_no.kind, 'stop');
 });

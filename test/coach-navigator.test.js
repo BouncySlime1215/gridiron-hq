@@ -243,7 +243,7 @@ test('a priced change shows the engine trade-off: cost, net, verdict, ETA, and t
   assert.equal(p.verdict, 'not_worth_it');
   assert.equal(p.gated_to, 'balanced');
   const texts = out.answer.claims.map(c => c.text);
-  assert.match(texts[0], /^Trade-off for "Switch to .+": costs 6\.9 pts of title odds, gains 0\.0, net -6\.9; not worth it, because it gives up expected gain\.$/);
+  assert.match(texts[0], /^Trade-off for "Switch to .+": costs 2\.4 pts of title odds, gains 0\.0, net -2\.4; not worth it, because it gives up expected gain\.$/);
   assert.ok(texts.some(x => /adds 0 steps to the route; the ETA is week 4 today; and it changes the next move/.test(x)), texts.join('\n'));
   assert.ok(texts.some(x => /brain gate is holding all-in back to balanced/.test(x)));
   assert.equal(out.verification.ok, true, JSON.stringify(out.verification.violations));

@@ -8,7 +8,7 @@ import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
 import PulseTicker from '../components/brain/PulseTicker';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
-import WarRoom from '../components/warroom/WarRoom';
+import WarRoom from '../components/warroom/WarRoomShell';
 import { useWarRoom } from '../components/warroom/useWarRoom';
 
 /**

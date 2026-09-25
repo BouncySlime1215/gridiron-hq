@@ -18,6 +18,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 // Same side-effect imports as test/find-trades.test.js — tables created on import.
@@ -48,6 +49,8 @@ function insertLeague(id, payload) {
        roster_positions, espn_s2, swid, connection_status)
        VALUES (?, 'espn', ?, 2026, 'EV League', ?, 6, '1', ?, 'x', 'y', 'connected')`,
     id, `espn-ev-${id}`, JSON.stringify(payload), JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']));
+  // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+  if (payload) priceLeagueForRules(db, rows('SELECT id, payload, my_team_id FROM leagues WHERE id = ?', id)[0]);
 }
 
 // findTrades prices a player from player_season_stats (projected -> vorBoard

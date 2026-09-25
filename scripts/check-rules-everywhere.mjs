@@ -4,7 +4,8 @@
  * rules? Calls each service directly (no HTTP, no auth) for one league and Nick's team in it, against
  * GRIDIRON_DB_PATH, and checks every package it would serve from Nick's side.
  *
- *   GRIDIRON_DB_PATH=<copy> GRIDIRON_WARROOM_PLANS=<plans copy> node scripts/check-rules-everywhere.mjs [--league 4]
+ *   GRIDIRON_DB_PATH=<copy> node scripts/check-rules-everywhere.mjs [--league 4]
+ *   (point the War Room plans-path variable, server/services/warroom-flag.js, at a copy of the plans too)
  *
  * Read-only: nothing here writes, and after the imports the shared connection is switched to
  * PRAGMA query_only, so a surface that tries to write fails loudly instead. Point it at a COPY anyway
@@ -25,7 +26,6 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 
 process.env.SCHEDULER_DISABLED = '1';
 if (!process.env.GRIDIRON_DB_PATH) { console.error('GRIDIRON_DB_PATH is not set (point it at a copy of the app DB)'); process.exit(2); }
@@ -45,6 +45,7 @@ const negotiate = await import('../server/services/warroom-negotiate.js');
 const negotiateRoute = await import('../server/routes/warroom-negotiate.js');
 const coachTools = await import('../server/services/coach/tools.js');
 const neverGive = await import('../server/services/campaign/never-give.js');
+const { warRoomPlansPath, WARROOM_ENV } = await import('../server/services/warroom-flag.js');
 db.exec('PRAGMA query_only = ON');
 
 const S = x => String(x);
@@ -72,7 +73,7 @@ const sold = new Set();
     if (hit?.length === 1) sold.add(hit[0]);
   }
 }
-const plansFile = process.env.GRIDIRON_WARROOM_PLANS || path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json');
+const plansFile = warRoomPlansPath();
 const score = new Map();
 if (fs.existsSync(plansFile)) {
   const entry = (JSON.parse(fs.readFileSync(plansFile, 'utf8')).leagues ?? []).find(l => S(l.league) === S(LEAGUE));
@@ -206,7 +207,7 @@ async function fpSurface(name, fn) {
   } catch (e) { results.push({ name, error: String(e?.message ?? e).slice(0, 160) }); }
 }
 await fpSurface('fantasypros: war-room view', async () => {
-  process.env.GRIDIRON_WARROOM_ENABLED = '1';
+  process.env[WARROOM_ENV] = '1';
   const { warRoomView } = await import('../server/services/war-room-view.js');
   const view = await warRoomView(LEAGUE);
   if (!view?.enabled) return { skip: 'not run: War Room view is off' };

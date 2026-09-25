@@ -117,7 +117,7 @@ export function failedEntry(res, { names = {} } = {}) {
  *   teams (league-adapter.mjs#teamNames: roster -> { name, manager }; none -> 'unknown') }
  * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null, teams = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null, teams = null, blue_chips: board = null } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -498,6 +498,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         : { status: health.status, source: 'audit.numbers', reason: health.reason },
     risk_modes, partners,
     teams: teams && Object.keys(teams).length ? ok(teams, 'campaign.plan') : unknown('The league adapter read no team or manager names.', 'campaign.plan'),
+    blue_chips: blueChipsSection(board, res),
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,
@@ -522,4 +523,47 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
  */
 export function plansFile(entries, { generated_at, flags = null } = {}) {
   return { schema: SCHEMA_VERSION, generated_at, producer: PRODUCER, producer_version: versionWithFlags(PRODUCER_VERSION, flags), leagues: entries };
+}
+
+/**
+ * PLAYER-SCORE: the blue-chip board section. `board` is the adapter's blueChips() (people/player-score.js
+ * via league-adapter.mjs#blueChipBoard); the planner's own title-odds value of adding a player to
+ * Nick's roster (res.suggestions gain_if_landed, where the planner computed it) rides on his row.
+ * Each number is typed: model value = the engine's market value (market.fc), FantasyPros' rest-of-season
+ * rank (fp.ros) unknown with the reason when he did not join.
+ */
+export function blueChipsSection(board, res = {}) {
+  if (!board) return unknown('The blue-chip board was not built for this run.', 'people.score');
+  if (board.status === 'off') return unknown('Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview).', 'people.score');
+  const gain = new Map((res.suggestions ?? []).filter(x => fin(x.gain_if_landed)).map(x => [String(x.player), x]));
+  const fpWhy = board.fp?.status === 'ok' ? 'The consensus has no rest-of-season rank for him (or his name did not match one player).'
+    : board.fp?.reason ?? 'Consensus rest-of-season ranks were not read.';
+  const rows = board.rows.map(r => {
+    const g = gain.get(String(r.player));
+    const parts = { pick_pct: r.parts.pick_pct, prod_basis: r.parts.prod_basis, prod_pct: r.parts.prod_pct,
+      games: r.parts.games, team_games: r.parts.team_games, missed: r.parts.missed,
+      ...(Number.isInteger(r.parts.pick) ? { pick: r.parts.pick } : {}),
+      ...(fin(r.parts.prod_value) ? { prod_value: r.parts.prod_value } : {}),
+      ...(Number.isInteger(r.parts.pos_rank) ? { pos_rank: r.parts.pos_rank, pos_n: r.parts.pos_n } : {}) };
+    return {
+      player: String(r.player), name: String(r.name ?? `player ${r.player}`), position: r.position, mine: !!r.mine,
+      ...(r.owner != null ? { owner: String(r.owner) } : {}),
+      score: r.score, label: r.label, hurt: !!r.hurt, parts,
+      model_value: fin(r.model_value) ? ok(r.model_value, 'market.fc', { unit: 'market_value' })
+        : unknown('The market has no price for him.', 'market.fc'),
+      ...(Number.isInteger(r.model_rank) ? { model_rank: r.model_rank } : {}),
+      // Nick's 9/23 ruling: the consensus rank is an internal input only (it drives `gaps`); its number is never served.
+      fp_ros_rank: unknown(fin(r.fp_ros_rank) ? 'internal only: consensus ranks are not shown' : fpWhy, 'fp.ros'),
+      ...(g ? { title_add: num(g.gain_if_landed, 'sim.title', { se: g.gain_se, unit: 'title_odds', guess: true }) } : {}),
+      gaps: [...r.gaps], protected: !!r.protected,
+    };
+  });
+  const fp = board.fp ?? { status: 'unknown', sync: 'not_run' };
+  return ok({
+    weights: { pick: board.weights.pick, production: board.weights.production, basis: board.weights.basis },
+    labels: [...board.labels], rows, coverage: { ...board.coverage },
+    fp: { status: fp.status, sync: String(fp.sync ?? 'not_run'), ...(fp.reason ? { reason: fp.reason } : {}),
+      ...(fp.scrape_date ? { scrape_date: fp.scrape_date } : {}), ...(fp.prev_date ? { prev_date: fp.prev_date } : {}) },
+    draft: { season: board.draft.season, picks: board.draft.picks, ...(board.draft.reason ? { reason: board.draft.reason } : {}) },
+  }, 'people.score', { guess: true });
 }

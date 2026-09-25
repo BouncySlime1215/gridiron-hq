@@ -329,7 +329,7 @@ export async function buildPlansFile(leagues, {
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
       entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of: generated_at, previous: prev, changed, model,
-        brain: gate, number_health: brain ? brain.numberHealth(id) : null });
+        brain: gate, number_health: brain ? brain.numberHealth(id) : null, blue_chips: adapter.blueChips?.() ?? null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };

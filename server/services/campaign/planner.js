@@ -110,9 +110,12 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
     // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
     // CAP-1C: above the cap, only the planned premium package itself (the one pair gated on points and title odds).
     if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && sameIds(give, step.give))) continue;
-    const p = adapter.priceStep(step.team, step.get, give).p;
+    const pr = adapter.priceStep(step.team, step.get, give);
+    const p = pr.p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
-    out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
+    // LIVE-BLEND (integration-8): each package keeps its own gate p, so a rule that re-checks a ladder package
+    // (the second package's confirm-dice gate) reads that package's baseline, never the planned give's.
+    out.push({ give, his_pct: his, p, ...(pr.p_gate != null ? { p_gate: pr.p_gate } : {}), delta, nick_gain: p * delta });
   }
   return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
     basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given`
@@ -396,13 +399,20 @@ export function planLeague(adapter, settings) {
   // gate (priceOnConfirm + beatsNoTrade: it must beat doing nothing). Returns { alt, dropped }, dropped one of
   // null, 'over_cap', 'path_conflict', 'floor', 'trade_memory', 'confirm_dice'.
   const altValue = id => adapter.players.get(id)?.value;
-  const altPlanOf = (plan, i, give, p) => {
+  const altPlanOf = (plan, i, give, p, pGate) => {
     const base = plan.planned_on ?? plan;
     const steps = [];
     let state = i === 0 ? new Map() : base.steps[i - 1].state;
     for (let k = 0; k < base.steps.length; k++) {
       if (k < i) { steps.push(base.steps[k]); continue; }
-      const st = k === i ? { ...base.steps[k], give, p, depth_premium: sameIds(give, base.steps[k].give) ? base.steps[k].depth_premium : undefined } : base.steps[k];
+      // LIVE-BLEND: the swapped step carries the second package's own gate p (none on the clone path), never
+      // the planned give's, so "beats doing nothing" is decided on the right baseline.
+      const swapped = () => {
+        const { p_gate: _planned, ...rest } = base.steps[k];
+        return { ...rest, give, p, ...(pGate != null ? { p_gate: pGate } : {}),
+          depth_premium: sameIds(give, base.steps[k].give) ? base.steps[k].depth_premium : undefined };
+      };
+      const st = k === i ? swapped() : base.steps[k];
       const mine = new Set(S.rosterOf(state, me).map(String));
       if (st.give.some(id => !mine.has(String(id)))) return null;
       state = S.applyTrade(state, me, st.team, st.give, st.get);
@@ -415,7 +425,7 @@ export function planLeague(adapter, settings) {
     if (!alt) return { alt: null, dropped: null };
     const st = plan.steps[i];
     if (!altWithinCap({ give: alt.give, step: st, valueOf: altValue, maxOverpay })) return { alt: null, dropped: 'over_cap' };
-    const ap = altPlanOf(plan, i, alt.give, alt.p);
+    const ap = altPlanOf(plan, i, alt.give, alt.p, alt.p_gate);
     if (!ap) return { alt: null, dropped: 'path_conflict' };
     if (floorOn && failsHeld(ap)) return { alt: null, dropped: 'floor' };
     if (TM && !applyTradeMemory([ap], TM, { env }).plans.length) return { alt: null, dropped: 'trade_memory' };

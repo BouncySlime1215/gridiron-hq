@@ -1288,6 +1288,17 @@ async function refreshStartSitGate() {
   return run();
 }
 
+/**
+ * E-XGB phase 1: freeze ESPN's weekly projections before kickoff
+ * (server/services/espn-weekly-projection-capture.js, migration 106). Ticks every
+ * 15 minutes and does nothing outside a capture window (Tuesday after waivers,
+ * Saturday morning, 2 h before each kickoff); a missed window is lost for good.
+ */
+async function refreshEspnWeeklyProjectionCapture() {
+  const { runEspnWeeklyProjectionCapture } = await import('./espn-weekly-projection-capture.js');
+  return runEspnWeeklyProjectionCapture();
+}
+
 export const JOBS = {
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1359,6 +1370,8 @@ export const JOBS = {
     label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
+  espn_weekly_projection_capture: { run: refreshEspnWeeklyProjectionCapture, maxAgeMinutes: 15, tier: 'live',
+    offThread: true, label: 'Frozen pre-kickoff ESPN weekly projections (E-XGB; append-only)' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
   nfl_forward_settle: { run: refreshForwardSettlement, maxAgeMinutes: 30, tier: 'live',
     label: 'Settle forward picks (CLV grading) shortly after a game goes final' },

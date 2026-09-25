@@ -1,6 +1,6 @@
-> **SUPERSEDED 2026-09-24** by `docs/handoff/local/ONE-PLAN.md` (branch `claude/handoff-package-2026-09-22`). Kept as history.
-
 # Gridiron HQ — final NFL spreads implementation plan for Claude
+
+> **SUPERSEDED 2026-09-24** by `docs/handoff/local/ONE-PLAN.md` (branch `claude/handoff-package-2026-09-22`). Kept as history.
 
 > **Organization-branch navigation:** the [latest consolidated plan](betting-model/plans/LATEST-PLAN.md) contains the current review-driven sequence. This ledger is preserved as implementation history; older “next actions” below are not a second current plan.
 

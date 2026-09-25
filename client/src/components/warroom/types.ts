@@ -184,41 +184,6 @@ export interface WarRoomView {
   /** PEOPLE-BOARD: the rail's switch and its tiles (war-room-view.js#buildPeopleBoard). */
   people_board?: { enabled: boolean; preview: boolean };
   people?: Field<PersonTile[]>;
-  /** PLAYER-SCORE: the blue-chip board (people/player-score.js via the producer). */
-  blue_chips?: Field<BlueChipBoardData>;
-}
-
-/** PLAYER-SCORE: 0-100 score from draft pick x production, its label, and the bridge to FantasyPros. */
-export type ScoreLabel = 'Elite blue chip' | 'Blue chip' | 'Level below' | 'Solid starter' | 'Flex' | 'Depth' | 'Bench';
-export type ScoreGap = 'undervalued_blue_chip' | 'fading_blue_chip' | 'riser' | 'we_value_lower' | 'we_value_higher';
-export interface BlueChipRow {
-  player: string;
-  name: string;
-  position: 'QB' | 'RB' | 'WR' | 'TE';
-  owner?: string;
-  mine: boolean;
-  score: number;
-  label: ScoreLabel;
-  hurt: boolean;
-  parts: { pick?: number; pick_pct: number; prod_basis: 'season_ppg' | 'ros_ppg'; prod_value?: number; pos_rank?: number; pos_n?: number;
-    prod_pct: number; games: number; team_games: number; missed: number };
-  model_value: Num;
-  model_rank?: number;
-  fp_ros_rank: Num;
-  fp_pos_rank?: number;
-  fp_rank?: number;
-  fp_prev_rank?: number;
-  title_add?: Num;
-  gaps: ScoreGap[];
-  protected: boolean;
-}
-export interface BlueChipBoardData {
-  weights: { pick: number; production: number; basis: string };
-  labels: ScoreLabel[];
-  rows: BlueChipRow[];
-  coverage: { rostered: number; board: number; score: number; model_value: number; fp_ros_rank: number };
-  fp: { status: FieldStatus; sync: string; reason?: string; scrape_date?: string; prev_date?: string };
-  draft: { season: number; picks: number; reason?: string };
 }
 
 /** TEAM-NAMES: who a roster is, from the league payload at run time (never committed). */

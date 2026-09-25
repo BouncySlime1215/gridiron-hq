@@ -1,6 +1,6 @@
-> **SUPERSEDED 2026-09-24** by `docs/handoff/local/ONE-PLAN.md` (branch `claude/handoff-package-2026-09-22`). Kept as the design record; its orderings and status are out of date.
-
 # Gridiron HQ — Fantasy Engine Overhaul: Master Plan
+
+> **SUPERSEDED 2026-09-24** by `docs/handoff/local/ONE-PLAN.md` (branch `claude/handoff-package-2026-09-22`). Kept as the design record; its orderings and status are out of date.
 
 **Status:** approved plan, not yet started. Written 2026-09-17 for execution by Claude agents (Opus / Sonnet).
 **Owner:** Nick Matta. **Repo:** `/Users/nick_matta/Documents/GitHub/gridiron-hq`.

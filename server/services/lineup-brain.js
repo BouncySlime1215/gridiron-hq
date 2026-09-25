@@ -355,11 +355,6 @@ const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
  * same construction for the League Hub card.
  */
 export function startSitWeekPoints(p, season, week) {
-  // BROKEN-G flag on: the asset already carries blend.week (blend-week.js), built
-  // this same way once per universe; read it instead of lifting a second time.
-  if (Number.isFinite(p?.blend_week)) {
-    return { week_points: p.blend_week, vegas: p.blend_week_vegas ?? { multiplier: 1, line: null, applied: false } };
-  }
   const lift = vegasLift(p, season, week);
   // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade horizon, not
   // this decision, so it is only a fallback for a player with no week number at all.

@@ -16,7 +16,6 @@
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
- *   GRIDIRON_WARROOM_RESCORE_CACHE  in/out  rescore cache (PRODUCER-FAST only; scripts/campaign/rescore-cache.mjs)
  *   GRIDIRON_COUNTERPART         flag     =1 turns on the ONE-COUNTERPART model (people/counterpart.js):
  *                                         targets, partner order and the reply prior adjusted by named
  *                                         features; unset follows the preview switch; =0 keeps it off
@@ -328,7 +327,7 @@ export async function buildPlansFile(leagues, {
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
       entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of: generated_at, previous: prev, changed, model,
-        brain: gate, number_health: brain ? brain.numberHealth(id) : null, blue_chips: adapter.blueChips?.() ?? null });
+        brain: gate, number_health: brain ? brain.numberHealth(id) : null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
@@ -351,8 +350,6 @@ export async function buildPlansFile(leagues, {
           brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
             fell_back: gate.rule.fell_back, testing_tier_enabled: gate.rule.testing_tier_enabled,
             read_error: brain.read.error } : { status: 'not_read' },
-          // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
-          ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
@@ -401,8 +398,7 @@ async function main() {
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
   try {
-    const { loadServices, buildAdapter, producerFastEnabled } = await import('./league-adapter.mjs');
-    const { readRescoreCache, writeRescoreCache, leagueCache } = await import('./rescore-cache.mjs');
+    const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const svc = await loadServices();
     const allIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id);
     if (opts.leaguesBad) console.log(`[warroom] --leagues ${JSON.stringify(opts.leaguesBad)} is not a comma list of league ids; planning every league`);
@@ -437,19 +433,11 @@ async function main() {
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
     const previous = readPrevious(out);
-    // PRODUCER-FAST: last run's rescores, reused only for a world with the same content hash.
-    const fast = producerFastEnabled(env);
-    const cacheFile = sibling(env, 'GRIDIRON_WARROOM_RESCORE_CACHE', 'rescore-cache.json');
-    const cacheIn = fast ? readRescoreCache(cacheFile) : null;
-    if (cacheIn && cacheIn.status !== 'ok' && cacheIn.status !== 'absent') console.warn(`[warroom] rescore cache ${cacheIn.status}`);
-    const caches = new Map();
     const leagues = leagueIds
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
-        if (rescoreCache) caches.set(String(id), rescoreCache);
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder });
         let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
         let people = null;
         if (counterpartOn && !adapter.fail) {
@@ -502,7 +490,6 @@ async function main() {
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     reasoning.commit();
-    if (fast) writeRescoreCache(cacheFile, Object.fromEntries([...caches].map(([id, c]) => [id, c.next])));
     // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
     // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.
     const { writeHisScreens } = await import('../../server/services/campaign/his-screen.js');

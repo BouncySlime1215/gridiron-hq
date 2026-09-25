@@ -23,6 +23,7 @@ test('fixture: today\'s decided offers, per league, with every exclusion rule co
   assert.deepEqual(r.excluded, {
     not_an_offer: 12, unsent_app_offer: 2, unlinked_answer: 0, answer_to_non_proposal: 2, withdrawn: 58, expired: 7,
     unanswered: 11, unreadable: 0, missing_proposal: 39, no_proposal_time: 0, duplicate_outcome_row: 0, espn_copy_of_app_offer: 0,
+    screenshot_copy_of_espn_offer: 0, orphan_placed_by_screenshot: 0,
   });
   const per = Object.fromEntries(Object.entries(r.by_league).map(([l, v]) => [l, [v.offers, v.accepted, v.orphans]]));
   assert.deepEqual(per, { 1: [0, 0, 0], 2: [9, 0, 4], 3: [7, 1, 15], 4: [21, 6, 20], 5: [0, 0, 0] });

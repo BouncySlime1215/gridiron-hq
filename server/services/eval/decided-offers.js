@@ -19,9 +19,11 @@
  *     prediction and idea id. Counted as `stale_outcome_row`.
  *   - trade_proposal_snapshots (#247, when built) — the offer's terms and
  *     proposal time as first seen. It fills a proposal the raw table lacks.
- *   - screenshot_proposals (SHOT-01, when built) is NOT read: it holds offers
- *     read off images with no ESPN tx id and no answer, so it cannot add a
- *     decision; `sources` says so.
+ *   - trade_outcomes 'observed_screenshot' rows (SCREENSHOT-OFFERS): offers
+ *     read off ESPN screenshots in the league chat, settled from the screen or
+ *     from a later ESPN answer. They carry no prediction (model_p_accept NULL).
+ *     One whose deal ESPN also has is never counted twice: see the two rules
+ *     below. (The older screenshot_proposals idea, SHOT-01, is not read.)
  *
  * EXCLUDED, each counted per league (one rule per offer, first match wins):
  *   not_an_offer           trade_outcomes 'considered_only' rows: never sent.
@@ -51,6 +53,14 @@
  *                          app row wins because it carries the prediction.
  *                          Matched on matched_tx_id, else same league, season,
  *                          proposer and counterparty within 72 h after.
+ *   screenshot_copy_of_espn_offer an 'observed_screenshot' row for a deal ESPN
+ *                          (or a sent app offer) already has: matched_tx_id names
+ *                          a collected proposal, or same league, season, two
+ *                          teams and players within 72 h. The ESPN row wins.
+ *   orphan_placed_by_screenshot an ESPN orphan answer (missing_proposal) that a
+ *                          screenshot row settled from: the screenshot row is
+ *                          the same offer, with the proposal time the orphan
+ *                          lacks, so the orphan is not listed a second time.
  *
  * Accepted then vetoed still counts as accepted: the receiver said yes.
  */
@@ -60,7 +70,9 @@ export const OUTCOME = Object.freeze({ accepted: 1, declined: 0, countered: 0, e
 export const EXCLUSION_RULES = Object.freeze([
   'not_an_offer', 'unsent_app_offer', 'unlinked_answer', 'answer_to_non_proposal', 'withdrawn', 'expired', 'unanswered', 'unreadable',
   'missing_proposal', 'no_proposal_time', 'duplicate_outcome_row', 'espn_copy_of_app_offer',
+  'screenshot_copy_of_espn_offer', 'orphan_placed_by_screenshot',
 ]);
+const SCREENSHOT = 'observed_screenshot';
 const DEDUP_WINDOW_MS = 72 * 3_600_000;
 const SILENT = new Set(['withdrawn', 'expired', 'unanswered']);
 const EXPIRY_ACTOR = /^TradeTaskProcessor/;
@@ -157,6 +169,29 @@ export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) 
     if (copy) copies.add(copy);
   }
 
+  // ---- screenshot rows: never a second copy of a deal ESPN has
+  const shots = all.filter(o => o.source === SCREENSHOT);
+  const placed = new Set(); // raw keys of orphans a screenshot row settled from
+  if (shots.length) {
+    const espnDeals = all.filter(o => !o.excluded && o.source !== SCREENSHOT && !copies.has(o)
+      && (o.source === 'observed' ? o.proposal_basis !== null : o.source === 'app_proposed'));
+    for (const s of shots) {
+      const r = s.matched_tx_id == null ? null : fromRaw.get(key(s.league_id, s.season, s.matched_tx_id));
+      // An orphan (ESPN answered, the proposal row is gone) or an answer ESPN's rows alone cannot
+      // read (no proposer on record): the screenshot supplies what is missing, so it is the offer.
+      if (r && ((!r.excluded && r.proposal_basis === null) || r.excluded === 'unreadable')) {
+        placed.add(key(s.league_id, s.season, s.matched_tx_id)); continue;
+      }
+      if (r) { copies.add(s); s.copy_rule = 'screenshot_copy_of_espn_offer'; continue; }
+      const deal = dealKey(s);
+      const at = t(s.proposed_at);
+      if (deal && espnDeals.some(e => e.league_id === s.league_id && e.season === s.season && dealKey(e) === deal
+        && (!Number.isFinite(at) || !Number.isFinite(t(e.proposed_at)) || Math.abs(t(e.proposed_at) - at) <= DEDUP_WINDOW_MS))) {
+        copies.add(s); s.copy_rule = 'screenshot_copy_of_espn_offer';
+      }
+    }
+  }
+
   const offers = [];
   const orphans = [];
   const silent = [];
@@ -166,7 +201,10 @@ export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) 
       if (SILENT.has(o.excluded)) silent.push(o);
       continue;
     }
-    if (copies.has(o)) { exclude(o, 'espn_copy_of_app_offer'); continue; }
+    if (copies.has(o)) { exclude(o, o.copy_rule ?? 'espn_copy_of_app_offer'); continue; }
+    if (o.source === 'observed' && o.proposal_basis === null && placed.has(key(o.league_id, o.season, o.espn_tx_id))) {
+      exclude(o, 'orphan_placed_by_screenshot'); continue;
+    }
     if (!Object.hasOwn(OUTCOME, o.status)) { exclude(o, 'unanswered'); continue; }
     const y = OUTCOME[o.status];
     if (!Number.isFinite(t(o.proposed_at))) {
@@ -271,6 +309,17 @@ export function rawOfferGroups({ raw = [], snapshots = [], exclude = () => {} } 
   return fromRaw;
 }
 
+/** Two teams and every ESPN player id in a deal, as one comparable string; null when unreadable. */
+function dealKey(o) {
+  const items = Array.isArray(o.terms) ? o.terms : o.terms ? [...(o.terms.give ?? []), ...(o.terms.get ?? [])] : [];
+  const ids = items.map(i => i?.playerId ?? i?.espn_id ?? null);
+  if (!ids.length || ids.some(x => x == null)) return null;
+  const teams = o.proposer_team_id != null && o.counterparty_team_id != null
+    ? [String(o.proposer_team_id), String(o.counterparty_team_id)] : teamsIn(items);
+  if (teams.length !== 2) return null;
+  return `${teams.sort().join('|')}:${ids.map(String).sort().join(',')}`;
+}
+
 function termsOfRow(o) {
   const give = parseItems(o.give_json);
   const get = parseItems(o.get_json);
@@ -316,7 +365,6 @@ export function loadDecidedOffers(database, { season = null } = {}) {
     snapshots = database.prepare(`SELECT ${SNAP_COLS.join(', ')} FROM trade_proposal_snapshots WHERE 1 = 1${where}`).all(...args);
     sources.push('trade_proposal_snapshots');
   } else reasons.push(sn.reason);
-  reasons.push('screenshot_proposals is not read: an offer read off an image has no ESPN tx id or answer');
 
   const built = decidedOffers({ outcomes, raw, snapshots });
   const hasEvidence = sources.includes('trade_outcomes') || sources.includes('league_transactions_raw');

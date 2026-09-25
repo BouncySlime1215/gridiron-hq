@@ -6,6 +6,8 @@ import LeagueChatPull from '../components/LeagueChatPull';
 import NumberHealthCard from '../components/NumberHealth';
 import { DataFreshnessDetail } from '../components/DataFreshnessBanner';
 import { DevPanel } from '../components/DevHub';
+import ManagerDataSources from '../components/brain/ManagerDataSources';
+import { COST_NOTE } from '../components/brain/ProposalSlate';
 import { api } from '../api';
 import { sanitizedMessage } from '../lib/errorSanitize';
 import { Button, Card, PageHeader, Tabs } from '../components/ui/DesignSystem';
@@ -61,7 +63,14 @@ export default function Settings() {
         </Card>
       </div>}
 
-      {view === 'dev' && <Card><DevPanel /></Card>}
+      {view === 'dev' && <div className="space-y-4">
+        <Card><DevPanel /></Card>
+        <Card className="!p-4">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Write proposals (Trades → People)</h3>
+          <p className="ds-note mt-1">{COST_NOTE}</p>
+        </Card>
+        <Card className="!p-4"><ManagerDataSources /></Card>
+      </div>}
 
     </div>
   );

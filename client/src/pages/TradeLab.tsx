@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { api, useApi } from '../api';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { api, headshotUrl, useApi } from '../api';
+import { Headshot, PosBadge } from '../components/PlayerRow';
+import { sanitizedMessage } from '../lib/errorSanitize';
 import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
 import MarketAsOf from '../components/MarketAsOf';
@@ -10,6 +12,7 @@ import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import RulesHidden from '../components/trade/RulesHidden';
+import { Chip, Sheet } from '../components/ui/DesignSystem';
 
 
 /** Reads/writes the untouchable-player list for one league from localStorage. */
@@ -49,23 +52,40 @@ export function useTradeDesk() {
   return { active, rosters, rostersLoading, rostersError, refetchRosters, me, setTeamId, untouchable, toggleUntouchable, myPlayers, untouchableNames };
 }
 
-/** The strip above the trade tools: which team is mine, market freshness, the model week, untouchables. */
+/**
+ * Trades' one context bar (shown once, above every view): trade values freshness as a chip, the
+ * untouchables as a chip that opens a sheet, and "Trading as" only when the league has no team marked
+ * as yours (the app header already picks the league).
+ */
 export function TradeDeskHeader({ desk }: { desk: ReturnType<typeof useTradeDesk> }) {
   const { rosters, me, setTeamId, myPlayers, untouchable, toggleUntouchable } = desk;
+  const [sheet, setSheet] = useState(false);
+  const locked = myPlayers.filter((p: any) => untouchable.includes(p.id));
   return (
-    <div className="mb-4 space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        {rosters?.teams && (
-          <label className="text-xs text-slate-600">Trading as
-            <select className="input league-select ml-2 w-[12rem] max-w-full" value={me ?? ''} onChange={e => setTeamId(e.target.value)}>
-              {rosters.teams.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
-            </select>
-          </label>
-        )}
-        <MarketAsOf asOf={rosters?.market_as_of} />
-        {rosters?.model_context && <span className="ds-chip">Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff}</span>}
-      </div>
-      {myPlayers.length > 0 && <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />}
+    <div className="flex flex-wrap items-center gap-2" data-testid="trades-context">
+      {rosters?.teams && !rosters?.my_team_id && (
+        <label className="text-xs text-slate-600">Trading as
+          <select className="input league-select ml-2 w-[12rem] max-w-full" value={me ?? ''} onChange={e => setTeamId(e.target.value)}>
+            {rosters.teams.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
+          </select>
+        </label>
+      )}
+      <MarketAsOf asOf={rosters?.market_as_of} compact />
+      {myPlayers.length > 0 && (
+        <button type="button" className={`ds-chip ${locked.length ? 'ds-chip-accent' : ''}`} onClick={() => setSheet(true)}
+          aria-haspopup="dialog" data-testid="untouchables-chip" title="Players Find deals, Go get and Build never offer">
+          Untouchables: {locked.length}
+        </button>
+      )}
+      <Sheet open={sheet} title="Untouchables" onClose={() => setSheet(false)}>
+        <p className="ds-note mb-3">Tap a player to lock him: Find deals, Go get and Build never offer a locked player. Saved for this league in this browser.
+          Your hard rules (never-give players, no buy-backs, blue chips only, no overpaying) apply on top, on the server.</p>
+        <div className="flex flex-wrap gap-1.5">
+          {myPlayers.map((p: any) => (
+            <Chip key={p.id} on={untouchable.includes(p.id)} onClick={() => toggleUntouchable(p.id)}>{untouchable.includes(p.id) ? 'Locked · ' : ''}{p.name}</Chip>
+          ))}
+        </div>
+      </Sheet>
     </div>
   );
 }
@@ -172,17 +192,19 @@ function NewsEdge({ leagueId, teamId }: { leagueId: number; teamId: string | nul
  * The headline case for this tab is when the two disagree — a trade can add
  * three points a week and still leave you less likely to win the league.
  */
-function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+function TitleTrades({ leagueId, teamId, controls }: { leagueId: number; teamId: string | null; controls?: ReactNode }) {
   const { data, loading, error, refetch } = useApi<any>(
     teamId ? `/trades/${leagueId}/title-trades?team_id=${teamId}&shortlist=6` : null);
+  const row = controls ? <div className="mb-3 flex flex-wrap items-center gap-2 text-xs" data-testid="find-controls">{controls}</div> : null;
 
-  if (loading) return <PageLoading label="Simulating each deal twice under the same season… this takes a moment on the first run." />;
-  if (error && !data) return <PageError message={error} onRetry={refetch} />;
-  if (data?.error) return <div className="card p-6 text-sm text-rose-600">{data.error}</div>;
+  if (loading) return <>{row}<PageLoading label="Simulating each deal twice under the same season… this takes a moment on the first run." /></>;
+  if (error && !data) return <>{row}<PageError message={error} onRetry={refetch} /></>;
+  if (data?.error) return <>{row}<div className="card p-6 text-sm text-rose-600">{data.error}</div></>;
   const deals = data?.deals ?? [];
 
   return (
     <div>
+      {row}
       <RulesHidden n={data?.dropped_by_rule} className="mb-3" />
       <div className={`card p-4 mb-3 ${data?.objectives_disagree ? 'border-amber-300 bg-amber-50/50' : ''}`}>
         <h2 className="text-sm font-bold text-slate-800 mb-1">
@@ -243,46 +265,6 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
 }
 
 /** Collapsible roster picker for marking players your auto-suggestions must leave alone. */
-function Untouchables({ players, ids, onToggle }: { players: any[]; ids: number[]; onToggle: (id: number) => void }) {
-  const [open, setOpen] = useState(false);
-  const set = new Set(ids);
-  const locked = players.filter((p: any) => set.has(p.id));
-
-  return (
-    <div className="card p-3 mb-4">
-      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
-        <span className="text-sm">🔒</span>
-        <span className="text-xs font-bold text-slate-700">Untouchables</span>
-        <span className="text-[11px] text-slate-400">
-          {locked.length ? `${locked.length} locked — never offered in Find Deals or Target a Player` : 'Mark players Find Deals and Target a Player should never offer'}
-        </span>
-        <span className="ml-auto text-slate-400 text-xs">{open ? '▲' : '▼'}</span>
-      </button>
-      {!open && locked.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {locked.map((p: any) => (
-            <span key={p.id} className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
-              🔒 {p.name}
-            </span>
-          ))}
-        </div>
-      )}
-      {open && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {players.map((p: any) => (
-            <button key={p.id} onClick={() => onToggle(p.id)}
-              className={`text-[11px] px-2 py-1 rounded-lg border transition-colors ${
-                set.has(p.id) ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
-              }`}>
-              {set.has(p.id) ? '🔒 ' : ''}{p.name}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------- find deals */
 
 /** The same "headline pieces" idea the server collapses duplicate packages on
@@ -306,8 +288,12 @@ function saveSeen(leagueId: number, teamId: string | null, seen: Set<string>) {
 
 const reloadSeenKey = (leagueId: number, teamId: string | null) => `gh:trades-batch-seen:${leagueId}:${teamId ?? ''}`;
 
-function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }: {
+function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames, controls, onGoGet }: {
   leagueId: number; teamId: string | null; rosters: any; untouchable: number[]; untouchableNames: string[];
+  /** Trades → Find deals: the ranking switch, drawn first in this view's one control row. */
+  controls?: ReactNode;
+  /** The empty state's next step: Go get → someone else. */
+  onGoGet?: () => void;
 }) {
   const [mutual, setMutual] = useState(true);
   const [size, setSize] = useState(2);
@@ -410,28 +396,38 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
 
   return (
     <div>
-      <RulesHidden n={data?.dropped_by_rule} className="mb-3" />
-      <div className="flex items-center gap-3 mb-3 flex-wrap text-xs">
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" checked={mutual} onChange={e => setMutual(e.target.checked)} className="accent-emerald-600" />
-          <span className="text-slate-600">Only deals they&apos;d plausibly accept</span>
-        </label>
+      {/* One control row: the ranking switch, package size, "only plausible". */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs" data-testid="find-controls">
+        {controls}
+        {controls && <span className="hidden h-5 w-px bg-[var(--c-line)] sm:block" aria-hidden />}
         <label className="flex items-center gap-1.5">
-          <span className="text-slate-500">Package size</span>
+          <span className="text-slate-600">Package size</span>
           <select className="input py-1" value={size} onChange={e => setSize(Number(e.target.value))}>
             <option value={1}>1-for-1</option>
             <option value={2}>up to 2-for-2</option>
             <option value={3}>up to 3-for-3</option>
           </select>
         </label>
+        <button type="button" role="switch" aria-checked={mutual} onClick={() => setMutual(v => !v)}
+          className={`ds-chip ${mutual ? 'ds-chip-on' : ''}`} title="Only deals the other manager would plausibly accept">
+          Only plausible {mutual ? 'on' : 'off'}
+        </button>
       </div>
+      <RulesHidden n={data?.dropped_by_rule} className="mb-3" />
 
       {loading && <PageLoading label="Searching every roster in the league…" />}
       {error && !data && <PageError message={error} onRetry={refetch} />}
 
       {data?.deals?.length === 0 && (
-        <EmptyState title="Nothing clears the bar right now"
-          description={`Nothing clears the bar right now, even searching up to 3-for-3 packages across every team in the league. Try unticking "only deals they'd accept" to see deals that only help your side.`} />
+        <div className="ds-card p-6 text-center" data-testid="find-empty">
+          <h3 className="ds-h">Nothing clears the bar right now</h3>
+          <p className="ds-note mx-auto mt-1 max-w-md">No package up to {size}-for-{size} helps you and them{mutual ? ' at once' : ''}.</p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {onGoGet && <button type="button" className="ds-btn ds-btn-primary ds-btn-sm" onClick={onGoGet}>Go get someone specific</button>}
+            {size < 3 && <button type="button" className="ds-btn ds-btn-sm" onClick={() => setSize(3)}>Try up to 3-for-3</button>}
+            {mutual && <button type="button" className="ds-btn ds-btn-sm" onClick={() => setMutual(false)}>Show deals that only help you</button>}
+          </div>
+        </div>
       )}
 
       {data?.deals?.length > 0 && (
@@ -502,19 +498,15 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
         </div>
       )}
 
-      <div className="flex items-center gap-3 mb-3 flex-wrap text-xs">
-        <span className="text-slate-500 font-semibold">Browse every distinct idea</span>
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" checked={hideSeen} onChange={e => setHideSeen(e.target.checked)} className="accent-emerald-600" />
-          <span className="text-slate-600">Hide deals I&apos;ve dismissed</span>
-        </label>
-        {hiddenCount > 0 && <button className="text-slate-400 underline hover:text-slate-600" onClick={resetSeen}>{hiddenCount} hidden — show again</button>}
-        {data && (
-          <span className="text-slate-400 ml-auto">
-            Best → worst · {allDeals.length} distinct ideas · {data.considered} candidates evaluated
-          </span>
-        )}
-      </div>
+      {/* Only when there are ideas to browse: no counters or "candidates evaluated" on an empty list. */}
+      {allDeals.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+          <span className="font-semibold text-slate-600">Every distinct idea, best first ({allDeals.length})</span>
+          <button type="button" role="switch" aria-checked={hideSeen} onClick={() => setHideSeen(v => !v)}
+            className={`ds-chip ${hideSeen ? 'ds-chip-on' : ''}`} title="Hide deals you dismissed">Hide dismissed {hideSeen ? 'on' : 'off'}</button>
+          {hiddenCount > 0 && <button type="button" className="text-slate-600 underline hover:text-slate-800" onClick={resetSeen}>{hiddenCount} dismissed · show again</button>}
+        </div>
+      )}
 
       {data?.deals?.length > 0 && visible.length === 0 && (
         <EmptyState title="You've dismissed every deal that clears the bar right now"
@@ -605,7 +597,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
       <RulesHidden n={offer?.dropped_by_rule} className="mb-3 lg:col-span-2" />
       <div>
         <div className="card p-4 mb-3">
-          <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Who do you want?</label>
+          <label className="text-xs text-slate-600">Name the player you want</label>
           <input className="input w-full mt-1.5" placeholder="Start typing a player's name…"
             value={query} onChange={e => { setQuery(e.target.value); setPicked(null); }} />
           {results.length > 0 && !picked && (
@@ -946,6 +938,22 @@ function PlayerOutlook({ o }: { o: any }) {
 }
 
 /* ------------------------------------------------------------ mock trades */
+const RULE_WHY: Record<string, string> = {
+  never_give: 'sends a player you never trade',
+  never_get: 'brings back a player you never take back',
+  sold_this_season: 'brings back a player you sold this season',
+  below_blue_chip: 'gets a player who is not a blue chip',
+  unscored: 'gets a player the blue-chip board has not scored',
+  no_fc_value: 'includes a player with no FantasyCalc value to check',
+  overpay: 'sends more trade value than you get back',
+  rules_unreadable: 'your rules could not be read, so nothing is certified',
+};
+
+/**
+ * Trades → Build: any two-sided deal. Two cards side by side (You send / You get), tap a row to add
+ * a player, K/DEF hidden unless asked, 12 rows then "Show all". A bottom summary bar carries the
+ * value each way, the % over or under, your rules' verdict once scored, and "Who wins this?".
+ */
 function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }: {
   leagueId: number; teamId: string | null; rosters: any; untouchable: number[]; untouchableNames: string[];
 }) {
@@ -955,6 +963,7 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
   const [result, setResult] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [kdef, setKdef] = useState(false);
   // A mocked trade's rosters/result only mean something within the league it was built in.
   useEffect(() => { setTheirId(null); setGive([]); setGet([]); setResult(null); setErr(null); }, [leagueId]);
 
@@ -962,78 +971,104 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
   const others = rosters?.teams?.filter((t: any) => t.roster_id !== teamId) ?? [];
   const them = others.find((t: any) => t.roster_id === theirId) ?? others[0];
 
-  const toggle = (list: number[], set: (v: number[]) => void, id: number) =>
-    set(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
-
+  const toggle = (list: number[], set: (v: number[]) => void, id: number) => {
+    set(list.includes(id) ? list.filter(x => x !== id) : [...list, id]); setResult(null);
+  };
   const run = async () => {
     setBusy(true); setErr(null);
     try {
       setResult(await api(`/trades/${leagueId}/evaluate`, {
-        method: 'POST',
-        body: JSON.stringify({ my_team_id: teamId, their_team_id: them?.roster_id, give, get })
+        method: 'POST', body: JSON.stringify({ my_team_id: teamId, their_team_id: them?.roster_id, give, get })
       }));
-    } catch (e: any) { setErr(e.message); setResult(null); }
+    } catch (e: any) { setErr(sanitizedMessage('Build.evaluate', "Couldn't score that deal", e.message)); setResult(null); }
     finally { setBusy(false); }
   };
 
-  const untouchableSet = new Set(untouchable);
-  const Column = ({ team, sel, onToggle, tone }: any) => (
-    <div className="card overflow-hidden">
-      <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-        <h3 className="text-sm font-bold text-slate-700 truncate">{team?.owner ?? '—'}</h3>
-        <span className="text-[10px] text-slate-400 ml-auto tabular-nums">{team?.lineup_ppg} ppg</span>
+  const valueOf = (team: any, ids: number[]) => (team?.players ?? []).filter((p: any) => ids.includes(p.id)).reduce((s: number, p: any) => s + (p.value ?? 0), 0);
+  const sendV = valueOf(mine, give), getV = valueOf(them, get);
+  const diff = sendV > 0 ? Math.round(((getV - sendV) / sendV) * 100) : null;
+  const rules = result?.rules;
+
+  return (
+    <div data-testid="build">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <label className="flex items-center gap-2 text-slate-600">Trading with
+          <select className="input league-select w-[12rem] max-w-full py-1" value={them?.roster_id ?? ''}
+            onChange={e => { setTheirId(e.target.value); setGet([]); setResult(null); }}>
+            {others.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
+          </select>
+        </label>
+        <button type="button" role="switch" aria-checked={kdef} onClick={() => setKdef(v => !v)}
+          className={`ds-chip ${kdef ? 'ds-chip-on' : ''}`} title="Show kickers and team defences">K / DEF {kdef ? 'shown' : 'hidden'}</button>
       </div>
-      <div className="divide-y divide-slate-100 max-h-[52vh] overflow-y-auto">
-        {(team?.players ?? []).map((p: any) => {
-          const locked = tone === 'give' && untouchableSet.has(p.id);
+      {/* The summary bar sits above the two cards, never over them (CLAUDE.md UI rules: nothing sticky over text or a button). */}
+      <div className="build-bar" data-testid="build-bar">
+        <div className="min-w-0 flex-1 text-sm">
+          <span className="whitespace-nowrap">Send <b className="tabular-nums">{sendV.toLocaleString()}</b></span>
+          <span className="mx-2 text-slate-400">·</span>
+          <span className="whitespace-nowrap">Get <b className="tabular-nums">{getV.toLocaleString()}</b></span>
+          {diff != null && getV > 0 && <span className={`ml-2 ds-chip ${diff >= 0 ? 'ds-chip-good' : 'ds-chip-bad'}`}
+            title="FantasyCalc trade value you get, against what you send">{diff >= 0 ? `+${diff}%` : `${diff}%`} value</span>}
+          {rules?.applies && (
+            <span className={`ml-2 ds-chip ${rules.ok ? 'ds-chip-good' : 'ds-chip-warn'} !whitespace-normal`} data-testid="build-rules"
+              title={rules.ok ? 'Passes your hard rules' : (rules.reasons ?? []).map((r: string) => RULE_WHY[r] ?? r).join('; ')}>
+              {rules.ok ? 'Your rules: pass' : `Your rules: no, ${RULE_WHY[rules.reasons?.[0]] ?? 'breaks a rule'}`}
+            </span>
+          )}
+        </div>
+        {(give.length > 0 || get.length > 0) && <button type="button" className="ds-btn ds-btn-sm" onClick={() => { setGive([]); setGet([]); setResult(null); }}>Clear</button>}
+        <button type="button" className="ds-btn ds-btn-primary" disabled={busy || !give.length || !get.length} onClick={run}
+          title={!give.length || !get.length ? 'Add at least one player on each side' : 'Score this deal for both teams'}>
+          {busy ? 'Scoring…' : 'Who wins this?'}
+        </button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <BuildSide title="You send" team={mine} sel={give} tone="give" kdef={kdef} locked={new Set(untouchable)}
+          onToggle={id => toggle(give, setGive, id)} />
+        <BuildSide title="You get" team={them} sel={get} tone="get" kdef={kdef} locked={new Set()}
+          onToggle={id => toggle(get, setGet, id)} />
+      </div>
+      {err && <p role="alert" className="mt-2 text-xs text-crit">{err}</p>}
+      {result && <div className="mt-4"><TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} untouchableNames={untouchableNames} /></div>}
+
+    </div>
+  );
+}
+
+function BuildSide({ title, team, sel, tone, kdef, locked, onToggle }: {
+  title: string; team: any; sel: number[]; tone: 'give' | 'get'; kdef: boolean; locked: Set<number>; onToggle: (id: number) => void;
+}) {
+  const [all, setAll] = useState(false);
+  // 12 rows on a wide screen, 8 on a phone (the two cards stack there); the rest behind "Show all".
+  const [cap] = useState(() => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches ? 8 : 12));
+  const pool = (team?.players ?? []).filter((p: any) => kdef || !['K', 'DEF', 'D/ST', 'DST'].includes(p.position))
+    .slice().sort((a: any, b: any) => Number(sel.includes(b.id)) - Number(sel.includes(a.id)) || (b.value ?? 0) - (a.value ?? 0));
+  const shown = all ? pool : pool.slice(0, cap);
+  return (
+    <section className="ds-card overflow-hidden" aria-label={title}>
+      <header className="flex items-baseline gap-2 px-4 pb-2 pt-3">
+        <h3 className="ds-h">{title}</h3>
+        <span className="ds-note min-w-0 truncate">{team?.owner}{team?.lineup_ppg != null ? ` · ${team.lineup_ppg} ppg` : ''}</span>
+        <span className="ds-note ml-auto" title="FantasyCalc trade value">Value</span>
+      </header>
+      <div className="ds-rows">
+        {shown.map((p: any) => {
+          const on = sel.includes(p.id);
           return (
-            <button key={p.id} onClick={() => onToggle(p.id)}
-              title={locked ? 'Marked untouchable — you can still send him here, this is just a reminder' : undefined}
-              className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-slate-50 transition-colors ${
-                sel.includes(p.id) ? (tone === 'give' ? 'bg-crit-tint' : 'bg-good-tint') : ''}`}>
-              <input type="checkbox" readOnly checked={sel.includes(p.id)}
-                className={tone === 'give' ? 'accent-[var(--crit)]' : 'accent-[var(--good)]'} />
-              <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
-              <span className={`truncate ${p.starter ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>{p.name}</span>
-              {p.starter && <span className="text-[9px] text-emerald-600 font-bold">ST</span>}
-              {locked && <span className="text-[10px]" title="Untouchable">🔒</span>}
-              <span className="ml-auto text-slate-400 tabular-nums shrink-0">{p.value?.toLocaleString()}</span>
+            <button key={p.id} type="button" aria-pressed={on} onClick={() => onToggle(p.id)}
+              className={`flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm transition-colors hover:bg-[var(--c-hover)] ${on ? (tone === 'give' ? 'bg-[var(--c-red-tint)]' : 'bg-[var(--c-green-tint)]') : ''}`}
+              title={locked.has(p.id) ? 'Marked untouchable: you can still build with him, as a reminder only' : on ? 'Tap to remove' : 'Tap to add'}>
+              <Headshot src={headshotUrl(p)} pos={p.position} size={28} />
+              <PosBadge pos={p.position} />
+              <span className={`min-w-0 flex-1 truncate ${p.starter ? 'font-semibold' : ''}`}>{p.name}{locked.has(p.id) ? ' · locked' : ''}</span>
+              <span className="tabular-nums text-slate-600" title="FantasyCalc trade value">{p.value?.toLocaleString() ?? '–'}</span>
+              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs ${on ? 'bg-[var(--c-accent)] text-[var(--c-accent-ink)]' : 'shadow-[0_0_0_1px_var(--c-line-strong)] text-slate-500'}`} aria-hidden>{on ? '✓' : '+'}</span>
             </button>
           );
         })}
       </div>
-    </div>
-  );
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3 flex-wrap text-xs">
-        <span className="text-slate-500">Trading with</span>
-        <select className="input py-1" value={them?.roster_id ?? ''} onChange={e => { setTheirId(e.target.value); setGet([]); setResult(null); }}>
-          {others.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
-        </select>
-        <button className="btn-primary text-xs ml-auto" disabled={busy || (!give.length && !get.length)} onClick={run}>
-          {busy ? 'Scoring…' : 'Who wins this?'}
-        </button>
-        {(give.length > 0 || get.length > 0) && (
-          <button className="btn-ghost text-xs" onClick={() => { setGive([]); setGet([]); setResult(null); }}>Clear</button>
-        )}
-      </div>
-      {err && <p className="text-xs text-rose-600 mb-2">{err}</p>}
-
-      <div className="grid md:grid-cols-2 gap-3 mb-4">
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-wide text-crit mb-1">You send ({give.length})</div>
-          <Column team={mine} sel={give} onToggle={(id: number) => { toggle(give, setGive, id); setResult(null); }} tone="give" />
-        </div>
-        <div>
-          <div className="text-[10px] font-black uppercase tracking-wide text-good mb-1">You receive ({get.length})</div>
-          <Column team={them} sel={get} onToggle={(id: number) => { toggle(get, setGet, id); setResult(null); }} tone="get" />
-        </div>
-      </div>
-
-      {result && <TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} untouchableNames={untouchableNames} />}
-    </div>
+      {pool.length > cap && <button type="button" className="w-full py-2 text-xs font-semibold text-[var(--c-accent)]" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${pool.length}`}</button>}
+    </section>
   );
 }
 

@@ -73,6 +73,7 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // this week identically), the normal CDF behind a swap's probability, and the
 // write that retires a lineup recommendation lineupDiff() itself published.
 import { vegasLift } from './waiver-brain.js';
+import { blendWeek, blendWeekFlag, horizonPpg, servedBlendWeek } from './blend-week.js';
 // The league's wire, for lineupValue()'s replacement level (one producer with the
 // Waivers page's waiverBoard()).
 import { leagueWire } from './league-wire.js';
@@ -295,7 +296,7 @@ const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
   `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
-  `i${injuryFlagKey()}`;
+  `i${injuryFlagKey()}:bw${blendWeekFlag().on ? 1 : 0}`;
 
 // A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
 // active set itself is part of the key (RL-12-2).
@@ -328,6 +329,10 @@ function buildAssetUniverse(lg, formatKey, target) {
   // actually decide ITS title (see trade-horizon.js#leagueSchedule).
   const { playoffWeeks } = leagueSchedule(lg);
   const playoffWeeksLeft = playoffWeeks.filter(w => w >= target.week).length;
+  // BROKEN-G: with the flag on, every asset carries the one this-week number
+  // (blend-week.js#blendWeek) and adj_ppg is derived from it. Read once per build;
+  // the flag is part of assetInputsKey so a flip rebuilds.
+  const blendFlag = blendWeekFlag();
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
@@ -442,7 +447,13 @@ function buildAssetUniverse(lg, formatKey, target) {
     // A trade is a rest-of-season decision, not DFS. The live week matters, but
     // it cannot erase the remaining schedule or turn a bye into a player-value
     // collapse. The weekly engine itself refreshes from every completed week.
-    const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;
+    // Flag off: the unlifted week number, exactly as before. Flag on: blend.week, the
+    // same number Start/Sit and the lineup card print (BROKEN-G).
+    const bw = blendFlag.on
+      ? blendWeek({ current_week_ppg: +currentWeekPpg.toFixed(2), team_abbr: p.team_abbr, position: p.position },
+        target.season, target.week)
+      : null;
+    const decisionPpg = horizonPpg(bw ? bw.value : currentWeekPpg, rosPpg);
     // 2,000 draws, playerWeekDistribution's own default. This used to override it
     // down to 400, and at 400 the percentiles are not stable enough to print, let
     // alone difference across the two sides of a trade: measured over 200 re-draws
@@ -528,6 +539,10 @@ function buildAssetUniverse(lg, formatKey, target) {
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // BROKEN-G: present only with the flag on. The one this-week number the three
+      // pages read; current_week_ppg above stays as its input (proj.week).
+      ...(bw ? { blend_week: bw.value, blend_week_vegas: bw.vegas,
+        week_basis: { field: 'blend.week', producer: 'blend-week.js#blendWeek', preview: blendFlag.preview } } : {}),
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
@@ -1512,7 +1527,10 @@ export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
   if (weeksLeft <= 0) return 0;
   const leg = (players, field) => bestLineup(players.map(p =>
     ({ ...p, span_leg: p[field] ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
-  const now = leg(afterPlayers, 'current_week_ppg') - leg(beforePlayers, 'current_week_ppg');
+  // This week's leg is blend.week when the asset carries it (BROKEN-G flag on).
+  const nowLeg = players => bestLineup(players.map(p =>
+    ({ ...p, span_leg: servedBlendWeek(p) ?? p.current_week_ppg ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
+  const now = nowLeg(afterPlayers) - nowLeg(beforePlayers);
   const rate = weeksLeft > 1 ? leg(afterPlayers, 'ros_ppg') - leg(beforePlayers, 'ros_ppg') : 0;
   return +(now + (weeksLeft - 1) * rate).toFixed(1);
 }
@@ -1539,7 +1557,7 @@ const slim = p => ({
   ...(p.range_source ? { range_source: p.range_source } : {}),
   // sos / playoff_sos are left off: 1 with no validated signal behind them
   // (matchups.js), and a card or prompt that shows them invites reading a schedule.
-  current_week_ppg: p.current_week_ppg, bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
+  current_week_ppg: p.current_week_ppg, ...(servedBlendWeek(p) != null ? { blend_week: p.blend_week } : {}), bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
   role_change: p.role_change, matchup: p.matchup,
@@ -3064,7 +3082,10 @@ const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE'
  * never on a real 0 (a bye), same as weekPpg() in lineup-posture.js and
  * waiver-wire.js (commit fe38e93).
  */
-function lineupDiffWeekPoints(p, season, week) {
+export function lineupDiffWeekPoints(p, season, week) {
+  // BROKEN-G flag on: the served blend.week, never a second lift on its own call.
+  const served = servedBlendWeek(p);
+  if (served != null) return served;
   const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
   const lift = vegasLift(p, season, week);
   const v = base * (lift.applied ? lift.multiplier : 1);

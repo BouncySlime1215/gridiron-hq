@@ -5,6 +5,7 @@ import { targetApprove, type WarRoomRequest } from './requests';
 import { FieldBlock, Val } from './FieldState';
 import { pct, pts } from './format';
 import { usePager } from './Panel';
+import Avatar from './Avatar';
 
 /** The plan's untouchable mark on a target row (batch 4): true, an ok Field, or { label }. */
 export function isUntouchable(t: Target): boolean {
@@ -55,7 +56,7 @@ export default function TargetPicker({ field, names, big, onRequest }: {
             <tbody>
               {rows.slice(pg.a, pg.b).map(t => (
                 <tr key={t.player} title={t.why.status === 'ok' ? t.why.value : t.why.reason}>
-                  <td><b>{n.one(t.player).name}</b></td>
+                  <td><Avatar id={t.player} name={n.one(t.player).name} size={32} /><b>{n.one(t.player).name}</b></td>
                   <td className="wr-num"><Val f={t.gain_if_landed} fmt={pts} /></td>
                   <td className="wr-num"><Val f={t.p_reach} fmt={v => pct(v)} /></td>
                   {big && <td>{teamLabel(t.owner)}</td>}

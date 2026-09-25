@@ -82,7 +82,7 @@ test('the old inner-tab deep link (/league?view=team) redirects via legacyLeague
   // a loose text regex still passed. The predicate is now tested as a function
   // above; here the call site must hand its result straight to <Navigate>.
   const src = read('client/src/pages/LeagueHub.tsx');
-  assert.match(src, /const \[params\] = useSearchParams\(\);/);
+  assert.match(src, /const \[params(?:, setParams)?\] = useSearchParams\(\);/);
   assert.match(
     src,
     /const (\w+) = legacyLeagueRedirect\(params\);\s*if \(\1\) return <Navigate to=\{\1\} replace \/>;/,

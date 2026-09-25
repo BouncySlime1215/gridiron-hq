@@ -22,14 +22,14 @@ const hueOf = (s: string) => HUES[[...s].reduce((h, c) => (h * 31 + c.charCodeAt
 
 export default function Avatar({ id, name, size = 40 }: { id: string; name: string; size?: number }) {
   const map = useContext(HeadshotContext);
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (!map) return null;
   const url = map[String(id)];
-  const src = url && url.startsWith(ESPN) && !failed ? url : null;
+  const src = url && url.startsWith(ESPN) && url !== failedSrc ? url : null;
   return (
     <span className="wr-av" style={{ width: size, height: size, '--wr-av-h': String(hueOf(name)) } as CSSProperties} aria-hidden>
       {src
-        ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailed(true)} />
+        ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailedSrc(src)} />
         : <span className="wr-av-i" style={{ fontSize: Math.round(size * 0.38) }}>{initials(name)}</span>}
     </span>
   );

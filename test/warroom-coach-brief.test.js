@@ -3,7 +3,8 @@
  *
  * The brief comes from the REAL route GET /api/coach/brief/:leagueId (PR #307) reading the
  * league-4-shaped producer fixture (test/fixtures/warroom-contract/producer-plans.json), and
- * is drawn by the REAL WarRoom.tsx -> CoachDock -> CoachBrief, mounted with react-dom/client
+ * is drawn by the REAL CoachDrawer -> CoachBrief (the app-wide Coach's drawer) beside Trades'
+ * Next move (TradesPlanner), mounted with react-dom/client
  * on the small DOM in test/helpers/warroom-render.js. No model call, no network beyond the
  * local express app, no league or manager names.
  *
@@ -94,7 +95,7 @@ async function fetchJson(p, opts = {}) {
 }
 async function api(p, opts = {}) {
   if (p.startsWith('/coach/brief/')) {
-    gridAtBriefCall.push(!!(currentUi && one(currentUi.container, 'data-testid', 'war-room-grid')));
+    gridAtBriefCall.push(!!(currentUi && one(currentUi.container, 'data-testid', 'trades-planner-next')));
     if (briefMode === 'broken') return fetchJson('/test-broken', opts);
     if (briefMode === 'hang') { calls.push({ path: p, method: 'GET', status: 'pending' }); return new Promise(() => {}); }
     if (briefMode === 'drop') {
@@ -110,18 +111,22 @@ globalThis.__warRoomApiCall = api;
 const { loadWarRoom } = await import('./helpers/warroom-tsx.mjs');
 const wr = await loadWarRoom();
 const { React, mount } = await domRenderer();
-const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
+const { default: TradesPlanner } = await wr.mod('TradesPlanner');
+const { CoachDrawer, useWarRoomCoach } = await wr.mod('coach/index');
 const { useWarRoom } = await wr.mod('useWarRoom');
 // Tolerant import so the same command measures the baseline (no component: 0 rendered).
 const { default: CoachBrief } = await wr.mod('coach/CoachBrief').catch(() => ({ default: null }));
 
+/** Trades' Next move with the Coach drawer open beside it, as AppCoach mounts it (the shell is retired). */
 function Host({ initial }) {
-  const [id, setId] = React.useState(initial);
+  const [id] = React.useState(initial);
   const { data } = useWarRoom(id);
+  const coach = useWarRoomCoach({ leagueId: id, leagues: LEAGUES, plans: data?.enabled ? data : undefined, onLeagueChange() {} });
   if (!data) return React.createElement('p', null, 'loading');
   if (data.enabled !== true) return React.createElement('p', null, 'War Room is off');
-  return React.createElement(WarRoom, { view: data, activeId: id, onLeague: setId, onExit() {},
-    leagues: LEAGUES.map(l => ({ id: l, name: null })) });
+  return React.createElement('div', null,
+    React.createElement(TradesPlanner, { part: 'next', view: data, leagueId: id, onAsk() {} }),
+    React.createElement(CoachDrawer, { coach, plans: data, open: true, onClose() {} }));
 }
 
 globalThis.__warRoomApi = { '/trades/4/war-room': await fetchJson('/trades/4/war-room') };
@@ -133,7 +138,7 @@ async function open(id = 4) {
   const ui = mount(React.createElement(Host, { initial: id }));
   currentUi = ui;
   mounted.push(ui);
-  await waitFor(() => one(ui.container, 'data-testid', 'war-room-v2'), 3000, 'the War Room');
+  await waitFor(() => one(ui.container, 'data-testid', 'trades-planner-next'), 3000, 'the Next move deck');
   return ui;
 }
 const briefEl = ui => one(ui.container, 'data-testid', 'coach-brief');
@@ -197,7 +202,7 @@ test('C6: a 500 from the route shows the small error state; the deck and Coach s
   assert.match(textOf(err), /Brief not read: brief builder crashed/);
   assert.ok(button(err, 'Retry'), 'a retry, not a dead end');
   assert.equal(claimEls(ui).length, 0);
-  assert.ok(one(ui.container, 'data-panel', 'next'), 'the deck still renders');
+  assert.ok(one(ui.container, 'data-testid', 'trades-planner-next'), 'the deck still renders');
   assert.ok(askInput(ui), 'the Coach dock is live');
   assert.ok(!byAttr(ui.container, 'role', 'alert').some(e => briefEl(ui).contains(e)), 'the brief failure is a small state, not an alert');
   briefMode = 'real';
@@ -209,7 +214,7 @@ test('C7: a route that never answers leaves a small loading line; the deck is no
   briefMode = 'hang';
   const ui = await open(4);
   await waitFor(() => one(ui.container, 'data-testid', 'coach-brief-loading'), 2000, 'the loading line');
-  assert.ok(one(ui.container, 'data-panel', 'next'), 'the deck renders while the brief is pending');
+  assert.ok(one(ui.container, 'data-testid', 'trades-planner-next'), 'the deck renders while the brief is pending');
   assert.ok(askInput(ui), 'the Coach dock is live while the brief is pending');
 
   // The timeout itself: CoachBrief on its own with a short limit.

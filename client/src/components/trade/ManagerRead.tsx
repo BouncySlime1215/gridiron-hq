@@ -3,6 +3,7 @@ import type {
   ReceptivenessFactor, Tactic, TacticAbsent,
 } from './types';
 import { hasManagerData, hasManagerRead } from './types';
+import ChanceStat from '../warroom/ChanceStat';
 
 /**
  * The other manager, on one deal: how receptive he is and what says so, how
@@ -84,26 +85,16 @@ function Band({ a }: { a?: Acceptance | null }) {
   if (!a.band) {
     return (
       <span className="text-[11px] text-[var(--muted)]" title={a.why ?? undefined}>
-        P(accept) not stated — {words(a.basis) || 'no basis'}
+        Chance he says yes: not stated ({words(a.basis) || 'no basis'})
       </span>
     );
   }
   const note = BASIS_NOTE[a.basis ?? ''] ?? words(a.basis);
-  // PYES-ONE: the activity baseline is one number, not a band; printing "40%–40%" would read as certainty.
-  if (a.point) {
-    return (
-      <span className="text-[11px] tabular-nums text-[var(--muted)]" title={a.why ?? undefined}>
-        P(accept) <b className="font-semibold text-[var(--ink)]">{pct(a.band.mid)}</b>
-        <span className="text-[var(--subtle)]"> · {note}{a.n != null ? ` (n=${a.n})` : ''}</span>
-      </span>
-    );
-  }
+  // The one ChanceStat. PYES-ONE: the activity baseline is one number, not a band; ChanceStat draws a
+  // point when low and high agree, so "40%–40%" never reads as certainty.
   return (
-    <span className="text-[11px] tabular-nums text-[var(--muted)]"
-      title={`${a.why ?? ''}${a.anchor?.why ? ` · ${a.anchor.why}` : ''}`}>
-      P(accept) <b className="font-semibold text-[var(--ink)]">{pct(a.band.low)}–{pct(a.band.high)}</b>
-      <span className="text-[var(--subtle)]"> · midpoint {pct(a.band.mid)} · {note}</span>
-    </span>
+    <ChanceStat value={a.band.mid} low={a.point ? null : a.band.low} high={a.point ? null : a.band.high}
+      basis={note} n={a.point ? a.n ?? null : null} why={`${a.why ?? ''}${a.anchor?.why ? ` · ${a.anchor.why}` : ''}`} />
   );
 }
 

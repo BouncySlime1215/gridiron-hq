@@ -32,5 +32,26 @@ business, so the helper now counts only plans that give more than they get), and
 - `planner.js`: the confirm pass re-checks every premium step on the fresh seed and
   drops the card if either number falls (`confirm_failed`). The walk-away may reach a
   depth-only 2-for-1 only up to the planned step's own premium.
-- No board, no premium: `blueChipsOf(adapter)` is null on main (the board is #375), so
-  the cap stays 0 and `_run.inputs.depth_premium.reason` says why.
+- No board, no premium: `boardOf(adapter)` is null on main (the board is #375), so
+  the cap stays 0 and the planner result's `no_overpay.depth_premium.reason` says why.
+
+## Review round (coordinator review at `6e789b1`: BLOCK, three findings)
+
+Each finding got a fix and a test that pins it. The tests were written alongside the fixes, not run red on `6e789b1` first:
+
+1. **Confirm world fails, so premium cards were served unchecked.** With no fresh
+   dice, a card with a premium step cannot pass its confirm check, so it is now
+   dropped and counted in `confirm_failed`. Test: `the confirm world failing serves
+   no premium card`.
+2. **The opening or walk-away could be a different, ungated premium pair.** Above 0%,
+   the price ladder now offers only the planned premium package, which is the one
+   pair gated on points and title odds. Test: `above 0%, the opening and walk-away
+   are only the planned premium pair`.
+3. **An empty or unscored board failed open.** The board is now `adapter.board`
+   (id -> score). An empty or all-unscored board counts as no board. A given player
+   is depth only with an explicit score below 83, and 160, 80 and 277 are never
+   depth. Tests: `board: ... fails closed`, `depth: an explicit score below 83 ...`,
+   `an empty board or an unscored give never rides the premium`.
+
+Minors taken: objectives-file untouchables join the depth check, and backups never
+propose a premium step that did not pass its own fresh-dice check.

@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const search = await import('../server/services/campaign/search.js');
-const { makeScorer, searchTarget, overpayPct, DEPTH_PREMIUM_MAX, depthPremiumOf, blueChipsOf, depthOnlyTwoForOne,
+const { makeScorer, searchTarget, overpayPct, DEPTH_PREMIUM_MAX, BLUE_CHIP_SCORE, NEVER_DEPTH, depthPremiumOf, boardOf, isDepth, depthOnlyTwoForOne,
   newPremiumSink, premiumHolds } = search;
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
@@ -29,23 +29,40 @@ test('the premium: +12% by default, never above +12%, off when set to 0', () => 
   assert.equal(depthPremiumOf({ depth_premium: 'x' }), 0.12);
 });
 
-test('blue-chip board: a set, an array, or none (null)', () => {
-  assert.equal(blueChipsOf({}), null);
-  assert.deepEqual([...blueChipsOf({ blueChips: [160, '80'] })].sort(), ['160', '80']);
-  assert.deepEqual([...blueChipsOf({ blueChips: new Set([7]) })], ['7']);
+test('board: a Map or an object of scores; none, empty or all-unscored is no board (fails closed)', () => {
+  assert.equal(BLUE_CHIP_SCORE, 83);
+  assert.equal(boardOf({}), null);
+  assert.equal(boardOf({ board: {} }), null, 'an empty board is no board');
+  assert.equal(boardOf({ board: new Map() }), null);
+  assert.equal(boardOf({ board: { 1: null, 2: 'x' } }), null, 'an all-unscored board is no board');
+  assert.deepEqual([...boardOf({ board: { 1: 70, 2: null } })], [['1', 70]]);
+  assert.deepEqual([...boardOf({ board: new Map([[7, 90]]) })], [['7', 90]]);
+});
+
+test('depth: an explicit score below 83, never an unscored player, never 160 / 80 / 277', () => {
+  const board = new Map([['1', 70], ['2', 83], ['160', 50], ['80', 50], ['277', 60]]);
+  assert.equal(isDepth(1, { board }), true);
+  assert.equal(isDepth(2, { board }), false, '83 is a blue chip');
+  assert.equal(isDepth(3, { board }), false, 'unscored is never depth');
+  for (const id of ['160', '80', '277']) {
+    assert.ok(NEVER_DEPTH.has(id));
+    assert.equal(isDepth(id, { board }), false, `${id} is never depth, whatever the board says`);
+  }
+  assert.equal(isDepth(1, { board, untouchable: new Set(['1']) }), false);
 });
 
 test('depth-only 2-for-1: exactly two given for one, none a blue chip or untouchable', () => {
-  const chips = new Set(['9']);
+  const board = new Map([['1', 60], ['2', 60], ['3', 60], ['8', 60], ['9', 90]]);
   const untouchable = new Set(['8']);
-  const ok = (give, get) => depthOnlyTwoForOne({ give, get }, { blueChips: chips, untouchable });
+  const ok = (give, get) => depthOnlyTwoForOne({ give, get }, { board, untouchable });
   assert.equal(ok([1, 2], [21]), true);
   assert.equal(ok([1, 9], [21]), false, 'a blue chip in the give');
   assert.equal(ok([1, 8], [21]), false, 'an untouchable in the give');
   assert.equal(ok([1], [21]), false, '1-for-1');
   assert.equal(ok([1, 2, 3], [21]), false, '3-for-1');
   assert.equal(ok([1, 2], [21, 22]), false, '2-for-2');
-  assert.equal(depthOnlyTwoForOne({ give: [1, 2], get: [21] }, { blueChips: null }), false, 'no board: depth-only cannot be checked');
+  assert.equal(ok([1, 4], [21]), false, 'an unscored player in the give');
+  assert.equal(depthOnlyTwoForOne({ give: [1, 2], get: [21] }, { board: null }), false, 'no board: depth-only cannot be checked');
 });
 
 test('premiumHolds: lineup points AND title odds both rise on the step', () => {
@@ -69,7 +86,9 @@ test('premiumHolds: lineup points AND title odds both rise on the step', () => {
 const VALUES = { 11: 60, 12: 50, 15: 55, 16: 60, 17: 70, 18: 40, 21: 100 };
 // Lineup points per player (what the lineup loses when he leaves, gains when he arrives).
 const POINTS = { 11: 1, 12: 1, 15: 1, 16: 1, 17: 12, 18: 0, 21: 10 };
-function world({ nick = [11, 12, 15, 16, 17, 18], blueChips = ['16'] } = {}) {
+// Board scores: 16 is the blue chip (90); the rest are depth.
+const BOARD = { 11: 70, 12: 60, 15: 65, 16: 90, 17: 75, 18: 50, 21: 85 };
+function world({ nick = [11, 12, 15, 16, 17, 18], board = BOARD } = {}) {
   const rosters = new Map([[1, nick], [2, [21]]]);
   const players = new Map(Object.entries(VALUES).map(([id, value]) => [Number(id), { name: `p${id}`, position: 'WR', value }]));
   const adapter = {
@@ -95,7 +114,7 @@ function world({ nick = [11, 12, 15, 16, 17, 18], blueChips = ['16'] } = {}) {
   const S = makeScorer({ rescore: (state, a, b) => ({ me: block(state, a), them: block(state, b) }) }, adapter);
   const vals = { tradable: id => (players.get(id)?.value ?? 0) > 0, addN: new Map(), lossN: new Map(),
     lossO: new Map([[21, { team: 2 }]]) };
-  return { adapter, S, vals, blueChips: blueChipsOf({ blueChips }) };
+  return { adapter, S, vals, board: boardOf({ board }) };
 }
 const OBJ = { kind: 'title', goal: 'title' };
 // The 1-step plans where Nick gives MORE market value than he gets (even or under-give trades are the plain cap's business).
@@ -108,9 +127,9 @@ test('cap 0 alone: no 2-for-1 that overpays is planned', () => {
 });
 
 test('with the premium and a board: only the depth-only 2-for-1 that raises points and title odds is planned', () => {
-  const { adapter, S, vals, blueChips } = world();
-  const sink = newPremiumSink(0.12, blueChips);
-  const plans = searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, blueChips, premiumSink: sink });
+  const { adapter, S, vals, board } = world();
+  const sink = newPremiumSink(0.12, board);
+  const plans = searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, board, premiumSink: sink });
   assert.deepEqual(gives(plans).sort(), ['11+12', '12+15']);
   const st = plans.find(p => gives([p])[0] === '11+12').steps[0];
   assert.equal(Math.round(st.depth_premium.pct * 100), 10);
@@ -122,8 +141,8 @@ test('with the premium and a board: only the depth-only 2-for-1 that raises poin
 });
 
 test('+15% is past the premium, and a blue chip in the give never rides it', () => {
-  const { adapter, S, vals, blueChips } = world({ nick: [15, 11, 16, 12] });
-  const found = gives(searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, blueChips }));
+  const { adapter, S, vals, board } = world({ nick: [15, 11, 16, 12] });
+  const found = gives(searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, board }));
   assert.ok(!found.includes('11+15'), '+15%');
   assert.ok(!found.includes('12+16'), 'blue chip 16');
   assert.ok(found.includes('11+12'));
@@ -133,7 +152,7 @@ test('+15% is past the premium, and a blue chip in the give never rides it', () 
 test('no board: the premium is off and the cap stays 0', () => {
   const { adapter, S, vals } = world();
   const sink = newPremiumSink(0.12, null);
-  assert.deepEqual(gives(searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, blueChips: null, premiumSink: sink })), []);
+  assert.deepEqual(gives(searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, board: null, premiumSink: sink })), []);
   assert.equal(sink.board, 'none');
   assert.match(sink.reason, /no blue-chip board/);
 });
@@ -141,10 +160,19 @@ test('no board: the premium is off and the cap stays 0', () => {
 /* ------------------------------------------- the whole planner */
 
 // Fixture: Nick's P6 (RB 1500, bench) + P7 (WR 1300, bench) = 2800 for Team 3's P21 (WR 2600) is +7.7%.
-const plan = ({ blueChips = ['1'], premium, flipConfirm = false, mode = 'balanced' } = {}) => {
+// Fixture board: P1 (QB) is the blue chip; every other fixture player is scored as depth.
+const FIXTURE_BOARD = Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35]
+  .map(id => [id, id === 1 ? 90 : 60]));
+const plan = ({ board = FIXTURE_BOARD, premium, flipConfirm = false, failConfirm = false, mode = 'balanced', extra = null } = {}) => {
   const a = makeAdapter();
   a.maxOverpay = 0;
-  if (blueChips) a.blueChips = blueChips;
+  if (board) a.board = board;
+  if (extra) extra(a);
+  if (failConfirm) {
+    // The confirm world fails to build: no fresh dice at all.
+    const w0 = a.world;
+    a.world = s => (s === a.seed ? w0(s) : { fail: 'confirm world failed (test)' });
+  }
   if (premium != null) a.depthPremium = premium;
   if (flipConfirm) {
     // Fresh dice disagree: on any seed but the planning seed, the lineup points of every changed roster fall.
@@ -200,7 +228,7 @@ test('planner: the walk-away never climbs past the planned premium', () => {
 });
 
 test('planner: no board -> no premium steps, and the reason says why', () => {
-  const { res } = plan({ blueChips: null });
+  const { res } = plan({ board: null });
   assert.deepEqual(premiumSteps(res), []);
   assert.equal(res.no_overpay.depth_premium.board, 'none');
 });
@@ -228,4 +256,48 @@ test('served: the premium is typed on the step and the file validates', () => {
     assert.equal(s.depth_premium.status, 'ok');
     assert.match(s.depth_premium.value.text, /^Depth-only 2-for-1 at \+\d+% market value \(cap \+12%\)/);
   }
+});
+
+test('planner: an empty board or an unscored give never rides the premium', () => {
+  assert.deepEqual(premiumSteps(plan({ board: {} }).res), [], 'empty board');
+  // Only the blue chip is scored: every other player is unscored, so nothing is depth.
+  assert.deepEqual(premiumSteps(plan({ board: { 1: 90 } }).res), [], 'unscored gives');
+});
+
+test('planner: objectives-file untouchables are never in a premium give', () => {
+  const base = premiumSteps(plan().res);
+  const hit = String(base[0].give[0]);
+  const { a } = plan();
+  const res = planLeague(Object.assign(a, { board: FIXTURE_BOARD }),
+    { objective: normaliseObjective({ risk_mode: 'balanced', untouchables: [hit] }) });
+  assert.ok(premiumSteps(res).every(st => !st.give.map(String).includes(hit)));
+});
+
+test('planner: the confirm world failing serves no premium card, and counts it', () => {
+  const { res } = plan({ failConfirm: true });
+  assert.equal(res.confirm.status, 'failed');
+  assert.deepEqual(premiumSteps(res), []);
+  assert.ok(res.no_overpay.depth_premium.confirm_failed > 0);
+});
+
+test('planner: above 0%, the opening and walk-away are only the planned premium pair', () => {
+  let checked = 0;
+  for (const mode of ['balanced', 'all_in']) {
+    const { a, res } = plan({ mode });
+    const v = id => a.players.get(id)?.value ?? 0;
+    const sum = ids => ids.reduce((s, id) => s + v(id), 0);
+    const same = (x, y) => x.map(String).sort().join() === y.map(String).sort().join();
+    for (const c of res.deck) {
+      const st = c.plan.steps[0];
+      for (const give of [c.playbook?.opening?.give, c.playbook?.walk_away?.give].filter(Boolean)) {
+        if (overpayPct(sum(give), sum(st.get)) > 1e-9) { assert.ok(st.depth_premium && same(give, st.give), `${give} vs planned ${st.give}`); checked++; }
+      }
+    }
+  }
+  assert.ok(checked > 0, 'at least one premium opening or walk-away was priced');
+});
+
+test('planner: no backup step is an unconfirmed premium step', () => {
+  const { res } = plan({ flipConfirm: true });
+  for (const b of res.backups) if (b) assert.ok(!b.step.depth_premium);
 });

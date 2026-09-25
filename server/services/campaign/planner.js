@@ -25,7 +25,7 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
-  overpayPct, depthPremiumOf, blueChipsOf, depthOnlyTwoForOne, newPremiumSink, premiumHolds } from './search.js';
+  depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -35,6 +35,7 @@ const yesPoint = curve => {
 };
 
 export const DECK_SIZE = 5;
+const sameIds = (a, b) => a.length === b.length && a.map(String).sort().join() === b.map(String).sort().join();
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
 const CURVE_WINDOW = { low: -35, high: 45 };
 
@@ -62,7 +63,7 @@ export function backupBranches(best, ranked) {
   });
 }
 
-function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, maxOverpay, premiumOk = () => false) {
+function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, maxOverpay) {
   const me = adapter.league.me;
   const val = id => Math.max(0, Number(adapter.players.get(id)?.value) || 0);
   const mine = S.rosterOf(stateBefore, me).filter(vals.tradable);
@@ -78,9 +79,8 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
     const his = screenPct(gv, getV);
     if (his == null || his < CURVE_WINDOW.low || his > CURVE_WINDOW.high) continue;
     // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
-    // CAP-1C: on a premium step, a depth-only 2-for-1 may sit up to the planned package's premium, never past it.
-    if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && premiumOk(give, step.get)
-      && overpayPct(gv, getV) <= step.depth_premium.pct + 1e-9)) continue;
+    // CAP-1C: above the cap, only the planned premium package itself (the one pair gated on points and title odds).
+    if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && sameIds(give, step.give))) continue;
     const p = adapter.priceStep(step.team, step.get, give).p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
@@ -122,11 +122,9 @@ export function planLeague(adapter, settings) {
   const overpay = newOverpaySink(maxOverpay);
   // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
   const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
-  const blueChips = blueChipsOf(adapter);
-  const premium = newPremiumSink(depthPremium, blueChips);
+  const board = boardOf(adapter);
+  const premium = newPremiumSink(depthPremium, board);
   overpay.depth_premium = premium;
-  const untouchableIds = new Set([...(adapter.untouchable ?? [])].map(String));
-  const premiumOk = (give, get) => depthOnlyTwoForOne({ give, get }, { blueChips, untouchable: untouchableIds });
   const vals = playerValues(S, adapter, objective);
   mark('values');
   const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
@@ -156,7 +154,7 @@ export function planLeague(adapter, settings) {
 
   let plans = [];
   for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay,
-    depthPremium, blueChips, premiumSink: premium }));
+    depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   mark('search');
@@ -200,11 +198,19 @@ export function planLeague(adapter, settings) {
       .sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
     confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   } else {
-    deck = deck.slice(0, DECK_SIZE);
+    // CAP-1C: with no fresh dice, a premium card cannot pass its confirm check, so it is not served.
+    deck = deck.filter(p => {
+      const prem = p.steps.some(st => st.depth_premium);
+      if (prem) premium.confirm_failed++;
+      return !prem;
+    }).slice(0, DECK_SIZE);
   }
   mark('confirm_rescore');
   const best = deck[0] ?? null;
-  const backups = best ? backupBranches(best.planned_on ?? best, ranked) : [];
+  // CAP-1C: a backup never proposes a premium step that did not pass its own fresh-dice check (only deck cards did).
+  const onDeck = new Set(deck.map(p => (p.planned_on ?? p).steps.map(dealKey).join('>')));
+  const backupPool = ranked.filter(p => !p.steps.some(st => st.depth_premium) || onDeck.has(p.steps.map(dealKey).join('>')));
+  const backups = best ? backupBranches(best.planned_on ?? best, backupPool) : [];
 
   // Playbook for every step of the chosen plan, and for each deck card's first step.
   const managers = adapter.managers;
@@ -212,7 +218,7 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay, premiumOk);
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay);
     const m = managers.get(st.team) ?? {};
     // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
     // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
@@ -250,7 +256,7 @@ export function planLeague(adapter, settings) {
     if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
       : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
     if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
-    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, ranked) : [];
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, backupPool) : [];
     const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
       ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
     return { plan: p, playbook: pbs[0], playbooks: pbs };

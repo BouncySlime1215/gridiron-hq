@@ -47,6 +47,7 @@ import { deriveFormat } from './format.js';
 import { startSitWeekPoints } from './lineup-brain.js';
 import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
 import { leagueWorld, worldRange, worldStamp } from './league-world.js';
+import { leagueLineupWeekRange } from './lineup-week-range.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -312,12 +313,20 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
   const starters = best.slots.map(s => s.player).filter(Boolean).map(counted);
   const startIds = new Set(starters.map(p => p.id));
   const mineMoments = lineupMoments(starters);
+  // WEEKLY-RANGE-ONE: the lineup's weekly range (p10 / p50 / p90) is the one producer's,
+  // the same numbers the trade card, My team and the ceiling lineup print for this
+  // lineup-week. my_sd above is NOT a range: it is the fitted P(win) spread
+  // (SPREAD_SCALE), a margin model, and is never turned into a floor or ceiling.
+  const weeklyRange = (({ floor, median, ceiling, coverage, percentiles, method, error }) =>
+    ({ floor, median, ceiling, coverage, percentiles, method, ...(error ? { error } : {}) }))(
+    leagueLineupWeekRange(lg, starters.map(p => p.id), wk));
 
   if (oppMoments.mean == null) {
     return {
       season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: null,
       note: 'No opponent found for this week, so there is no posture to take. Start the highest projection.',
       my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
+      weekly_range: weeklyRange,
       lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     };
   }
@@ -412,6 +421,7 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
   return {
     season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: oppId,
     my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
+    weekly_range: weeklyRange,
     opponent_projection: +oppMoments.mean.toFixed(1), opponent_sd: +oppMoments.sd.toFixed(1),
     edge: +edge.toFixed(1),
     win_probability: +(basePwin * 100).toFixed(1),

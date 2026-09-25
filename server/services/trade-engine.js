@@ -80,10 +80,10 @@ import { blendWeek, blendWeekFlag, horizonPpg, servedBlendWeek } from './blend-w
 // Waivers page's waiverBoard()).
 import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
-// lineupSpread() only: each starter's played-week draws and the fitted archetype
-// correlations, for the lineup-total floor/ceiling.
-import { sampleWeeks, buildProjections } from './projections.js';
-import { correlationMatrix, correlationBasis } from './correlation.js';
+import { buildProjections } from './projections.js';
+import { correlationBasis } from './correlation.js';
+// WEEKLY-RANGE-ONE: the one producer of a lineup's weekly range.
+import { lineupWeekRange, leagueLineupWeekRange } from './lineup-week-range.js';
 import { servedTableState } from './data-freshness.js';
 import { currentMarket } from './dynasty-value-history.js';
 import { run as dbRun } from '../db/index.js';
@@ -139,11 +139,12 @@ export const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'],
 // Positions we model. K and D/ST are near-random week to week and roughly
 // interchangeable, so including them adds noise to every lineup comparison.
 const SCORED = new Set(SKILL);
-// Per-player weekly-model inputs for lineupSpread() (see there), attached to every
-// asset under this symbol by buildAssetUniverse(). A symbol, not a field: object
-// spread copies it, JSON.stringify and Object.keys skip it.
-// Exported so a test can attach a weekly model to a fixture (test/lineup-spread.test.js).
-export const WEEK_MARGINAL = Symbol('weekMarginal');
+// Which league-week an asset was priced for ({ league_id, week }), attached to every
+// asset by buildAssetUniverse() so lineupSpread() can find the league's one world
+// (lineup-week-range.js). A symbol, not a field: object spread copies it,
+// JSON.stringify and Object.keys skip it. Exported so a test can attach it to a fixture;
+// a registry symbol, so a second instance of this module reads the same key.
+export const LINEUP_WEEK = Symbol.for('gridiron.lineupWeek');
 /**
  * What handing over market value costs, per 20% of the value you send.
  *
@@ -248,8 +249,8 @@ export const ASSET_INPUT_TABLES = [
   // The Sleeper sync clears an injury flag with an UPDATE (RL-12-2), so the row count
   // never moves; every player_metrics writer re-stamps fetched_at.
   { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
-  // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
-  // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
+  // Not read by buildAssetUniverse, but by the league world's copula behind
+  // lineupSpread inside findTrades, whose cache keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
 ];
 
@@ -261,7 +262,7 @@ export const ASSET_INPUT_TABLES = [
  *   trending_players       every asset's trend_kind / trend_count; written only by
  *                          POST /api/tradelab/trending/sync. Empty, `trend_kind: null`
  *                          is "nothing fetched", not "not trending".
- *   correlation_estimates  lineupSpread's copula; written only by POST /api/model/sync.
+ *   correlation_estimates  the league world's copula (lineupSpread's draws); written only by POST /api/model/sync.
  *                          Empty, every archetype is correlation.js's DEFAULTS.
  */
 const handFedInputs = () => ({ trending_players: servedTableState('trending_players'),
@@ -381,6 +382,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     .map(t => [t.player_id, t]));
 
   const out = new Map();
+  // One object shared by every asset of this universe (see LINEUP_WEEK).
+  const lineupWeek = Object.freeze({ league_id: lg.id, week: target.week });
   for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, p.gsis_id, t.abbr AS team_abbr
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id`)) {
     const v = board.get(p.id), w = vol.get(p.id), m = market.get(p.id);
@@ -434,7 +437,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     // unknown is not a bye.
     const hasSchedule = Boolean(p.team_abbr && SCORED.has(p.position));
     // Same bye detector as currentWeekPpg (:359): no game this week, known from the
-    // schedule, not a forecast. Gates weekDist, WEEK_MARGINAL and the served
+    // schedule, not a forecast. Gates weekDist and the served
     // floor/ceiling/avg below so a bye-week starter's weekly range is 0, not a full
     // distribution he cannot play. Players with no schedule on file keep the
     // model's number — unknown is not a bye (see the comment above hasSchedule).
@@ -467,7 +470,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     // accurate — and because the key includes activeProbability and mult, a small
     // availability change re-rolls the whole draw. These per-player numbers are for
     // display; a trade's floor_delta/ceiling_delta no longer adds them up — it comes
-    // from lineupSpread()'s lineup-total percentiles.
+    // from lineupSpread()'s lineup-total percentiles (lineup-week-range.js).
     // No draw for a player who cannot play this week — a bye is a known 0, not a
     // distribution to sample (see onBye above).
     // The world pool reads ros_ppg as served (rounded), as the world itself does.
@@ -480,21 +483,10 @@ function buildAssetUniverse(lg, formatKey, target) {
       : null);
 
     out.set(p.id, {
-      // What lineupSpread() needs to put this player's week into a lineup total: the
-      // same week inputs as weekDist above. Symbol-keyed so it survives the
+      // Where lineupSpread() finds this player's week: the league's one world for
+      // this NFL week (lineup-week-range.js). Symbol-keyed so it survives the
       // `{ ...p }` copies the trade search makes and never reaches a JSON response.
-      // activeProbability 0 on a bye zeroes both the mean and the variance
-      // spreadInput() derives from this (trade-engine.js#spreadInput), so a bye-week
-      // starter contributes nothing to a lineup's weekly floor/ceiling/avg.
-      [WEEK_MARGINAL]: weekProjection ? {
-        params: weekProjection.params, shift: weekProjection.ensemble_shift ?? 0,
-        activeProbability: onBye ? 0 : activeProbability, mult: thisGame?.mult ?? 1, scoring,
-        seed: `${target.season}:${target.week}:${p.id}:${activeProbability}:${thisGame?.mult ?? 1}:${weekProjection.ensemble_shift ?? 0}`,
-        // EA-07: the lineup total's spread from the same world pool as the card's range.
-        ...(worldDist ? { moments: { mean: worldDist.mean, variance: worldDist.variance } } : {}),
-        meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: thisGame?.opponent ?? null,
-          target_share: weekProjection.volume?.target_share ?? null }
-      } : null,
+      [LINEUP_WEEK]: lineupWeek,
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       espn_id: p.espn_id, sleeper_id: p.sleeper_id,
       proj: +(weeklyPpg * Math.max(1, 18 - target.week)).toFixed(1),
@@ -877,131 +869,32 @@ export function pinnedBestLineup(players, slots, key = 'adj_ppg', pins = new Map
  *
  * Two rosters can project identically and have very different variance; a win-now
  * team wants floor, a longshot wants ceiling. The question is what the starting
- * lineup scores in a bad week and in a good one.
+ * lineup scores in a bad week (p10) and in a good one (p90).
  *
- * This used to answer it with the SUM of each starter's own p10 as the lineup
- * "floor" and the sum of p90s as the "ceiling". A sum of quantiles is not the
- * quantile of a sum: nine starters do not all have their 1-in-10 week together.
- * Measured by the 2026-09-17 audit on a nine-starter lineup (40,000 joint draws):
- * sum of p10 5.2 against a true lineup p10 of 73.6; sum of p90 245.4 against a
- * true 159.5. The "floor" was the everyone-busts week, which never happens, and
- * floor_delta / ceiling_delta in every trade verdict were differences of those.
+ * WEEKLY-RANGE-ONE: the answer is lineup-week-range.js, the one producer every page
+ * reads: the lineup total in each run of the league's one world (the correlated
+ * draws the title odds are played on), p10 / p50 / p90 of those totals. It used to
+ * be a sampler of its own here (per-player pools from this week's model, summed as a
+ * normal approximation with the archetype correlations), a sum of quantiles before
+ * that; the number audit's weekly_range check found it 15 pts off the title odds'
+ * own week for the same lineup. A trade's before and after lineups are scored on
+ * the same runs, so floor_delta / ceiling_delta differ only by who plays.
  *
- * Now the floor and ceiling are the 10th and 90th percentiles of the lineup total,
- * from each starter's weekly model:
+ * The league-week comes from the starters' LINEUP_WEEK (every asset of a universe
+ * carries it); a caller with its own world passes `{ world, week }`.
  *
- *   One starter's week. With probability 1 - active_probability he does not play
- *   and scores exactly 0. Otherwise one played week from projections.js
- *   #sampleWeeks (this week's usage/efficiency params and the mean-preserving
- *   weekly shock) plus the ensemble shift, clamped at 0 — the same inputs, and the
- *   same 0 for a week he sits, as player-week-engine.js#playerWeekDistribution, so
- *   this lineup floor and the per-player floor on the asset agree. Each starter's
- *   mean and variance come from a fixed, seeded pool of 2,000 played weeks plus
- *   that 0 for the weeks he sits.
- *
- *   Together. The lineup total's mean is the sum of the means; its variance is the
- *   sum of the variances plus 2 rho sd sd for every pair in the same game (the
- *   fitted archetype correlations, correlation.js: QB-WR same team ~0.18, opposing
- *   QBs ~0.16; every other pair is independent, which is what most drafted
- *   lineups are). Floor and ceiling = mean -/+ 1.2816 sd.
- *
- * That last step is a normal approximation, and it was chosen by a pre-registered
- * check, not by taste (scratch step1/trade-consumers/GATE.md, 2026-09-18). Truth
- * was a brute-force joint simulation — 200,000 draws per player through the
- * library copula sampler (correlation.js#correlatedSampler) — on all 46 lineups in
- * the five synced leagues plus every post-trade lineup findTrades returned (150
- * lineups, 142 before/after pairs). Pass: level error <= 2.5 pts max and <= 1.0
- * mean, trade deltas within 1.0 pt for 95% of pairs and within 2.0 for all.
- *
- *                         p10 err max/mean   p90 err max/mean   deltas within 1.0 (floor / ceiling)
- *   old sum of quantiles    48.2 / 29.8        81.3 / 65.0        30% / 37%
- *   joint draws (10,000)     1.4 / 0.46         2.7 / 0.68        96.5% / 92.3%   FAILED
- *   normal approximation     1.2 / 0.46         2.0 / 0.59        100% / 99.3%    passed
- *
- * The joint simulation (10,000 draws of the same per-player pools) was the first
- * choice and failed narrowly: a lineup's 90th percentile wandered up to 2.7 pts
- * and ceiling deltas were within a point only 92% of the time. The normal
- * approximation, on the same pools, passed on every count; its own bias is small
- * and known — about 0.4 pts low at both ends, because a lineup total is slightly
- * skewed. Where the true change in floor or ceiling was a point or more, its sign
- * agreed with the brute force every time (206 of 206).
- *
- * Cost: ~3 ms per player the first time he enters any spread (his pool), then
- * microseconds per lineup. evaluate() computes floor_delta/ceiling_delta only when
- * they are read (see there), so the trade search does not pay for the thousands of
- * candidate deals nobody ever sees.
+ * @returns {{ floor, median, ceiling, mean, sd, coverage, runs, percentiles, method } | { floor: null, ceiling: null, error }}
  */
-const SPREAD_POOL = 2000;     // played weeks per player — the per-player distribution's own size
-const Z90 = 1.2815516;        // standard-normal 90th percentile
-
-const seedOf = text => {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return h >>> 0;
-};
-
-/**
- * One starter's weekly mean and variance: `model` from his weekly model (memoised
- * on the WEEK_MARGINAL object, which lives exactly as long as its asset universe),
- * `approx` from the floor/ceiling he carries when he has no weekly model (a normal
- * with that 10th-90th range, unclamped), or `constant` at his average.
- */
-function spreadInput(p) {
-  const m = p[WEEK_MARGINAL];
-  if (m?.params) {
-    if (!m.moments) {
-      const played = withRandomSeed(seedOf(`${m.seed}:pool`), () =>
-        sampleWeeks(m.params, SPREAD_POOL, m.scoring, m.mult, 1));
-      const ap = Math.max(0, Math.min(1, Number(m.activeProbability) || 0));
-      let s1 = 0, s2 = 0;
-      for (const v of played) { const x = Math.max(0, v + m.shift); s1 += x; s2 += x * x; }
-      const mean = ap * (s1 / played.length);
-      m.moments = { mean, variance: Math.max(0, ap * (s2 / played.length) - mean * mean) };
-    }
-    return { kind: 'model', meta: m.meta, ...m.moments };
-  }
-  if (p.floor != null && p.ceiling != null) {
-    const sd = Math.max(0, p.ceiling - p.floor) / (2 * Z90);
-    return { kind: 'approx', mean: p.avg ?? (p.floor + p.ceiling) / 2, variance: sd * sd };
-  }
-  return { kind: 'constant', mean: Number(p.avg ?? p.adj_ppg ?? 0) || 0, variance: 0 };
-}
-
-/**
- * The starting lineup's weekly floor (p10) and ceiling (p90) TOTAL. See the note
- * above for the model and the check behind it.
- *
- * @returns {{ floor, ceiling, mean, sd, coverage, method, correlated_pairs }}
- */
-export function lineupSpread(lineup) {
+export function lineupSpread(lineup, { world = null, week = null } = {}) {
   const starters = (lineup?.slots ?? []).map(s => s.player).filter(Boolean);
-  const inputs = starters.map(spreadInput);
-  if (!inputs.some(x => x.kind !== 'constant')) return { floor: null, ceiling: null, coverage: 0 };
-  let mean = 0, variance = 0;
-  for (const x of inputs) { mean += x.mean; variance += x.variance; }
-  // Same-game pairs among the starters with a weekly model: 2 rho sd_i sd_j each.
-  const modeled = inputs.filter(x => x.kind === 'model');
-  let correlatedPairs = 0;
-  if (modeled.length > 1) {
-    const R = correlationMatrix(modeled.map(x => x.meta));
-    for (let i = 0; i < modeled.length; i++) {
-      for (let j = i + 1; j < modeled.length; j++) {
-        if (!R[i][j]) continue;
-        correlatedPairs++;
-        variance += 2 * R[i][j] * Math.sqrt(modeled[i].variance * modeled[j].variance);
-      }
-    }
-  }
-  const sd = Math.sqrt(Math.max(0, variance));
-  return {
-    floor: +Math.max(0, mean - Z90 * sd).toFixed(1),
-    ceiling: +(mean + Z90 * sd).toFixed(1),
-    mean: +mean.toFixed(1),
-    sd: +sd.toFixed(1),
-    coverage: +(modeled.length / inputs.length).toFixed(2),
-    method: 'normal approximation of the lineup total',
-    correlated_pairs: correlatedPairs
-  };
+  if (!starters.length) return { floor: null, median: null, ceiling: null, coverage: 0, error: 'no starters' };
+  const ref = starters.map(p => p[LINEUP_WEEK]).find(Boolean);
+  const wk = week ?? ref?.week;
+  const ids = starters.map(p => p.id);
+  if (world) return lineupWeekRange(world, ids, wk);
+  const lg = ref ? row('SELECT * FROM leagues WHERE id = ?', ref.league_id) : null;
+  if (!lg?.payload) return { floor: null, median: null, ceiling: null, coverage: 0, error: 'no league world for this lineup' };
+  return leagueLineupWeekRange(lg, ids, wk);
 }
 
 /* --------------------------------------------------------------- evidence */

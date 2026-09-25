@@ -45,7 +45,9 @@ const NOW = Date.UTC(2026, 9, 1);
 const plan = opts => {
   const t0 = performance.now();
   const adapter = buildAdapter({ now: NOW, ...opts });
-  const res = planLeague(adapter, { objective });
+  // A speed-equivalence test on a DB with no player board: Nick's floor (on by default) would fail closed and plan
+  // nothing, so it is switched off here by hand (the explicit =0 path).
+  const res = planLeague(adapter, { objective, env: { GRIDIRON_GETS_FLOOR: '0' } });
   return { res, adapter, ms: performance.now() - t0 };
 };
 

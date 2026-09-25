@@ -25,7 +25,8 @@ const WEEKS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const POS = { 1: 'QB', 2: 'QB', 3: 'RB', 4: 'RB', 5: 'WR', 6: 'WR', 7: 'TE', 8: 'TE' };
 // Sunday 13:00 ET of week w (weeks start 2031-09-07).
 const sunday = w => { const d = new Date(Date.UTC(2031, 8, 7 + 7 * (w - 1))); return d.toISOString().slice(0, 10); };
-const kickoffIso = w => new Date(`${sunday(w)}T17:00:00.000Z`).toISOString();
+const { nflKickoffDate } = await import('../server/services/date-util.js');
+const kickoffIso = w => nflKickoffDate(sunday(w), '13:00').toISOString(); // DST-aware, like game_lines
 const actualOf = (pid, w) => (pid === 8 ? 0 : 5 + pid + (w % 3)); // TE 8 never plays
 
 function seed() {
@@ -50,8 +51,8 @@ function seed() {
       } else {
         run(`INSERT INTO player_week_usage (player_id, season, week, team, position, receptions) VALUES (?,?,?,?,?,?)`,
           pid, S, w, 'AAA', POS[pid], 1);
-        run(`INSERT INTO nfl_ffopportunity_weekly (season, week, player_gsis_id, actual_fantasy_points)
-             VALUES (?,?,?,?)`, S, w, `G${pid}`, actualOf(pid, w));
+        run(`INSERT INTO nfl_ffopportunity_weekly (season, week, player_gsis_id, actual_fantasy_points, source_release,
+               ingested_at) VALUES (?,?,?,?,?,?)`, S, w, `G${pid}`, actualOf(pid, w), 'fixture', '2031-01-01');
       }
     }
   }
@@ -82,7 +83,7 @@ test('ingestPredictions stamps each row and flags a forecast made at or after ki
   const r2 = shadow.ingestPredictions(modelPayload(6, 9), { now: new Date(Date.parse(kickoffIso(6)) + 60e3), windowKey: 'late' });
   assert.equal(r2.late, 8);
   assert.throws(() => run('UPDATE exgb_shadow_predictions SET prediction = 0'), /append-only/);
-  assert.throws(() => run('DELETE FROM exgb_weekly_grades'), /append-only/);
+  assert.throws(() => run('DELETE FROM exgb_shadow_predictions'), /append-only/);
 });
 
 test('actualPoints: nflverse PPR first, the usage formula as a counted fallback, no line = 0', () => {
@@ -154,7 +155,7 @@ test('runExgbWeeklyGrade: skipped while the flag is off; with it on, one row per
 });
 
 test('runExgbShadowPredict: skipped while off; with it on, one forecast run per open window via the locked Python', async () => {
-  const now = new Date(Date.parse(kickoffIso(9)) - 3600e3);
+  const now = new Date(Date.parse(kickoffIso(9)) - 90 * 60e3);
   const off = await shadow.runExgbShadowPredict({ now, season: S });
   assert.ok(off.skipped);
   process.env.GRIDIRON_EXGB = '1';
@@ -173,7 +174,7 @@ test('runExgbShadowPredict: skipped while off; with it on, one forecast run per 
     assert.equal(calls[0].args[calls[0].args.indexOf('--as-of') + 1], now.toISOString());
     const again = await shadow.runExgbShadowPredict({ now: new Date(now.getTime() + 15 * 60e3), season: S, spawn });
     assert.equal(again.runs, 0, 'the same window is never forecast twice');
-    const fail = await shadow.runExgbShadowPredict({ now: new Date(Date.parse(kickoffIso(10)) - 3600e3), season: S,
+    const fail = await shadow.runExgbShadowPredict({ now: new Date(Date.parse(kickoffIso(10)) - 90 * 60e3), season: S,
       spawn: () => ({ status: 1, stdout: '', stderr: 'LOCK: exgb_panel.py changed since the lock' }) });
     assert.equal(fail.failed, 1);
     assert.match(rows(`SELECT error FROM exgb_shadow_runs WHERE status = 'error'`)[0].error, /LOCK/);

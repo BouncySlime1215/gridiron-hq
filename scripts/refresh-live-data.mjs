@@ -91,16 +91,6 @@ export const FANTASY_LIVE_JOBS = [
   // whose rows it grades (nfl_model_growth's finalized weeks, nfl_weekly_learning's
   // pregame snapshots). 7-day maxAge; offThread, so its replays run in a worker.
   'start_sit_gate',
-  // DATA-FC (2026-09-24): FantasyCalc's market price per league format, plus the day's
-  // dynasty_value_history row. FC-SNAP gave it a scheduler timer, but only the scheduler
-  // ran it, so with SCHEDULER_DISABLED=1 the price every trade card is gated and ranked
-  // on went 5 days stale and the history table stayed empty. Daily by its own maxAge
-  // (FantasyCalc asks callers to fetch about once a day); one read-only GET of the public
-  // /values/current per format. Before served_numbers_weekly, whose trade cards price on it.
-  'fantasycalc_dynasty',
-  // The redraft half (player_metrics 'fc_value' / 'fc_trend30'): the League Hub, rankings
-  // and edge board read it, and only the manual sync button ran it (0 of 173 priced, 9/24).
-  'fantasycalc_values',
   // IDEA-001: the weekly served-number snapshot (title odds, title trades, trade
   // cards) into served_numbers. Nothing else runs it while SCHEDULER_DISABLED=1.
   // Idempotent per league per NFL week; offThread, so the simulations run in a worker.

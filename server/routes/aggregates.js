@@ -99,7 +99,7 @@ export async function syncSleeper() {
 
 // FantasyCalc — market trade values from real trades (via akodsi/fantasy-advisor).
 // We use redraft values + the 30-day trend as a buy/sell signal.
-export async function syncFantasyCalc() {
+async function syncFantasyCalc() {
   try {
     const league = row(`SELECT team_count, ppr, superflex FROM leagues ORDER BY id LIMIT 1`);
     const params = new URLSearchParams({

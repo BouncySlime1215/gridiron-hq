@@ -1425,11 +1425,6 @@
     "status": "unknown",
     "source": "campaign.plan",
     "reason": "No partner read in this fixture."
-   },
-   "blue_chips": {
-    "status": "unknown",
-    "source": "people.score",
-    "reason": "Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview)."
    }
   },
   {
@@ -1596,11 +1591,6 @@
     "status": "unknown",
     "source": "campaign.plan",
     "reason": "No partner read in this fixture."
-   },
-   "blue_chips": {
-    "status": "unknown",
-    "source": "people.score",
-    "reason": "Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview)."
    }
   }
  ]

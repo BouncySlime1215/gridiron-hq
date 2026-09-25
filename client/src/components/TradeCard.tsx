@@ -85,7 +85,7 @@ export function PlayerPill({ p, tone = 'slate' }: { p: any; tone?: 'give' | 'get
   return (
     <button
       onClick={() => open(p.id)}
-      title={`Week ${p.matchup?.week ?? '?'}: ${p.blend_week ?? p.current_week_ppg ?? p.adj_ppg ?? '?'} pts · ROS ${p.ros_ppg ?? p.ppg ?? '?'} ppg · active ${p.active_probability == null ? '?' : Math.round(p.active_probability * 100) + '%'} · market ${p.value?.toLocaleString() ?? '?'}${p.bye ? ` · bye ${p.bye}` : ''}`}
+      title={`Week ${p.matchup?.week ?? '?'}: ${p.current_week_ppg ?? p.adj_ppg ?? '?'} pts · ROS ${p.ros_ppg ?? p.ppg ?? '?'} ppg · active ${p.active_probability == null ? '?' : Math.round(p.active_probability * 100) + '%'} · market ${p.value?.toLocaleString() ?? '?'}${p.bye ? ` · bye ${p.bye}` : ''}`}
       className="inline-flex items-center gap-2 py-1 pr-2.5 rounded-full border border-[var(--edge)] bg-white/70 text-xs hover:border-slate-400 transition-colors">
       <Headshot src={headshotUrl(p)} pos={p.position} size={26} />
       <span className="font-semibold text-[var(--ink)]">{p.name}</span>

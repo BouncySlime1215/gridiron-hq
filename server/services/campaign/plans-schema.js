@@ -32,10 +32,7 @@ export const SOURCE_IDS = Object.freeze([
   // FIX-03: real sources the producer writes. plan.template = text built by a
   // template from engine facts only; chat.labels = chat-DB labels and counts,
   // no text; asset.ros = a player's rest-of-season rate.
-  'plan.template', 'chat.labels', 'asset.ros',
-  // PLAYER-SCORE: people.score = the blue-chip score (draft pick x production, people/player-score.js);
-  // fp.ros = FantasyPros' rest-of-season rank via the public DynastyProcess scrape (people/fantasypros-ros.js).
-  'people.score', 'fp.ros'
+  'plan.template', 'chat.labels', 'asset.ros'
 ]);
 
 export const UNITS = Object.freeze(['title_odds', 'playoff_odds', 'points_per_week', 'probability', 'market_value']);
@@ -62,9 +59,6 @@ export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 
 /** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
 export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
 export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
-/** PLAYER-SCORE vocabularies (people/player-score.js LABEL_NAMES / GAP_TYPES; a test pins them equal). */
-export const SCORE_LABELS = Object.freeze(['Elite blue chip', 'Blue chip', 'Level below', 'Solid starter', 'Flex', 'Depth', 'Bench']);
-export const SCORE_GAPS = Object.freeze(['undervalued_blue_chip', 'fading_blue_chip', 'riser', 'we_value_lower', 'we_value_higher']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
 
 /**
@@ -218,15 +212,6 @@ const brainReport = obj({
   blocks: arr(str)
 }, { fell_back_to: lit('balanced') });
 
-/** PLAYER-SCORE: one board row. Names are read at run time from the league (the plans file is local). */
-const blueChipRow = obj({
-  player: id, name: str, position: oneOf(['QB', 'RB', 'WR', 'TE']), mine: bool,
-  score: int(0, 100), label: oneOf(SCORE_LABELS), hurt: bool,
-  parts: obj({ pick_pct: int(0, 100), prod_basis: oneOf(['season_ppg', 'ros_ppg']), prod_pct: int(0, 100),
-    games: int(0), team_games: int(0), missed: int(0) }, { pick: int(1), prod_value: num, pos_rank: int(1), pos_n: int(1) }),
-  model_value: numF, fp_ros_rank: numF, gaps: arr(oneOf(SCORE_GAPS)), protected: bool
-}, { owner: id, model_rank: int(1), fp_pos_rank: num, fp_rank: int(1), fp_prev_rank: int(1), title_add: numF });
-
 /** Every section a league entry carries unless the whole run failed (`error`). */
 export const SECTIONS = Object.freeze({
   attention: field(obj({ rank: int(1), of: int(1), reason: str })),
@@ -282,20 +267,11 @@ export const SECTIONS = Object.freeze({
   // TEAM-NAMES: who each roster is (ESPN team name, the manager Nick knows), read from the league
   // payload at run time and never committed. A roster left out (or the section unknown) reads 'Team N'.
   // Optional (OPTIONAL_SECTIONS): a file written before it still validates.
-  teams: field(map(/^[A-Za-z0-9_.:-]{1,64}$/, obj({}, { name: str, manager: str }))),
-  // PLAYER-SCORE (flag GRIDIRON_PLAYER_SCORE / preview): every rostered player and the top free agents,
-  // scored 0-100 with a label, the engine's value, FantasyPros' rest-of-season rank and the gaps between them.
-  // Optional (OPTIONAL_SECTIONS): a file written before it still validates.
-  blue_chips: field(obj({
-    weights: obj({ pick: num, production: num, basis: str }), labels: arr(oneOf(SCORE_LABELS)), rows: arr(blueChipRow),
-    coverage: obj({ rostered: int(0), board: int(0), score: prob, model_value: prob, fp_ros_rank: prob }),
-    fp: obj({ status: oneOf(STATUSES), sync: str }, { reason: str, scrape_date: str, prev_date: str }),
-    draft: obj({ season: int(2000, 2100), picks: int(0) }, { reason: str })
-  }))
+  teams: field(map(/^[A-Za-z0-9_.:-]{1,64}$/, obj({}, { name: str, manager: str })))
 });
 
 /** Sections an entry may leave out; the view then reads them as unknown. */
-export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips']);
+export const OPTIONAL_SECTIONS = Object.freeze(['teams']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({

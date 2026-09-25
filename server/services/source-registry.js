@@ -171,7 +171,13 @@ export const MANUAL_SOURCES = {
     maxAgeMinutes: 24 * 60
   },
 
-  // fantasycalc_values moved to scheduler JOBS (DATA-FC redraft, 9/24): it was manual-only, so fc_value was never filled.
+  fantasycalc_values: {
+    label: 'FantasyCalc redraft trade values (global, league-agnostic)',
+    cadence: 'daily; values move with real trades',
+    cutoff: 'as of the pull; trend30 is a point delta, not already a percent',
+    failureMode: 'throws',
+    maxAgeMinutes: 24 * 60
+  },
   historical_adp: {
     label: 'DynastyProcess historical preseason consensus rank (fantasy boom/bust prior)',
     cadence: 'one-time backfill; each season is a frozen preseason snapshot, never revised',

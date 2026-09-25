@@ -49,7 +49,7 @@ export function tolerancesFor(mode, overrides = {}) {
   return base;
 }
 
-/** REACH-01: the gate codes toleranceCheck names (the keys of dropped_by_reason's `tolerance` counts). */
+/** REACH-01: the gate codes toleranceCheck names (the keys of reach.drops_by_gate's `tolerance` counts). */
 export const TOLERANCE_CODES = Object.freeze(['max_assets', 'max_offers_per_manager_week', 'max_give_per_step',
   'max_downside_per_step', 'core_starter', 'untouchable']);
 
@@ -134,6 +134,21 @@ export function rankPlans(plans, mode, tol, ctx = {}) {
 }
 
 /**
+ * Whether a scored plan (rankPlans row) beats keeping the roster under its mode. Balanced and all-in:
+ * its score > 0. Safe (integration-7): its expected gain minus one DOWNSIDE deviation > 0. Safe still
+ * RANKS by the full yes/no spread (it prefers the sure move), but the no-trade comparison must not count
+ * a decline as risk: a declined offer leaves Nick exactly where keeping the roster does. With the full
+ * spread, no move under ~50% to land could ever beat doing nothing, and Safe served nothing (0 of 80
+ * fuzz leagues).
+ */
+export function beatsNoTrade(scored, mode) {
+  if (!scored || !Number.isFinite(scored.score)) return false;
+  if (normaliseMode(mode) !== 'safe') return scored.score > 0;
+  const down = Number.isFinite(scored.downside_sd) ? scored.downside_sd : scored.sd;
+  return scored.expected - SAFE_LAMBDA * down > 0;
+}
+
+/**
  * NO-TRADE-SHRINK: the do-nothing option. Keeping today's roster gains nothing, spreads nothing and
  * lands for sure, so every mode's objective scores it exactly 0 (safe: 0 - 0; balanced: 0; all_in: 0).
  */
@@ -160,7 +175,7 @@ export function compareModes(plans, ctxFor, pickFor = null) {
   return MODES.map(mode => {
     const { tol, ctx } = ctxFor(mode);
     const best = rankPlans(plans, mode, tol, ctx).ranked[0] ?? null;
-    const pk = pickFor ? pickFor(mode) : { best: best && best.score > 0 ? best : null, confirmed: false };
+    const pk = pickFor ? pickFor(mode) : { best: beatsNoTrade(best, mode) ? best : null, confirmed: false };
     // integration-7: with the confirm pass (pickFor), every field is the mode's served pick on the confirm
     // dice, so the sheet never shows a planning-dice move that does not beat keeping the roster.
     const shown = pickFor ? pk.best : best;

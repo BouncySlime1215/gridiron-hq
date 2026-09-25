@@ -12,7 +12,7 @@
  * only overstates what a chain can reach: the bound can keep a hopeless target, never skip a
  * findable one.
  *
- * dropped_by_reason. Per risk mode, the paths each gate removed (modes.js codes), the all-in
+ * drops_by_gate (the planner's reach.drops_by_gate; _run.dropped_by_reason is the served count). Per risk mode, the paths each gate removed (modes.js codes), the all-in
  * p_complete floor, and for the objective mode the deck cards the fresh-dice confirm dropped;
  * plus the search-level counts (steps the no-overpay cap turned away, targets skipped as out of
  * reach). Counts of numbers the planner already computes; nothing is priced here.
@@ -92,7 +92,7 @@ export function targetReach(value, bound) {
 }
 
 /**
- * dropped_by_reason. byMode: { mode: rankPlans result } over the same candidates (the objective mode's
+ * drops_by_gate. byMode: { mode: rankPlans result } over the same candidates (the objective mode's
  * over its pool: a get-player objective ranks only that target's paths, and the rest are counted as
  * not_objective_target); confirm: { checked, failed } for the objective mode (null when the confirm
  * world failed). Per mode: kept + tolerance + p_complete_floor + not_objective_target == candidates.
@@ -115,12 +115,12 @@ export function droppedByReason({ candidates, byMode, objectiveMode, confirm = n
 
 /** One line for the producer's log: kept / dropped per mode, by the biggest gates. */
 export function droppedLine(d) {
-  if (!d) return 'dropped_by_reason none';
+  if (!d) return 'drops_by_gate none';
   const mode = m => {
     const r = d.modes[m];
     const gates = Object.entries({ ...r.tolerance, p_complete_floor: r.p_complete_floor }).filter(([, n]) => n > 0)
       .sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
     return `${m} kept ${r.kept}${gates ? ` (dropped: ${gates})` : ''}${r.confirm ? `, confirm failed ${r.confirm.failed}/${r.confirm.checked}` : ''}`;
   };
-  return `dropped_by_reason: ${d.candidates} paths; overpay-capped steps ${d.search.no_overpay}; out-of-reach targets ${d.search.out_of_reach}; ${MODES.map(mode).join('; ')}`;
+  return `drops_by_gate: ${d.candidates} paths; overpay-capped steps ${d.search.no_overpay}; out-of-reach targets ${d.search.out_of_reach}; ${MODES.map(mode).join('; ')}`;
 }

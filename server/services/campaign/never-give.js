@@ -8,10 +8,22 @@
  */
 export const PINNED_NEVER_GIVE = Object.freeze(['160', '80', '277']);
 
-/** The adapter with the pinned ids on Nick's roster added to adapter.untouchable (nothing else changes). */
+/**
+ * NEVER-GET (integration-7): players no plan may bring back, pinned by id so the rule holds even when
+ * the season trade ledger is missing. Chris Olave (290), whom Nick sold this season (no buy-backs, no
+ * exceptions). Added to adapter.untouchable, which the planner already reads as never a target, a get,
+ * a filler, a flip leg, a ladder row or a catch-up move.
+ */
+export const PINNED_NEVER_GET = Object.freeze(['290']);
+
+/**
+ * The adapter with the pinned never-give ids on Nick's roster and the pinned never-get ids on anyone
+ * else's roster added to adapter.untouchable (nothing else changes).
+ */
 export function withNeverGive(adapter) {
   const mine = new Set((adapter.rosters?.get(adapter.league?.me) ?? []).map(String));
-  const pinned = PINNED_NEVER_GIVE.filter(id => mine.has(id));
+  const theirs = new Set([...(adapter.rosters ?? new Map())].filter(([t]) => String(t) !== String(adapter.league?.me)).flatMap(([, ids]) => ids.map(String)));
+  const pinned = [...PINNED_NEVER_GIVE.filter(id => mine.has(id)), ...PINNED_NEVER_GET.filter(id => theirs.has(id))];
   if (!pinned.length) return adapter;
   return { ...adapter, untouchable: new Set([...[...(adapter.untouchable ?? [])].map(String), ...pinned]) };
 }

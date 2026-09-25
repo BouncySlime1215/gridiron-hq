@@ -345,8 +345,8 @@ export async function buildPlansFile(leagues, {
           counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
           // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
-          // GETS-FLOOR (on or shadow): the final-get floor, its score source and what it dropped or would drop.
-          ...(res.gets_floor && res.gets_floor.mode !== 'off' ? { gets_floor: res.gets_floor } : {}),
+          // GETS-FLOOR (on by default): the final-get floor, its score source, what it dropped, and a warning when =0.
+          ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
           // CAP-1C: the depth-only 2-for-1 premium (screened, gated out by reason, confirm failures). Written only
@@ -383,7 +383,7 @@ export async function buildPlansFile(leagues, {
     entries.push(entry);
     log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}`
       : `ok, next ${entry._run.changed.next_key}, changed ${entry._run.changed.changed}`} (${Math.round((clock() - t0) / 1000)} s, ${entry._run?.rescores ?? 0} rescores, phases ms ${JSON.stringify(entry._run?.phases_ms ?? {})})`);
-    if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.dropped_by_reason)}`);
+    if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.drops_by_gate)}`);
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.
@@ -429,6 +429,11 @@ async function main() {
       trigger = d.trigger;
     }
     const twoForOne = twoForOneFlag(env);
+    // integration-7: Nick's hard rules are on by default; switching one off by hand is logged loudly.
+    const { getsFloorFlag, GETS_FLOOR_OFF_WARNING } = await import('../../server/services/campaign/gets-floor.js');
+    const { tradeMemoryOn, TRADE_MEMORY_OFF_WARNING } = await import('../../server/services/campaign/trade-memory.js');
+    if (getsFloorFlag(env) === 'off') console.error(`[warroom] ${GETS_FLOOR_OFF_WARNING}`);
+    if (!tradeMemoryOn(env)) console.error(`[warroom] ${TRADE_MEMORY_OFF_WARNING}`);
     console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
     // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.

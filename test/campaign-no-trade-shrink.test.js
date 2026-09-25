@@ -73,11 +73,16 @@ test('every mode carries the no-trade option: expected 0, lands for sure', () =>
 });
 
 test("the mode's own objective picks plan or no trade", () => {
-  // Balanced: 0.5 x 0.02 = +0.01 > 0 -> plan. Safe: 0.01 - spread 0.01 = 0 -> no trade (not better than holding).
+  // Balanced: 0.5 x 0.02 = +0.01 > 0 -> plan. Safe (integration-7): a decline leaves Nick where holding does,
+  // so a one-step gain with no outcome below today beats holding (0.01 - downside 0 > 0) -> plan.
   const rows = Object.fromEntries(compareModes([plan('2', 0.5, 0.02, 0.001)], ctxFor).map(r => [r.mode, r]));
   assert.equal(rows.balanced.no_trade.pick, 'plan');
   assert.equal(rows.all_in.no_trade.pick, 'plan');
-  assert.equal(rows.safe.no_trade.pick, 'no_trade');
+  assert.equal(rows.safe.no_trade.pick, 'plan');
+  // Safe still says no trade when a path can leave Nick below today: a chip step that costs 0.02 and a
+  // finish that lands 20% of the time (expected 0.5*(-0.02)... below one downside deviation).
+  const risky = { steps: [{ team: '2', give: [1], get: [9], p: 0.9, delta: -0.004, se: 0.001 }, { team: '3', give: [9], get: [8], p: 0.2, delta: 0.01, se: 0.001 }] };
+  assert.equal(Object.fromEntries(compareModes([risky], ctxFor).map(r => [r.mode, r])).safe.no_trade.pick, 'no_trade');
   // No plan fits -> no trade, with the reason.
   const none = compareModes([], ctxFor);
   for (const r of none) { assert.equal(r.no_trade.pick, 'no_trade'); assert.match(r.no_trade.why, /No plan in this mode beats keeping your roster/); }
@@ -112,9 +117,10 @@ test('review 1: the pick agrees with the served move in every mode (priced on th
     const row = res.risk_modes.find(r => r.mode === mode);
     assert.equal(row.no_trade.pick, res.best ? 'plan' : 'no_trade',
       `${mode}: served move ${res.best ? 'present' : 'absent'} but pick ${row.no_trade.pick}`);
-    // A served move beats doing nothing under its own mode on the confirm dice.
-    if (res.best) assert.ok(res.best.score > 0, `${mode}: served best scores ${res.best.score}`);
-    for (const c of res.deck) assert.ok(c.plan.score > 0, `${mode}: a deck card scores ${c.plan.score}`);
+    // A served move beats doing nothing under its own mode on the confirm dice (Safe: net of downside, integration-7).
+    if (res.best) assert.ok(res.best.beats_no_trade && res.best.expected > 0, `${mode}: served best scores ${res.best.score}`);
+    for (const c of res.deck) assert.ok(c.plan.beats_no_trade && c.plan.expected - (mode === 'safe' ? c.plan.downside_sd : 0) > 0, `${mode}: a deck card scores ${c.plan.score}`);
+    if (mode !== 'safe') for (const c of res.deck) assert.ok(c.plan.score > 0);
   }
 });
 

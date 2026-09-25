@@ -31,12 +31,16 @@ test('the floor: 83 by default, a destination may only raise it', () => {
   assert.equal(floorName(88), 'Blue chip floor (88+)');
 });
 
-test('the flag: unset is off, 1 enforces, shadow counts', () => {
-  assert.equal(getsFloorFlag({}), 'off');
+test('the flag (integration-7): on by default, shadow counts, only an explicit 0 turns it off, loudly', () => {
+  assert.equal(getsFloorFlag({}), 'on');
+  assert.equal(getsFloorFlag(undefined), 'on');
   assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: '1' }), 'on');
   assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: 'shadow' }), 'shadow');
   assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: '0' }), 'off');
-  assert.equal(getsFloorFlag(undefined), 'off');
+  const off = plan({ GRIDIRON_GETS_FLOOR: '0' }).res;
+  assert.match(off.gets_floor.warning, /^WARNING: GRIDIRON_GETS_FLOOR=0 turns OFF/);
+  assert.equal(plan({}).res.gets_floor.mode, 'on');
+  assert.equal(plan({}).res.gets_floor.warning, undefined);
 });
 
 test('a read: at the floor passes, under it fails, unscored and no source fail closed', () => {
@@ -57,7 +61,7 @@ const SCORES = { 11: 90, 12: 75, 13: 60, 22: 85, 32: 70 };
 const scoreOf = id => (SCORES[id] != null ? { score: SCORES[id], label: SCORES[id] >= 80 ? 'Blue chip' : 'Level below' } : { score: 20, label: 'Bench' });
 const plan = (env, { mode = 'balanced', obj = {}, scored = true, searchOpts = null } = {}) => {
   const a = makeAdapter();
-  if (scored) a.scoreOf = scoreOf;
+  if (scored) a.scoreOf = scoreOf; else delete a.scoreOf;
   if (searchOpts) a.searchOpts = searchOpts;
   return { a, res: planLeague(a, { objective: normaliseObjective({ risk_mode: mode, ...obj }), env }) };
 };
@@ -83,7 +87,7 @@ test('on: every final get is 83+, below-floor targets are replaced before the to
 
 test('shadow: served plans are byte-identical to off, and the would-drop count is printed', () => {
   for (const mode of ['balanced', 'all_in']) {
-    const off = plan({}, { mode }).res;
+    const off = plan({ GRIDIRON_GETS_FLOOR: '0' }, { mode }).res;
     const shadow = plan({ GRIDIRON_GETS_FLOOR: 'shadow' }, { mode }).res;
     assert.equal(off.gets_floor.mode, 'off');
     assert.equal(shadow.gets_floor.mode, 'shadow');
@@ -138,7 +142,7 @@ const score = id => SCORES[id] ?? 20;
 
 test('flip legs: the player Nick ends a flip holding (leg 2) passes the floor', () => {
   // Off, the fixture's flips end with Nick holding 12 (75) and 32 (70): the test has teeth.
-  assert.ok(legB(plan({}, { searchOpts: WIDE }).res).some(id => score(id) < 83));
+  assert.ok(legB(plan({ GRIDIRON_GETS_FLOOR: '0' }, { searchOpts: WIDE }).res).some(id => score(id) < 83));
   for (const mode of ['safe', 'balanced', 'all_in']) {
     const { res } = plan(ON, { mode, searchOpts: WIDE });
     for (const id of legB(res)) assert.ok(score(id) >= 83, `${mode}: flip leg 2 gives Nick ${id} (${score(id)})`);
@@ -150,7 +154,7 @@ test('flip legs: the player Nick ends a flip holding (leg 2) passes the floor', 
 
 test('2-for-1 fillers: every player in the final leg passes the floor, not only the target', () => {
   // Off, safe mode's final leg takes filler 15 (score 20) with the target.
-  assert.ok(finalGets(plan({}, { mode: 'safe', searchOpts: WIDE }).res).some(id => score(id) < 83));
+  assert.ok(finalGets(plan({ GRIDIRON_GETS_FLOOR: '0' }, { mode: 'safe', searchOpts: WIDE }).res).some(id => score(id) < 83));
   for (const mode of ['safe', 'balanced', 'all_in']) {
     const gets = finalGets(plan(ON, { mode, searchOpts: WIDE }).res);
     assert.ok(gets.length > 0, `${mode}: something is served`);

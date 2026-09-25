@@ -93,7 +93,7 @@ import { newSearchStats, twoForOneSummary } from '../../server/services/campaign
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
-import { radarWireFlag, applyWhyNow, gradeLedger } from '../../server/services/campaign/why-now.js';
+import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
 import { fcFormatValues } from '../../server/services/fc-value.js';
 
 process.env.SCHEDULER_DISABLED = '1';
@@ -429,10 +429,12 @@ export function appendRadarLedger(file, served, { valueNow, now = Date.now() } =
       try { rows.push(JSON.parse(line)); } catch { bad++; }
     }
   }
-  const { graded, summary } = gradeLedger([...rows, ...served], { valueNow, now });
-  const out = [...served, ...graded];
+  // #405 finding 3: one serve row per flip per ISO week; a repeat run the same week appends nothing.
+  const fresh = newServeRows(rows, served);
+  const { graded, summary } = gradeLedger([...rows, ...fresh], { valueNow, now });
+  const out = [...fresh, ...graded];
   if (out.length) fs.appendFileSync(file, out.map(r => JSON.stringify(r)).join('\n') + '\n');
-  return { served: served.length, graded: graded.length, bad, summary };
+  return { served: fresh.length, repeats: served.length - fresh.length, graded: graded.length, bad, summary };
 }
 
 /** One push row per league whose next move changed. */
@@ -580,7 +582,7 @@ async function main() {
         return formats.get(k).byId.get(String(id))?.value;
       };
       const g = appendRadarLedger(sibling(env, 'GRIDIRON_RADAR_LEDGER', 'radar-ledger.jsonl'), radarLedger, { valueNow: fcNow, now: Date.now() });
-      console.log(`[warroom] radar ledger +${radarLedger.length} served, +${g.graded} graded${g.bad ? `, ${g.bad} unreadable lines skipped` : ''}; gate ${JSON.stringify(g.summary)}`);
+      console.log(`[warroom] radar ledger +${g.served} served (${g.repeats} repeats this week skipped), +${g.graded} graded${g.bad ? `, ${g.bad} unreadable lines skipped` : ''}; gate ${JSON.stringify(g.summary)}`);
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;

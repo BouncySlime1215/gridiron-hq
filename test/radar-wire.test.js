@@ -303,3 +303,35 @@ test('RADAR-GRADE: a row is graded in its own league format (#405 finding 2)', (
   const g = W.gradeLedger(rows, { valueNow: (id, r) => byFormat[r.format_key], now: NOW });
   assert.deepEqual(g.graded.map(r => [r.league, r.move]).sort(), [['1', 'up'], ['4', 'down']]);
 });
+
+test('RADAR-GRADE ledger: one serve row per flip per ISO week, however often the producer runs (#405 finding 3)', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { appendRadarLedger } = await import('../scripts/campaign/produce-plans.mjs');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'radar-ledger-wk-')), 'radar-ledger.jsonl');
+  const row = (at, extra = {}) => { const r = { type: 'serve', as_of: at, league: '4', player: '7', buy_from: '2', sell_to: '3',
+    direction: 'up', value_at: 100, ...extra }; return { ...r, key: W.serveKeyOf(r) }; };
+  const t0 = Date.parse('2026-09-21T08:00:00Z'); // a Monday
+  for (let i = 0; i < 5; i++) appendRadarLedger(file, [row(new Date(t0 + i * 6 * HOUR).toISOString())], { valueNow: () => 100, now: t0 + i * 6 * HOUR });
+  const read = () => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+  assert.equal(read().filter(r => r.type === 'serve').length, 1, 'five runs in one week: one row');
+  appendRadarLedger(file, [row(new Date(t0 + 7 * DAY).toISOString())], { valueNow: () => 100, now: t0 + 7 * DAY });
+  appendRadarLedger(file, [row(new Date(t0 + HOUR).toISOString(), { direction: 'down' })], { valueNow: () => 100, now: t0 + 7 * DAY });
+  assert.equal(read().filter(r => r.type === 'serve').length, 3, 'a new week, or a new direction, is a new row');
+});
+
+test('RADAR-GRADE: a row first reached past 21 days is closed ungraded; graded rows say their horizon (#405 finding 4)', () => {
+  const rows = [
+    { as_of: new Date(NOW - 15 * DAY).toISOString(), league: '4', player: '1', buy_from: '2', sell_to: '3', direction: 'up', value_at: 100 },
+    { as_of: new Date(NOW - 30 * DAY).toISOString(), league: '4', player: '2', buy_from: '2', sell_to: '3', direction: 'up', value_at: 100 },
+  ];
+  const g = W.gradeLedger(rows, { valueNow: () => 150, now: NOW });
+  const on = g.graded.find(r => r.player === '1');
+  const late = g.graded.find(r => r.player === '2');
+  assert.equal(on.graded_after_days, 15);
+  assert.equal(on.hit, true);
+  assert.equal(late.hit, null);
+  assert.match(late.skipped, /21-day horizon/);
+  assert.equal(W.gradeLedger([...rows, ...g.graded], { valueNow: () => 150, now: NOW }).graded.length, 0, 'closed once');
+});

@@ -27,6 +27,8 @@ export const TREND_MIN_PCT = 0.10;
 export const TREND_MIN_DAYS = 7;
 export const NEWS_WINDOW_H = 48;
 export const GRADE_AFTER_DAYS = 14;
+/** #405 finding 4: a row first reached later than this is not a 14-day grade; it is closed ungraded. */
+export const GRADE_MAX_DAYS = 21;
 export const GRADE_MIN_ROWS = 20;
 const DAY = 24 * 3600e3;
 const WEEK = 7 * DAY;
@@ -123,18 +125,48 @@ export function applyWhyNow(entry, adapter, { as_of, flag = 'on' } = {}) {
       news: adapter.newsOf?.(r.player, now) ?? [], newsAlive, now });
     r.why_now = w;
     counts[w.status]++;
-    ledger.push({ type: 'serve', as_of, league: String(entry.league), player: r.player, buy_from: r.buy_from, sell_to: r.sell_to,
+    const row = { type: 'serve', as_of, league: String(entry.league), player: r.player, buy_from: r.buy_from, sell_to: r.sell_to,
       status: w.status, kind: w.kind, direction: w.direction, value_at: fin(trend?.value) ? trend.value : null,
       format_key: adapter.fcFormatKey ?? null,
-      grade_after: new Date(now + GRADE_AFTER_DAYS * DAY).toISOString() });
+      grade_after: new Date(now + GRADE_AFTER_DAYS * DAY).toISOString() };
+    ledger.push({ ...row, key: serveKeyOf(row) });
   }
   if (entry._run) entry._run.inputs = { ...entry._run.inputs,
     why_now: { flag, radar, history_days: historyDays, news: newsAlive ? 'alive' : 'dead', rows: rows.length, ...counts } };
   return ledger;
 }
 
-const keyOf = r => `${r.as_of}|${r.league}|${r.player}|${r.buy_from}|${r.sell_to}`;
+/** ISO week of a timestamp, 'YYYY-Www' (UTC). */
+export function isoWeek(iso) {
+  const d = new Date(Date.parse(iso));
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y = t.getUTCFullYear();
+  const w = Math.ceil(((t - Date.UTC(y, 0, 1)) / DAY + 1) / 7);
+  return `${y}-W${String(w).padStart(2, '0')}`;
+}
+/**
+ * #405 finding 3: one serve row per flip per ISO week. The producer runs many times a day; keying
+ * on as_of made N identical serve rows (and N grades), so GRADE_MIN_ROWS was met by a few flips
+ * repeated and the base rate was weighted by run frequency. Old rows (no `key`) keep their key.
+ */
+export const serveKeyOf = r => `${isoWeek(r.as_of)}|${r.league}|${r.player}|${r.buy_from}|${r.sell_to}|${r.direction ?? 'none'}`;
+const keyOf = r => r.key ?? `${r.as_of}|${r.league}|${r.player}|${r.buy_from}|${r.sell_to}`;
 const weekOf = iso => Math.floor(Date.parse(iso) / WEEK);
+
+/** Serve rows whose (ISO week, league, player, buy_from, sell_to, direction) is not in `rows` yet (nor earlier in `served`). */
+export function newServeRows(rows, served) {
+  const seen = new Set(rows.filter(r => r.type !== 'grade').map(keyOf));
+  const out = [];
+  for (const r of served) {
+    const k = keyOf(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  return out;
+}
 const moveOf = (at, then) => (then > at ? 'up' : then < at ? 'down' : 'flat');
 
 /**
@@ -145,8 +177,15 @@ const moveOf = (at, then) => (then > at ? 'up' : then < at ? 'down' : 'flat');
  */
 export function gradeLedger(rows, { valueNow, now = Date.now() } = {}) {
   const done = new Set(rows.filter(r => r.type === 'grade').map(r => r.key));
-  const due = rows.filter(r => r.type !== 'grade' && !done.has(keyOf(r)) && fin(r.value_at)
-    && now - Date.parse(r.as_of) >= GRADE_AFTER_DAYS * DAY && fin(valueNow(r.player, r)));
+  const age = r => (now - Date.parse(r.as_of)) / DAY;
+  const open = rows.filter(r => r.type !== 'grade' && !done.has(keyOf(r)) && fin(r.value_at) && age(r) >= GRADE_AFTER_DAYS);
+  // Past GRADE_MAX_DAYS the horizon is no longer ~14 days (the producer did not run for a while):
+  // the row is closed with hit null, so it never counts toward the gate.
+  const late = open.filter(r => age(r) > GRADE_MAX_DAYS).map(r => ({ type: 'grade', key: keyOf(r), as_of: r.as_of,
+    graded_at: new Date(now).toISOString(), graded_after_days: +age(r).toFixed(2), week: weekOf(r.as_of), league: r.league,
+    player: r.player, direction: r.direction ?? null, move: null, hit: null, base: null,
+    skipped: `first reached at ${age(r).toFixed(1)} days, past the ${GRADE_MAX_DAYS}-day horizon` }));
+  const due = open.filter(r => age(r) <= GRADE_MAX_DAYS && fin(valueNow(r.player, r)));
   const moved = due.map(r => ({ r, move: moveOf(r.value_at, valueNow(r.player, r)) }));
   const byWeek = new Map();
   for (const m of moved) {
@@ -157,11 +196,12 @@ export function gradeLedger(rows, { valueNow, now = Date.now() } = {}) {
   const graded = moved.map(({ r, move }) => {
     const peers = byWeek.get(weekOf(r.as_of));
     const base = r.direction ? peers.filter(x => x === r.direction).length / peers.length : null;
-    return { type: 'grade', key: keyOf(r), as_of: r.as_of, graded_at: new Date(now).toISOString(), week: weekOf(r.as_of),
+    return { type: 'grade', key: keyOf(r), as_of: r.as_of, graded_at: new Date(now).toISOString(),
+      graded_after_days: +age(r).toFixed(2), week: weekOf(r.as_of),
       league: r.league, player: r.player, direction: r.direction ?? null, move,
       hit: r.direction ? move === r.direction : null, base };
   });
-  return { graded, summary: gateSummary([...rows.filter(r => r.type === 'grade'), ...graded]) };
+  return { graded: [...graded, ...late], summary: gateSummary([...rows.filter(r => r.type === 'grade'), ...graded]) };
 }
 
 /** Deterministic PRNG for the bootstrap (mulberry32). */

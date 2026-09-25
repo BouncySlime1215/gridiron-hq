@@ -133,7 +133,7 @@ export function flipReach(myValues) {
  * the one that adds most to Nick. Returns the ids or null per leg.
  */
 export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SEARCH_DEFAULTS.pairLimit,
-  maxOverpay = DEFAULT_MAX_OVERPAY }) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, getOk = null }) {
   const pv = val(player);
   const band = fairBand(pv);
   const items = myIds.filter(id => id !== player).map(id => ({ id, value: val(id) }));
@@ -144,9 +144,12 @@ export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SE
   const gives = fairGives.filter(ids => !nickOverpays(worth(ids), pv, maxOverpay));
   const legX = gives.sort((x, y) => sum(y, lossN) - sum(x, lossN) || x.length - y.length)[0] ?? null;
   const fairGets = combos(bIds.filter(id => id !== player), 2).filter(ids => screenFair(pv, worth(ids)));
-  const gets = fairGets.filter(ids => !nickOverpays(pv, worth(ids), maxOverpay));
+  const uncapped = fairGets.filter(ids => !nickOverpays(pv, worth(ids), maxOverpay));
+  // GETS-FLOOR: leg 2 is what Nick ends up holding, so every player in it must pass the get floor.
+  const gets = getOk ? uncapped.filter(ids => ids.every(getOk)) : uncapped;
   const legY = gets.sort((x, y) => sum(y, addN) - sum(x, addN) || x.length - y.length)[0] ?? null;
-  return { legX, legY, capped: { a: !legX && fairGives.length > 0, b: !legY && fairGets.length > 0 } };
+  return { legX, legY, capped: { a: !legX && fairGives.length > 0, b: !legY && fairGets.length > 0 && !uncapped.length },
+    floored: { b: !legY && uncapped.length > 0 } };
 }
 
 /**
@@ -159,7 +162,7 @@ export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SE
  * adapter.untouchable and each manager's nick.untouchable); a leg may be 2-for-1 (flipLegs); a flip
  * that still does not realise says which leg is missing (why, why_code).
  */
-export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY } = {}) {
+export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY, getOk = null } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
@@ -196,8 +199,12 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     let gx, gy;
     if (legsOn) {
       const legs = flipLegs({ player: f.player, myIds, bIds: adapter.rosters.get(f.b).filter(flipOk), val,
-        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay });
+        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay, getOk });
       gx = legs.legX; gy = legs.legY;
+      if (gx && !gy && legs.floored.b) {
+        realised.push({ ...f, legs: null, why: `every fair package from Team ${f.b} for him is under your get floor`, why_code: 'no_leg_floor' });
+        continue;
+      }
       if (!gx || !gy) {
         // NO-OVERPAY: a leg that only the cap removed says so (every fair package gives more than it gets).
         const cappedOnly = (!gx ? legs.capped.a : true) && (!gy ? legs.capped.b : true);
@@ -212,8 +219,8 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     } else {
       const legX = myIds.filter(x => screenFair(val(x), pv) && !nickOverpays(val(x), pv, maxOverpay))
         .sort((x, y) => (vals.lossN.get(y) ?? 0) - (vals.lossN.get(x) ?? 0))[0];
-      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)) && !nickOverpays(pv, val(y), maxOverpay))
-        .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
+      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)) && !nickOverpays(pv, val(y), maxOverpay)
+        && (!getOk || getOk(y))).sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
       if (legX == null || legY == null) { realised.push({ ...f, legs: null, why: 'no fair one-player leg on both screens' }); continue; }
       gx = [legX]; gy = [legY];
     }
@@ -280,7 +287,7 @@ export function twoForOneSummary(stats) {
  * path: that manager is never a step (FIX-02c nick block).
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
-  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null } = {}) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null, getOk = null } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const o = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) };
@@ -336,7 +343,8 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     }
     if (onlyGet != null && o.fillers > 0) {
       // 1-for-2: the target plus a filler from his owner, for one of Nick's (ACQ-01).
-      const fillers = S.rosterOf(state, team).filter(id => id !== onlyGet && vals.tradable(id))
+      // GETS-FLOOR: a filler rides the final leg, so it is a final get too and must pass the floor.
+      const fillers = S.rosterOf(state, team).filter(id => id !== onlyGet && vals.tradable(id) && (!getOk || getOk(id)))
         .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0)).slice(0, o.fillers);
       for (const f of fillers) {
         for (const give of onesInBand(items, fairBand(val(onlyGet) + val(f)))) push({ team, give, get: [onlyGet, f] });

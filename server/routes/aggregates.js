@@ -5,6 +5,7 @@ import { deriveFormat } from '../services/format.js';
 import { recordSync } from '../services/scheduler.js';
 import { normalizePlayerName } from '../services/player-identity.js';
 import { activeInjuryFlagIds } from '../services/injury-flags.js';
+import { fcStamp, recordFcCapture } from '../services/fc-value.js';
 
 const r = Router();
 
@@ -97,6 +98,8 @@ export async function syncSleeper() {
   } catch (e) { recordSync('sleeper_players', 'error', e.message); throw e; }
 }
 
+const historyReady = () => !!row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'fc_value_history'`);
+
 // FantasyCalc — market trade values from real trades (via akodsi/fantasy-advisor).
 // We use redraft values + the 30-day trend as a buy/sell signal.
 export async function syncFantasyCalc() {
@@ -114,10 +117,16 @@ export async function syncFantasyCalc() {
     const bySleeper = new Map(rows('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL').map(p => [p.sleeper_id, p.id]));
     const lookup = playerLookup();
     let matched = 0;
-    const upsert = (id, source, value) =>
-      run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,?,?,datetime('now'))
+    // E-DATA (c): one stamp for the whole capture, on the latest row AND the history row, so
+    // fc-value.js#fcValuesAsOf(fetched_at) reads back exactly what player_metrics holds.
+    const capturedAt = fcStamp(new Date());
+    const captured = [];
+    const upsert = (id, source, value) => {
+      run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,?,?,?)
            ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
-        id, source, value);
+        id, source, value, capturedAt);
+      captured.push([id, source, value]);
+    };
     for (const entry of data) {
       const p = entry.player ?? {};
       if (p.position === 'PICK') continue;
@@ -129,7 +138,8 @@ export async function syncFantasyCalc() {
       if (entry.maybeAdp != null) upsert(id, 'fc_adp', entry.maybeAdp);
       matched++;
     }
-    const result = { fetched: data.length, matched };
+    const history = historyReady() ? recordFcCapture({ run }, capturedAt, captured) : null;
+    const result = { fetched: data.length, matched, history_rows: history ?? 'fc_value_history absent (migration 106)' };
     recordSync('fantasycalc_values', 'ok', result);
     return result;
   } catch (e) { recordSync('fantasycalc_values', 'error', e.message); throw e; }

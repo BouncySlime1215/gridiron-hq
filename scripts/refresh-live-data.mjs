@@ -143,6 +143,7 @@ const { rows, dbPath } = await import('../server/db/index.js');
 const { acquireLock, defaultLockPath, LockHeldError } = await import('../server/services/process-lock.js');
 const { openChatDb, chatDataKey } = await import('../server/services/manager-signals.js');
 const { pulseEnabled } = await import('../server/services/people/pulse.js');
+const { offerWatchOn } = await import('../server/services/offer-capture.js');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stamp = () => new Date().toISOString().slice(11, 19);
@@ -162,6 +163,18 @@ export function transactionsCapture({ spawn = spawnSync, log = console.log } = {
   const leaguesFailed = Number(/failed (\d+)/.exec(last)?.[1] ?? 0);
   const ok = r.status === 0 && leaguesFailed === 0;
   log(`${stamp()} ${'league_tx'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
+}
+
+// E-DATA (a): the fast offer poller, a child process for the life of the loop, only with its own
+// flag GRIDIRON_OFFER_WATCH=1 (never preview mode). A tick blocks on spawnSync for many minutes,
+// so the poller cannot live inside it. Returns the child, or null when the flag is off.
+export function startOfferWatch({ env = process.env, spawn: launch = spawn, log = console.log } = {}) {
+  if (!offerWatchOn(env)) return null;
+  const child = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/watch-trade-offers.mjs'],
+    { cwd: ROOT, env, stdio: ['ignore', 'inherit', 'inherit'] });
+  child.on?.('exit', (code, signal) => log(`${stamp()} ${'offer_watch'.padEnd(18)} EXITED ${signal ?? `code ${code}`}`));
+  log(`${stamp()} ${'offer_watch'.padEnd(18)} started (pid ${child.pid ?? '?'})`);
+  return child;
 }
 
 // Every team's roster and lineup slots for the current scoring period, plus a one-time
@@ -510,6 +523,7 @@ async function refresh(args) {
     await tick({ force, managerSignals, numberAudit });
     return;
   }
+  const offerWatch = startOfferWatch();
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
     + ', then league_tx, roster_snapshots, league_chat, people_pulse, manager_signals, number_audit, brain_report'
     + (warRoomFlag().enabled ? `, warroom_plans${warRoomFlag().preview ? ' (preview)' : ''}` : ''));
@@ -518,6 +532,7 @@ async function refresh(args) {
     const until = Date.now() + loopSeconds * 1000;
     while (!stopping && Date.now() < until) await new Promise(r => setTimeout(r, 1000));
   }
+  offerWatch?.kill('SIGTERM');
   console.log(`${stamp()} stopped`);
 }
 

@@ -19,6 +19,11 @@
  * POOLING. All leagues' offers are one pool. A league's own weights (its offers only, same prior)
  * are shrunk to the pool's: w = lambda * league + (1 - lambda) * pool, lambda = n / (n + 20).
  *
+ * FORWARD (E-DATA, flag GRIDIRON_PYES_FORWARD=1, off by default). The weights above are earned
+ * on each offer's REPLAYED predictions. offer-capture.js records every model's p at the moment an
+ * offer is first seen live (offer_first_sight); forwardGraded grades those instead, so the weights
+ * are earned only on predictions made before the answer existed. Off, nothing here changes.
+ *
  * PROBES (shadow). probeEIG = the expected information a yes/no from this offer would give about
  * which model is right (mutual information between the answer and the model, in nats). Used only
  * as a tie-breaker between plans that already pass every rule, and only with GRIDIRON_PYES_PROBES=1.
@@ -29,6 +34,7 @@ import { confidenceSequence } from './eval/sequential.js';
 
 export const BLEND_ENV = 'GRIDIRON_PYES_BLEND';
 export const PROBES_ENV = 'GRIDIRON_PYES_PROBES';
+export const FORWARD_ENV = 'GRIDIRON_PYES_FORWARD';
 export const BLEND_BASIS = 'pyes_blend';
 export const BLEND_LABEL = 'blend of activity baseline and clone, weights earned on graded offers (E1 pending)';
 export const MODELS = Object.freeze(['baseline', 'clone']);
@@ -71,6 +77,38 @@ export function gradedOffers(offers, { now = Date.now() } = {}) {
     .map(({ o, i }) => ({ league_id: String(o.league_id), proposed_at: o.proposed_at, y: o.y, p: { baseline: base[i], clone: o.p } }));
 }
 
+/** Forward weights are its own flag: on only when the env says exactly '1' (never preview mode). */
+export function forwardOn(env = process.env) {
+  return env[FORWARD_ENV] === '1';
+}
+
+/**
+ * gradedOffers' shape from first-sight predictions (offer_first_sight rows) instead of replays:
+ * only offers seen while PENDING (the answer did not exist when the p's were recorded), with
+ * both p's on file, whose answers were known before `now`, in the order they became known.
+ */
+export function forwardGraded(offers, firstSight, { now = Date.now() } = {}) {
+  const k = (l, s, tx) => `${l}:${s}:${tx}`;
+  const seen = new Map((firstSight ?? [])
+    .filter(f => f.seen_state === 'pending' && f.p_baseline != null && f.p_clone != null)
+    .map(f => [k(f.league_id, f.season, f.proposal_tx_id), f]));
+  const cut = typeof now === 'number' ? now : Date.parse(now);
+  return offers.map((o, i) => ({ o, i, f: seen.get(k(o.league_id, o.season, o.espn_tx_id)), at: resolvedTime(o) }))
+    .filter(x => x.f && Number.isFinite(x.at) && x.at < cut)
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map(({ o, f }) => ({ league_id: String(o.league_id), proposed_at: o.proposed_at, y: o.y,
+      p: { baseline: Number(f.p_baseline), clone: Number(f.p_clone) } }));
+}
+
+const FIRST_SIGHT_COLS = ['league_id', 'season', 'proposal_tx_id', 'seen_state', 'p_baseline', 'p_clone'];
+
+/** offer_first_sight rows for forwardGraded; [] with a reason when the table is not built (106). */
+export function loadFirstSight(database) {
+  const has = database.prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'offer_first_sight'`).get();
+  if (!has) return { rows: [], reason: 'offer_first_sight is not on this database (migration 106)' };
+  return { rows: database.prepare(`SELECT ${FIRST_SIGHT_COLS.join(', ')} FROM offer_first_sight`).all(), reason: null };
+}
+
 /** Weights after grading `graded` in order from `prior`, and each model's record vs the baseline. */
 export function hedge(graded, prior = PRIOR) {
   let w = clampWeights(prior);
@@ -97,14 +135,15 @@ export function hedge(graded, prior = PRIOR) {
  * The served blend state for one league as of `now`: pooled weights, the league's own, and the
  * shrunk weights that are served. `offers`: e1-league.js#mergeOffers shape (every league).
  */
-export function blendState(offers, leagueId, { now = Date.now(), prior = PRIOR } = {}) {
-  const graded = gradedOffers(offers, { now });
+export function blendState(offers, leagueId, { now = Date.now(), prior = PRIOR, graded: given = null } = {}) {
+  // E-DATA: `graded` from forwardGraded grades first-sight predictions; absent, the replays.
+  const graded = given ?? gradedOffers(offers, { now });
   const pool = hedge(graded, prior);
   const own = hedge(graded.filter(g => g.league_id === String(leagueId)), prior);
   const lambda = own.n / (own.n + SHRINK_K);
   const weights = clampWeights(Object.fromEntries(MODELS.map(m => [m, lambda * own.weights[m] + (1 - lambda) * pool.weights[m]])));
   return { weights, prior: { ...prior }, pooled: pool, league: own, lambda, shrink_k: SHRINK_K, clamp: [...W_CLAMP],
-    as_of: new Date(now).toISOString() };
+    as_of: new Date(now).toISOString(), ...(given ? { forward: true } : {}) };
 }
 
 /** The blended probability: sum of weight x model p. */
@@ -139,7 +178,8 @@ export function basisSummary(state) {
       ...(m === 'baseline' ? {} : { wins: r.wins, losses: r.losses }) };
   });
   return { models, n_graded: state.pooled.n, league_n: state.league.n, lambda: r4(state.lambda),
-    shrink_k: state.shrink_k, clamp: state.clamp, as_of: state.as_of, activity: ACTIVITY_ABSENT };
+    shrink_k: state.shrink_k, clamp: state.clamp, as_of: state.as_of, activity: ACTIVITY_ABSENT,
+    ...(state.forward ? { forward: true } : {}) };
 }
 
 /**

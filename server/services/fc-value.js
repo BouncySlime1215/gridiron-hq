@@ -69,3 +69,73 @@ export function fcFormatValues(db, formatKey) {
     return { ...base, status: 'error', reason: `FantasyCalc format read failed: ${e?.message ?? String(e)}` };
   }
 }
+
+/**
+ * E-DATA (c): the FantasyCalc value HISTORY. `player_metrics` keeps only the latest capture, so
+ * every capture syncFantasyCalc makes is also appended to `fc_value_history` (migration 106): one
+ * row per player, source and capture instant, first write wins. `dynasty_value_history` (073) is
+ * the per-format, one-row-per-day record; this one is the league-agnostic value Nick's rules read,
+ * at every capture.
+ */
+export const FC_HISTORY_SOURCES = Object.freeze(['fc_value', 'fc_trend30', 'fc_adp']);
+
+/** SQLite 'YYYY-MM-DD HH:MM:SS' UTC (what datetime('now') and player_metrics.fetched_at hold). */
+export function fcStamp(at = new Date()) {
+  const d = at instanceof Date ? at : new Date(/[TZ]/.test(String(at)) ? at : `${String(at).replace(' ', 'T')}Z`);
+  if (Number.isNaN(d.getTime())) throw new Error(`fc-value: not a time: ${at}`);
+  return d.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/**
+ * Append one capture. db: an object with run(sql, ...params). values: [[player_id, source, value]].
+ * Returns the number of rows written (a repeat of the same instant writes none).
+ */
+export function recordFcCapture(db, capturedAt, values) {
+  const at = fcStamp(capturedAt);
+  let n = 0;
+  for (const [id, source, value] of values) {
+    if (!FC_HISTORY_SOURCES.includes(source)) throw new Error(`fc-value: unknown FantasyCalc source ${source}`);
+    const v = Number(value);
+    if (value == null || !Number.isFinite(v)) continue;
+    n += Number(db.run(`INSERT INTO fc_value_history (player_id, source, value, captured_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(player_id, source, captured_at) DO NOTHING`, id, source, v, at).changes ?? 0);
+  }
+  return n;
+}
+
+const historyAbsent = db =>
+  !db.rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'fc_value_history'`).length;
+
+/**
+ * fcValues' shape, as of an instant: each player's latest captured value at or before `at`.
+ * Same fail-closed rules: no capture by then, no value. `captured_at` is the newest capture used.
+ */
+export function fcValuesAsOf(db, at, { source = FC_VALUE_SOURCE } = {}) {
+  const asOf = fcStamp(at);
+  const base = { source: `${FC_VALUE_LABEL}, history as of ${asOf}`, as_of: asOf, captured_at: null, byId: new Map() };
+  try {
+    if (historyAbsent(db)) return { ...base, status: 'table_absent', reason: 'fc_value_history is not on this database (migration 106)' };
+    const rows = db.rows(`SELECT h.player_id, h.value, h.captured_at FROM fc_value_history h
+      WHERE h.source = ? AND h.captured_at = (SELECT MAX(captured_at) FROM fc_value_history
+        WHERE player_id = h.player_id AND source = h.source AND captured_at <= ?)`, source, asOf);
+    const byId = new Map();
+    let newest = null;
+    for (const r of rows) {
+      const v = Number(r.value);
+      if (!Number.isFinite(v) || (source === FC_VALUE_SOURCE && v < 0)) continue;
+      byId.set(String(r.player_id), v);
+      if (!newest || r.captured_at > newest) newest = r.captured_at;
+    }
+    if (!byId.size) return { ...base, status: 'empty', reason: `no FantasyCalc capture on file at or before ${asOf}` };
+    return { ...base, status: 'ok', captured_at: newest, byId };
+  } catch (e) {
+    return { ...base, status: 'error', reason: `FantasyCalc history read failed: ${e?.message ?? String(e)}` };
+  }
+}
+
+/** Every capture of one player's value (or trend / ADP), oldest first. [] when the table is absent. */
+export function fcValueHistory(db, playerId, { source = FC_VALUE_SOURCE, limit = 2000 } = {}) {
+  if (historyAbsent(db)) return [];
+  return db.rows(`SELECT captured_at, value FROM fc_value_history WHERE player_id = ? AND source = ?
+    ORDER BY captured_at LIMIT ?`, Number(playerId), source, Math.max(1, Math.min(Number(limit) || 2000, 20000)));
+}

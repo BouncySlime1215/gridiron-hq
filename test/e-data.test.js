@@ -132,13 +132,13 @@ test('E-DATA a2: an answer whose raw proposal row is gone still pairs through th
 test('E-DATA a3: the orphan report counts an answer with no proposal and no snapshot', () => {
   clear();
   raw({ tx_id: 'x1a', type: 'TRADE_ACCEPT', team_id: 2, related_tx_id: 'x1', proposed_at: '2025-10-03T10:00:00.000Z',
-    first_seen_at: '2025-10-03T10:05:00.000Z' });
+    items_json: '[]', first_seen_at: '2025-10-03T10:05:00.000Z' });
   raw({ tx_id: 'x0', team_id: 1, proposed_at: '2025-10-03T08:00:00.000Z', first_seen_at: '2025-10-03T08:01:00.000Z' });
   raw({ tx_id: 'x0d', type: 'TRADE_DECLINE', team_id: 2, related_tx_id: 'x0', proposed_at: '2025-10-03T09:00:00.000Z',
     first_seen_at: '2025-10-03T09:01:00.000Z' });
   // An answer collected before `since` does not count toward the watcher's bar.
   raw({ tx_id: 'old1a', type: 'TRADE_ACCEPT', team_id: 2, related_tx_id: 'old1', proposed_at: '2025-09-20T10:00:00.000Z',
-    first_seen_at: '2025-09-20T10:05:00.000Z' });
+    items_json: '[]', first_seen_at: '2025-09-20T10:05:00.000Z' });
   const rep = CAP.offerCaptureReport(db, { since: '2025-10-01T00:00:00.000Z' });
   assert.equal(rep.pooled.decided, 1);
   assert.equal(rep.pooled.orphans, 1);
@@ -397,4 +397,19 @@ test('E-DATA c2: syncFantasyCalc writes player_metrics and the history from one 
   assert.equal(latest.captured_at, served.fetched_at);
   // fcValues (Nick's rules) reads player_metrics exactly as before.
   assert.equal(FC.fcValueOf(FC.fcValues({ rows }), 90003), 4100);
+});
+
+test('E-DATA a10: one watcher pass runs the collector and reports its offers line, never a cookie', async () => {
+  const W = await import('../scripts/watch-trade-offers.mjs');
+  const logs = [];
+  const spawn = (cmd, args) => {
+    assert.ok(args.includes('scripts/collect-league-transactions.mjs'));
+    return { status: 0, stdout: 'league 9 X: 3 in window, 1 new, 40 stored\nleague 9: offers 1 captured / 2 seen; 0 backfilled; first sight 1 recorded\nespn_s2=secret\ntransactions: seen 3, new 1, failed 0\n', stderr: '' };
+  };
+  const r = W.watchOnce({ spawn, log: l => logs.push(l) });
+  assert.equal(r.ok, true);
+  assert.match(logs[0], /offer_watch\s+ok transactions: seen 3, new 1, failed 0 \| offers 1 captured \/ 2 seen/);
+  assert.doesNotMatch(logs.join('\n'), /secret/);
+  const bad = W.watchOnce({ spawn: () => ({ status: 0, stdout: 'transactions: seen 0, new 0, failed 2\n', stderr: '' }), log: l => logs.push(l) });
+  assert.equal(bad.ok, false);
 });

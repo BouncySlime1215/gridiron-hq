@@ -18,6 +18,7 @@ process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
 const { BROWSER_HEADERS } = await import('../server/services/espn-draft.js');
 const { settleOfferLoop } = await import('../server/services/trade-outcomes.js');
+const { captureOffers, backfillSnapshots, recordFirstSight } = await import('../server/services/offer-capture.js');
 
 db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
@@ -49,6 +50,7 @@ for (const lg of leagues) {
     const j = await r.json();
     const all = [...(j.transactions ?? []), ...(j.pendingTransactions ?? [])];
     const before = rows(`SELECT COUNT(*) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?`, lg.id, lg.season)[0].n;
+    let snap;
     // node:sqlite has no .transaction(); BEGIN/COMMIT by hand.
     db.exec('BEGIN');
     try {
@@ -62,11 +64,27 @@ for (const lg of leagues) {
           items_json: JSON.stringify(t.items ?? []), raw_json: JSON.stringify(t), first_seen_at: now, last_seen_at: now,
         });
       }
+      // E-DATA (a): the offer terms from this response, first write wins, before a later
+      // sighting can overwrite items_json above (migration 106).
+      snap = captureOffers(db, { leagueId: lg.id, season: lg.season, transactions: all, now });
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
     const after = rows(`SELECT COUNT(*) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?`, lg.id, lg.season)[0].n;
     totalNew += after - before; totalSeen += all.length;
     console.log(`league ${lg.id} ${String(lg.name).trim()}: ${all.length} in window, ${after - before} new, ${after} stored`);
+    // E-DATA (a, b): raw proposals from before 106 get their snapshot; each offer first seen live
+    // in this pass gets every model's P(yes) as of now. Its own failure is its own line.
+    try {
+      const back = backfillSnapshots(db, { leagueId: lg.id, season: lg.season, now });
+      const first = recordFirstSight(db, { leagueId: lg.id, season: lg.season, snapshots: snap.new_live, now });
+      console.log(snap.state === 'ok'
+        ? `league ${lg.id}: offers ${snap.captured} captured / ${snap.seen} seen${snap.no_items ? ` (${snap.no_items} without items)` : ''}; `
+          + `${back.backfilled} backfilled${back.bad_json ? ` (${back.bad_json} unreadable)` : ''}; first sight ${first.recorded} recorded`
+          + `${Object.keys(first.reasons ?? {}).length ? ` (${Object.entries(first.reasons).map(([k, n]) => `${k} ${n}`).join(', ')})` : ''}`
+        : `league ${lg.id}: offer capture OFF: ${snap.reason}`);
+    } catch (e) {
+      failed++; console.log(`league ${lg.id}: offer capture ERROR ${String(e?.message ?? e).slice(0, 160)}`);
+    }
     // Post-sync (CLONE-01b b1): grade every offer Nick logged as sent against the
     // rows just collected. Read-only toward ESPN; writes trade_outcomes only.
     try {

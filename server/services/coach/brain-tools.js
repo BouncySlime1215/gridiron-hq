@@ -34,6 +34,7 @@
  * turns it on through preview-mode.js; GRIDIRON_COACH_BRAIN_TOOLS=0 vetoes
  * preview). With the flag off Coach is offered exactly the tools it had.
  */
+import { FP_KEY } from '../fantasypros-guard.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { previewUnconfirmed } from '../preview-mode.js';
@@ -175,7 +176,8 @@ function flattenInto(out, node, prefix, names, isPid, state) {
   }
   const typed = isTypedField(node);
   for (const [key, child] of Object.entries(node)) {
-    if (SKIP_KEYS.has(key) || (typed && INNER_FIELD_SKIP.has(key))) continue;
+    // FP-GUARD: FantasyPros ranks and the board's `fp` sync block never reach Coach's ledger (it goes to the client).
+    if (SKIP_KEYS.has(key) || (typed && INNER_FIELD_SKIP.has(key)) || FP_KEY.test(key) || key === 'fp') continue;
     const safe = key.replace(/[^A-Za-z0-9_]/g, '_');
     flattenInto(out, child, prefix ? `${prefix}_${safe}` : safe, names, PID_KEYS.has(key), state);
   }

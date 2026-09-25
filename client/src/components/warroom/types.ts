@@ -206,10 +206,7 @@ export interface BlueChipRow {
     prod_pct: number; games: number; team_games: number; missed: number };
   model_value: Num;
   model_rank?: number;
-  fp_ros_rank: Num;
-  fp_pos_rank?: number;
-  fp_rank?: number;
-  fp_prev_rank?: number;
+  // FP-GUARD: FantasyPros ranks stay on the server (server/services/fantasypros-guard.js); never in this payload.
   title_add?: Num;
   gaps: ScoreGap[];
   protected: boolean;
@@ -218,8 +215,7 @@ export interface BlueChipBoardData {
   weights: { pick: number; production: number; basis: string };
   labels: ScoreLabel[];
   rows: BlueChipRow[];
-  coverage: { rostered: number; board: number; score: number; model_value: number; fp_ros_rank: number };
-  fp: { status: FieldStatus; sync: string; reason?: string; scrape_date?: string; prev_date?: string };
+  coverage: { rostered: number; board: number; score: number; model_value: number };
   draft: { season: number; picks: number; reason?: string };
 }
 

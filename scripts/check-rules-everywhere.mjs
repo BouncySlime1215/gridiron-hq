@@ -18,6 +18,9 @@
  *   Nick never gives more fc_value than he gets (the +12% depth-only 2-for-1 exception needs lineup
  *   points and title odds, which no surface here carries, so it never applies)
  *
+ * FantasyPros exposure (Nick's rule: never displayed or committed): the War Room view and Coach's
+ * plan_read of the blue-chip board, as served, must carry no key matching /^fp_|fantasypros/i.
+ *
  * Prints one PASS/FAIL line per surface (ids and counts only) and a total. Exit 1 on any violation.
  */
 import fs from 'node:fs';
@@ -177,11 +180,58 @@ surface('coach draft message', () => {
   return { packages: out.action ? [{ give: ['80'], get: [] }] : [], dropped: out.dropped_by_rule };
 });
 
+/* ------------------------------------------------------------ FantasyPros exposure */
+// Nick's rule: FantasyPros is never displayed or committed, so no client payload carries its fields.
+// Each client-facing view is built as the route serves it (through the /api guard when it exists) and
+// scanned for keys matching /^fp_|fantasypros/i (Coach's flattened columns: /(^|_)fp(_|$)/).
+let guard = null;
+try { guard = await import('../server/services/fantasypros-guard.js'); } catch (e) { if (e?.code !== 'ERR_MODULE_NOT_FOUND') throw e; }
+const asServed = body => (guard ? guard.stripFantasyPros(body) : body);
+const FP = /^fp_|fantasypros/i;
+function fpKeys(value, at = '', out = new Map()) {
+  if (Array.isArray(value)) value.forEach(v => fpKeys(v, `${at}[]`, out));
+  else if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (FP.test(k) || k === 'fp') out.set(`${at}.${k}`, (out.get(`${at}.${k}`) ?? 0) + 1);
+      fpKeys(v, `${at}.${k}`, out);
+    }
+  }
+  return out;
+}
+async function fpSurface(name, fn) {
+  try {
+    const out = await fn();
+    if (out?.skip) { results.push({ name, skip: out.skip }); return; }
+    results.push({ name, fp: out });
+  } catch (e) { results.push({ name, error: String(e?.message ?? e).slice(0, 160) }); }
+}
+await fpSurface('fantasypros: war-room view', async () => {
+  process.env.GRIDIRON_WARROOM_ENABLED = '1';
+  const { warRoomView } = await import('../server/services/war-room-view.js');
+  const view = await warRoomView(LEAGUE);
+  if (!view?.enabled) return { skip: 'not run: War Room view is off' };
+  return fpKeys(asServed(view));
+});
+await fpSurface('fantasypros: coach plan_read blue_chips', async () => {
+  const { planRead } = await import('../server/services/coach/brain-tools.js');
+  const cols = new Map();
+  for (const r of planRead({ league_id: LEAGUE, section: 'blue_chips' })) {
+    for (const k of Object.keys(r)) if (/(^|_)fp(_|$)|fantasypros/i.test(k)) cols.set(k.replace(/_\d+_/g, '_N_'), (cols.get(k.replace(/_\d+_/g, '_N_')) ?? 0) + 1);
+  }
+  return cols;
+});
+
 /* ------------------------------------------------------------ report */
 let fail = 0;
 for (const r of results) {
   if (r.skip) { console.log(`SKIP ${r.name}: ${r.skip}`); continue; }
   if (r.error) { fail++; console.log(`FAIL ${r.name}: error ${r.error}`); continue; }
+  if (r.fp) {
+    const n = [...r.fp.values()].reduce((a, b) => a + b, 0);
+    if (n) { fail++; console.log(`FAIL ${r.name}: ${n} FantasyPros keys reach the client (${[...r.fp.keys()].slice(0, 4).join(', ')})`); }
+    else console.log(`PASS ${r.name}: 0 FantasyPros keys`);
+    continue;
+  }
   const d = r.dropped == null ? 'no dropped_by_rule' : `dropped_by_rule ${r.dropped}`;
   if (r.bad.length) {
     fail++;

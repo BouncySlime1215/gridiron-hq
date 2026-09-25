@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// U8 WANTS-MENU grade (batch D item 3). Read-only. Pre-registered bar in server/services/campaign/wants-grade.js.
+// U8 WANTS-MENU grade (batch D item 3). Read-only. Pre-registered bar in server/services/campaign/wants.js.
 // Usage: SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<local copy> node scripts/rnd/wants-grade.mjs --league 4 [--season 2026]
 // Prints one JSON object: per family x side (stated/revealed x wants/gives) n, hits, hit rate with its Wilson
 // 95% interval, the trailing base rate, lift and pass. Ids only: no manager or player names are printed.
@@ -8,7 +8,7 @@ import { rows, row } from '../../server/db/index.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
 import { readChatTradeInterest } from '../../server/services/people/chat-trade-interest.js';
 import { valuesTalk, nameResolver } from '../../server/services/people/counterpart.js';
-import { gradeWants, revealedSignals, statedSignals } from '../../server/services/campaign/wants-grade.js';
+import { gradeWants, revealedSignals, statedSignals } from '../../server/services/campaign/wants.js';
 import { toTime } from '../../server/services/trade-tactics.js';
 
 const arg = (name, dflt) => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : dflt; };

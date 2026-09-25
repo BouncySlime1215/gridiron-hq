@@ -1,5 +1,5 @@
 /**
- * U8 WANTS-MENU (server/services/campaign/wants.js + wants-grade.js): stated vs revealed wants, Nick's rules
+ * U8 WANTS-MENU (server/services/campaign/wants.js): stated vs revealed wants, Nick's rules
  * as filters on both menus, the shadow tie-break, the pre-registered 7-day grader, and the planner wiring
  * (flag off: byte-identical; flag on: `_run.inputs.wants` only, nothing served moves). Made-up ids only.
  */
@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const { wantsRead, wantsMenu, wantsMatch, wantsTieBreak, wantsSummary, wantsOn, WANTS_FLAG } = await import('../server/services/campaign/wants.js');
-const { gradeWants, wilson, WANTS_MIN_N } = await import('../server/services/campaign/wants-grade.js');
+const { gradeWants, wilson, WANTS_MIN_N } = await import('../server/services/campaign/wants.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
@@ -187,7 +187,7 @@ test('planner: flag off is byte-identical; flag on logs _run.inputs.wants and mo
 });
 
 test('grader inputs: revealed from screen rows, stated from dated chat mentions, ids only', async () => {
-  const { revealedSignals, statedSignals } = await import('../server/services/campaign/wants-grade.js');
+  const { revealedSignals, statedSignals } = await import('../server/services/campaign/wants.js');
   const { valuesTalk } = await import('../server/services/people/counterpart.js');
   const toMs = v => { const t = Date.parse(v ?? ''); return Number.isFinite(t) ? t : null; };
   const r = revealedSignals({ status: 'ok', rows: [{ roster_id: 7, kind: 'finalize', seen_at: '2026-09-01T00:00:00Z', confidence: 0.9,

@@ -40,9 +40,9 @@ export interface Posture {
 const STANCE: Record<string, { label: string; chip: string; bar: string }> = {
   // 'neutral' means "under the server's MATERIAL_EDGE", not "close": since the
   // 2026-09-18 recalibration that is 23 points, so a 35% underdog is 'neutral'.
-  neutral: { label: 'Neutral: play your best lineup', chip: 'bg-slate-100 text-slate-700 ring-slate-200', bar: 'bg-slate-400' },
-  'chase variance': { label: 'Underdog: chase upside', chip: 'bg-amber-50 text-amber-900 ring-amber-200', bar: 'bg-amber-400' },
-  'protect the lead': { label: 'Favourite: protect the floor', chip: 'bg-sky-50 text-sky-800 ring-sky-200', bar: 'bg-sky-500' }
+  neutral: { label: 'Neutral: play your best lineup', chip: 'ds-chip', bar: 'bg-[var(--c-subtle)]' },
+  'chase variance': { label: 'Underdog: chase upside', chip: 'ds-chip ds-chip-warn', bar: 'bg-[var(--c-amber)]' },
+  'protect the lead': { label: 'Favourite: protect the floor', chip: 'ds-chip ds-chip-accent', bar: 'bg-[var(--c-accent)]' }
 };
 
 const pts = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
@@ -52,10 +52,9 @@ export default function MatchupPosture({ data, loading, error, onRetry, opponent
   opponentName?: string | null;
 }) {
   return (
-    <section className="tr-rise rounded-2xl border border-slate-200 bg-white p-4" style={{ animationDelay: '60ms' }}
-      aria-labelledby="matchup-heading">
+    <section className="ds-card p-4" aria-labelledby="matchup-heading">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 id="matchup-heading" className="text-sm font-black uppercase tracking-wide text-slate-500">This matchup</h2>
+        <h2 id="matchup-heading" className="ds-h">This matchup</h2>
         {data && !data.error && data.opponent_roster_id && (
           <span className="min-w-0 truncate text-xs text-slate-500">
             {data.week ? `Week ${data.week} · ` : ''}vs <b className="text-slate-800">{opponentName || 'your opponent'}</b>
@@ -84,7 +83,7 @@ function Body({ data, loading, error, onRetry }: {
     return data.note ? <p className="mt-2 text-sm leading-6 text-slate-600">{data.note}</p> : null;
   }
 
-  const stance = STANCE[data.stance ?? ''] ?? { label: data.stance ?? '—', chip: 'bg-slate-100 text-slate-700 ring-slate-200', bar: 'bg-slate-400' };
+  const stance = STANCE[data.stance ?? ''] ?? { label: data.stance ?? '—', chip: 'ds-chip', bar: 'bg-[var(--c-subtle)]' };
   const neutral = data.stance === 'neutral';
   const swaps = data.swaps ?? [];
   const wp = Math.max(0, Math.min(100, data.win_probability));
@@ -94,11 +93,11 @@ function Body({ data, loading, error, onRetry }: {
     <>
       <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3">
         <div>
-          <div className="text-4xl font-black tabular-nums leading-none text-slate-950">{Math.round(wp)}%</div>
-          <div className="mt-1 text-xs text-slate-500">chance to win</div>
+          <div className="ds-stat-v !mt-0">{Math.round(wp)}%</div>
+          <div className="ds-note">chance to win</div>
         </div>
         <div className="min-w-0 flex-1">
-          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${stance.chip}`}>
+          <span className={`${stance.chip} !whitespace-normal`}>
             {stance.label}
           </span>
           {/* Each figure wraps as a unit, so a narrow phone never strands "them"
@@ -117,24 +116,20 @@ function Body({ data, loading, error, onRetry }: {
 
       {/* The probability as a bar from 0 to 100, with the even-money line marked,
           so "41%" reads as "a bit behind" rather than as a bare number. */}
-      <div className="relative mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
+      <div className="relative mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--c-soft)]" aria-hidden="true">
         <div className={`h-full rounded-full ${stance.bar}`} style={{ width: `${wp}%` }} />
         <div className="absolute inset-y-0 left-1/2 w-px bg-slate-400" />
       </div>
 
-      {data.note && <p className="mt-3 text-sm leading-6 text-slate-700">{data.note}</p>}
+      {data.note && <p className="mt-3 text-sm leading-6">{data.note}</p>}
 
-      {neutral ? (
-        <p className="mt-1 text-xs leading-5 text-slate-500">
-          Floor-or-ceiling advice only exists when the gap is wider than that, so there is none this week.
-        </p>
-      ) : swaps.length > 0 ? (
+      {neutral ? null : swaps.length > 0 ? (
         <div className="mt-3 space-y-2">
           <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
             Swaps that fit this matchup
           </div>
           {swaps.map((s, i) => (
-            <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div key={i} className="rounded-xl bg-[var(--c-soft)] p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <span className="min-w-0 text-sm text-slate-800">
                   Start <b className="text-slate-950">{s.start}</b>
@@ -160,13 +155,23 @@ function Body({ data, loading, error, onRetry }: {
         </p>
       )}
 
-      {data.win_probability_scope && (
-        <p className="mt-3 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-400">
-          Win chance covers {data.win_probability_scope}.
-          {data.projection_basis
-            ? ' Both totals are the Start/Sit week points (this week\'s projection with the betting-line adjustment), so "You" matches the lineup below.'
-            : ''}
-        </p>
+      {(neutral || data.win_probability_scope) && (
+        <details className="mt-2">
+          <summary className="ds-note cursor-pointer">How this is worked out</summary>
+          {neutral && (
+            <p className="ds-note mt-1">
+              Floor-or-ceiling advice only exists when the gap is wider than that, so there is none this week.
+            </p>
+          )}
+          {data.win_probability_scope && (
+            <p className="ds-note mt-1">
+              Win chance covers {data.win_probability_scope}.
+              {data.projection_basis
+                ? ' Both totals are the Start/Sit week points (this week\'s projection with the betting-line adjustment), so "You" matches the lineup below.'
+                : ''}
+            </p>
+          )}
+        </details>
       )}
     </>
   );

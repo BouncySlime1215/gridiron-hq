@@ -75,7 +75,8 @@ const m = createRequire(${JSON.stringify(repoRequire.resolve(spec))})(${JSON.str
 export const jsx = m.jsx; export const jsxs = m.jsxs; export const Fragment = m.Fragment;`),
     "'../api'": write('api.mjs', `export function useApi(p) {
   return { data: p && p.includes('/lineup?') ? globalThis.__lineupPayload : null, loading: false, error: null, refetch() {} };
-}`),
+}
+export function headshotUrl() { return null; }`),
     "'../state/league'": write('league.mjs', 'export function useLeague() { return { activeId: 901 }; }'),
     "'../components/lineup/EvidenceStrip'": write('evidence.mjs', 'export default function EvidenceStrip() { return null; }\nexport function RecordLine() { return null; }'),
     "'../components/PageExplainContext'": write('explain.mjs', 'export function usePageExplain() {}'),
@@ -220,8 +221,8 @@ const clean = h => h.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&
 function renderPage(call) {
   globalThis.__lineupPayload = JSON.parse(JSON.stringify(call));
   const html = renderToStaticMarkup(React.createElement(Lineup));
-  // Slot chips: the only `rounded-full px-2 py-0.5 ... ring-1` spans on the page (Lineup.tsx Slot).
-  const chips = [...html.matchAll(/<span class="rounded-full px-2 py-0\.5[^"]*ring-1[^"]*">([\s\S]*?)<\/span>/g)]
+  // Slot chips: the only `data-call` spans on the page (Lineup.tsx Slot, one per call row).
+  const chips = [...html.matchAll(/<span class="ds-chip[^"]*" data-call="1">([\s\S]*?)<\/span>/g)]
     .map(m => clean(m[1]));
   return { text: clean(html), chips };
 }

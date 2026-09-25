@@ -47,7 +47,8 @@ const apiUrl = write('api.mjs', `export function useApi(p) {
   const n = (globalThis.__apiN = (globalThis.__apiN ?? 0) + 1);
   if (n === 1) return { data: globalThis.__lineupData ?? null, loading: false, error: globalThis.__lineupError ?? null, refetch: () => {} };
   return { data: null, loading: false, error: null, refetch: () => {} };
-}`);
+}
+export function headshotUrl() { return null; }`);
 const leagueUrl = write('league.mjs', 'export function useLeague() { return { activeId: 1 }; }');
 const evidenceUrl = write('evidence-strip.mjs',
   'export default function EvidenceStrip() { return null; }\nexport function RecordLine() { return null; }');

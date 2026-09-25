@@ -3,7 +3,7 @@ import Projections from './Projections';
 import Rankings from './Rankings';
 import News from './News';
 import Teams from './Teams';
-import { Tabs } from '../components/ui/DesignSystem';
+import { PageHeader, Tabs } from '../components/ui/DesignSystem';
 
 /**
  * Players (docs/ui/CONSOLIDATION-MAP.md): the market board, your rankings and tiers, news
@@ -26,6 +26,8 @@ export default function Players({ initial }: { initial?: View } = {}) {
   const view: View = isView(q) ? q : initial ?? 'board';
   return (
     <div>
+      <PageHeader eyebrow="Players" title="Players"
+        description="The market board, your rankings and tiers, news, and every NFL team. A name opens the player card." />
       <div className="mb-5">
         <Tabs label="Players" value={view} onChange={v => setParams(() => new URLSearchParams(`view=${v}`), { replace: true })}
           tabs={VIEWS.map(v => ({ id: v.id, label: v.label }))} />

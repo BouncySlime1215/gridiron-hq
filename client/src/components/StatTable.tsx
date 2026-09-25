@@ -73,7 +73,7 @@ export function StatRow({ e, mode, cols, children }: {
           ? <span className={st.delta >= 0 ? 'text-good' : 'text-crit'}>
               {st.delta >= 0 ? '+' : ''}{Math.round(st.delta)}
             </span>
-          : <span className="text-slate-300">—</span>}
+          : <span className="text-slate-500">—</span>}
       </td>
       {cols.map(([key, label]) => (
         <td key={label} className="px-1 py-1.5 text-right text-xs tabular-nums text-slate-600">

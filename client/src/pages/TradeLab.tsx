@@ -990,7 +990,7 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
   const rules = result?.rules;
 
   return (
-    <div className="pb-24" data-testid="build">
+    <div data-testid="build">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <label className="flex items-center gap-2 text-slate-600">Trading with
           <select className="input league-select w-[12rem] max-w-full py-1" value={them?.roster_id ?? ''}
@@ -1001,16 +1001,7 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
         <button type="button" role="switch" aria-checked={kdef} onClick={() => setKdef(v => !v)}
           className={`ds-chip ${kdef ? 'ds-chip-on' : ''}`} title="Show kickers and team defences">K / DEF {kdef ? 'shown' : 'hidden'}</button>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <BuildSide title="You send" team={mine} sel={give} tone="give" kdef={kdef} locked={new Set(untouchable)}
-          onToggle={id => toggle(give, setGive, id)} />
-        <BuildSide title="You get" team={them} sel={get} tone="get" kdef={kdef} locked={new Set()}
-          onToggle={id => toggle(get, setGet, id)} />
-      </div>
-      {err && <p role="alert" className="mt-2 text-xs text-crit">{err}</p>}
-      {result && <div className="mt-4"><TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} untouchableNames={untouchableNames} /></div>}
-
-      {/* The summary bar: sticky at the bottom of the view while a deal is being built. */}
+      {/* The summary bar sits above the two cards, never over them (CLAUDE.md UI rules: nothing sticky over text or a button). */}
       <div className="build-bar" data-testid="build-bar">
         <div className="min-w-0 flex-1 text-sm">
           <span className="whitespace-nowrap">Send <b className="tabular-nums">{sendV.toLocaleString()}</b></span>
@@ -1031,6 +1022,15 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
           {busy ? 'Scoring…' : 'Who wins this?'}
         </button>
       </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <BuildSide title="You send" team={mine} sel={give} tone="give" kdef={kdef} locked={new Set(untouchable)}
+          onToggle={id => toggle(give, setGive, id)} />
+        <BuildSide title="You get" team={them} sel={get} tone="get" kdef={kdef} locked={new Set()}
+          onToggle={id => toggle(get, setGet, id)} />
+      </div>
+      {err && <p role="alert" className="mt-2 text-xs text-crit">{err}</p>}
+      {result && <div className="mt-4"><TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} untouchableNames={untouchableNames} /></div>}
+
     </div>
   );
 }

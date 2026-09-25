@@ -37,7 +37,7 @@ test('3. one context bar in the page header: values chip, untouchables chip + sh
   assert.doesNotMatch(code(lab), /cutoff \{rosters\.model_context\.cutoff\}/, 'no week/cutoff chip');
 });
 
-test('4. Build: two cards, tap-to-add rows, K/DEF hidden, capped rows, a sticky bar with the rule check', () => {
+test('4. Build: two cards, tap-to-add rows, K/DEF hidden, capped rows, a summary bar with the rule check', () => {
   assert.match(lab, /<BuildSide title="You send"/);
   assert.match(lab, /<BuildSide title="You get"/);
   assert.match(lab, /aria-pressed=\{on\} onClick=\{\(\) => onToggle\(p\.id\)\}/, 'rows are buttons, not raw checkboxes');
@@ -46,6 +46,8 @@ test('4. Build: two cards, tap-to-add rows, K/DEF hidden, capped rows, a sticky 
   assert.match(lab, /title="FantasyCalc trade value">Value</, 'a labelled Value column');
   assert.match(lab, /pool\.slice\(0, cap\)/);
   assert.match(lab, /className="build-bar" data-testid="build-bar"/);
+  assert.doesNotMatch(read('client/src/styles/ui.css').match(/\.build-bar \{[^}]*\}/)[0], /sticky|fixed/, 'the bar is in the flow, never over the rows (CLAUDE.md UI rules)');
+  assert.ok(lab.indexOf('data-testid="build-bar"') < lab.indexOf('<BuildSide title="You send"'), 'above the cards');
   assert.match(lab, /rules\.ok \? 'Your rules: pass' : `Your rules: no, /);
   assert.match(lab, /Who wins this\?/);
 });

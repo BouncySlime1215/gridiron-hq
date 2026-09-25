@@ -212,6 +212,6 @@ button.ds-chip:active { transform: scale(.97); }
 /* A tab row that wraps onto a second line on a phone instead of scrolling sideways (Trades). */
 .ds-tabs-wrap .ds-tabs { flex-wrap: wrap; border-radius: 18px; overflow-x: visible; }
 
-/* Trades → Build: the summary bar stays at the bottom of the screen while a deal is built. */
-.build-bar { position: sticky; bottom: 12px; z-index: 5; margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+/* Trades → Build: the summary bar, above the two cards (in the flow; nothing floats over the rows). */
+.build-bar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   padding: 10px 14px; border-radius: var(--r-card); background: var(--c-raised); box-shadow: 0 0 0 1px var(--c-line), var(--e2); }

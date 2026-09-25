@@ -224,7 +224,5 @@ test('the season-sim field is absent by default and present only under the flag'
   } finally { delete process.env[STANDINGS_RECONCILE_ENV]; }
 });
 
-test('season-sim spreads the field from the records it carries in (source guard)', () => {
-  const src = fs.readFileSync(new URL('../server/services/season-sim.js', import.meta.url), 'utf8');
-  assert.match(src, /standingsCheckField\(lg, startingRecords, fromWeek, medianGame\)/);
-});
+// The source-text guard that stood here is replaced by a behavioural test on the real
+// season sim: test/bitemporal-standings-sim.test.js (#399 review note 2).

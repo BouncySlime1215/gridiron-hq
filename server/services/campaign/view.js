@@ -526,7 +526,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
-      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed) },
+      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null) },
     },
   };
 }

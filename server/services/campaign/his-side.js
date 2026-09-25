@@ -129,10 +129,15 @@ export function hisSide({ player, owner, partner = null, model = null, block = n
   return { status: 'ok', value };
 }
 
-/** `_run.inputs.his_side`: the per-target read status, ids only (the shadow measurement). */
-export function hisSideSummary(rows, on) {
+/** The ESPN block read for the summary: a broken id map shows as an unmapped count, never as an empty block. */
+const blockStatus = b => (!b ? { status: 'unread' } : b.status === 'ok' ? { status: 'ok', unmapped: b.unmapped ?? 0 }
+  : { status: String(b.status), reason: String(b.reason ?? '') });
+
+/** `_run.inputs.his_side`: the per-target read status, ids only (the shadow measurement). block: the adapter's read or null. */
+export function hisSideSummary(rows, on, block = null) {
   return {
     flag: on ? 'on' : 'shadow',
+    espn_block: blockStatus(block),
     ok: rows.filter(r => r.hs.status === 'ok').length, of: rows.length,
     targets: rows.map(r => ({ player: r.player, owner: r.owner, status: r.hs.status, reads: r.hs.status === 'ok' ? r.hs.value.reads : r.hs.reads })),
   };

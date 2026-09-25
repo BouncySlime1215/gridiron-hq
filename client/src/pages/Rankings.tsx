@@ -3,6 +3,7 @@ import { api, headshotUrl, RankingEntry, useApi } from '../api';
 import { TIER_COLORS } from '../components/PlayerRow';
 import { StatRow, StatHeader, colsFor, StatMode } from '../components/StatTable';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import { Chip } from '../components/ui/DesignSystem';
 
 const TIER_LABEL = ['', 'Elite', 'Tier 2', 'Tier 3', 'Tier 4', 'Tier 5', 'Deep'];
 
@@ -111,17 +112,16 @@ export default function Rankings() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <h1 className="text-2xl font-bold">Rankings</h1>
+        <h2 className="ds-h">Ranking set</h2>
         <select className="input" value={setId ?? ''} onChange={e => setSetId(Number(e.target.value))}>
           {sets?.map(s => <option key={s.id} value={s.id}>{s.name} ({s.entry_count})</option>)}
         </select>
-        {setsLoading && !sets && <span className="text-xs text-slate-400">Loading sets…</span>}
+        {setsLoading && !sets && <span className="text-xs text-slate-500">Loading sets…</span>}
         {setsError && <span className="text-xs text-rose-600">Couldn't load ranking sets: {setsError}</span>}
         <button className="btn-ghost" onClick={createSet}>+ New set</button>
         <div className="ml-auto flex gap-1.5 items-center">
           {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
-            <button key={p} onClick={() => setFilter(p)}
-              className={`btn ${filter === p ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>{p}</button>
+            <Chip key={p} on={filter === p} onClick={() => setFilter(p)}>{p === 'ALL' ? 'All' : p}</Chip>
           ))}
           <div className="flex rounded-lg border border-slate-200 overflow-hidden">
             {(['projected', 'actual'] as StatMode[]).map(m => (
@@ -149,7 +149,7 @@ export default function Rankings() {
                   onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
                 <span className={`font-bold text-xs w-8 pos-${p.position}`}>{p.position}</span>
                 <span className="font-medium">{p.name}</span>
-                <span className="text-slate-400 ml-auto text-xs">{p.team_abbr}</span>
+                <span className="text-slate-500 ml-auto text-xs">{p.team_abbr}</span>
               </button>
             ))}
           </div>
@@ -185,7 +185,7 @@ export default function Rankings() {
                   <>
                     {isBreak && (
                       <tr key={`t${e.player_id}`}>
-                        <td colSpan={statCols.length + 7} className="px-3 py-1 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <td colSpan={statCols.length + 7} className="px-3 py-1 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                           <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: TIER_COLORS[e.tier] }} />
                           {TIER_LABEL[e.tier] ?? `Tier ${e.tier}`}
                         </td>
@@ -200,18 +200,18 @@ export default function Rankings() {
                               onBlur={() => setEditing(null)}
                               onKeyDown={ev => { if (ev.key === 'Enter') setEditing(null); }} />
                           ) : (
-                            <button className="text-[11px] text-slate-300 hover:text-slate-600"
+                            <button className="text-[11px] text-slate-500 hover:text-slate-600"
                               title={e.note || 'add note'} onClick={() => setEditing(e.player_id)}>
                               {e.note ? '✎*' : '✎'}
                             </button>
                           )}
-                          <select className="bg-slate-50 border border-slate-200 rounded text-[10px] px-1 py-0.5 text-slate-600"
+                          <select aria-label={`Tier for ${e.name ?? 'this player'}`} className="w-14 bg-slate-50 border border-slate-200 rounded text-[11px] px-1 py-0.5 text-slate-600"
                             value={e.tier} onChange={ev => patch(e.player_id, { tier: Number(ev.target.value) })}>
                             {[1, 2, 3, 4, 5, 6].map(t => <option key={t} value={t}>T{t}</option>)}
                           </select>
                           <div className="flex flex-col leading-none">
-                            <button className="text-slate-300 hover:text-slate-700 text-[9px]" onClick={() => move(i, i - 1)}>▲</button>
-                            <button className="text-slate-300 hover:text-slate-700 text-[9px]" onClick={() => move(i, i + 1)}>▼</button>
+                            <button className="text-slate-500 hover:text-slate-700 text-[9px]" onClick={() => move(i, i - 1)}>▲</button>
+                            <button className="text-slate-500 hover:text-slate-700 text-[9px]" onClick={() => move(i, i + 1)}>▼</button>
                           </div>
                         </div>
                       </td>

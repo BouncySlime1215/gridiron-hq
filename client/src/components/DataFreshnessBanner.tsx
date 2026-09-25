@@ -127,14 +127,16 @@ export default function DataFreshnessBanner() {
   if (error && !dismissed) {
     return (
       <div ref={remember} className="w-full border-b border-slate-300 bg-slate-100 text-slate-800">
-        <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
-          <span aria-hidden>●</span>
-          <span className="font-semibold">Data freshness could not be checked.</span>
-          <span className="text-slate-600">
-            No warning on this page does not mean your data is current — nothing was read.
+        <div className="flex w-full flex-nowrap items-center gap-2 px-4 py-1.5 text-xs">
+          <span aria-hidden className="shrink-0">●</span>
+          <span className="min-w-0 flex-1 truncate" title="Data freshness could not be checked. No warning on this page does not mean your data is current — nothing was read.">
+            <span className="font-semibold">Data freshness could not be checked.</span>{' '}
+            <span className="text-slate-600">
+              No warning on this page does not mean your data is current — nothing was read.
+            </span>
           </span>
           <button onClick={close} aria-label="Dismiss for now"
-            className="ml-auto text-slate-400 hover:text-slate-700">✕</button>
+            className="shrink-0 text-slate-500 hover:text-slate-700">✕</button>
         </div>
       </div>
     );
@@ -159,15 +161,19 @@ export default function DataFreshnessBanner() {
     : '';
   return (
     <div ref={remember} className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
-      <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
-        <span aria-hidden>⚠</span>
-        <span className="font-semibold">{headline}{tail}</span>
-        <span className="text-amber-700">({flagged.map(t => t.label).join(', ')})</span>
+      {/* One line at every width: the sentence truncates with an ellipsis (full text on hover and in
+          the detail), the buttons never wrap under it, so the bar's height never changes. */}
+      <div className="flex w-full flex-nowrap items-center gap-2 px-4 py-1.5 text-xs">
+        <span aria-hidden className="shrink-0">⚠</span>
+        <span className="min-w-0 flex-1 truncate" title={`${headline}${tail} (${flagged.map(t => t.label).join(', ')})`}>
+          <span className="font-semibold">{headline}{tail}</span>{' '}
+          <span className="text-amber-700">({flagged.map(t => t.label).join(', ')})</span>
+        </span>
         <button onClick={() => setOpen(v => !v)}
-          className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100">
+          className="shrink-0 whitespace-nowrap rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100">
           {open ? 'Hide detail' : behind.length > 0 ? 'What is behind' : 'What was not checked'}
         </button>
-        <button onClick={close} aria-label="Dismiss for now" className="ml-auto text-amber-500 hover:text-amber-800">✕</button>
+        <button onClick={close} aria-label="Dismiss for now" className="shrink-0 text-amber-500 hover:text-amber-800">✕</button>
       </div>
       {open && (
         <div className="border-t border-amber-200 bg-white px-4 py-3 text-xs text-slate-700">

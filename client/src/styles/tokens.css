@@ -17,7 +17,7 @@
   --c-red: #c2262e; --c-red-tint: rgb(194 38 46 / .08);
   /* Surfaces and ink. */
   --c-bg: #f6f7f9; --c-card: #ffffff; --c-soft: #f2f3f6; --c-raised: #ffffff;
-  --c-ink: #0b0d12; --c-ink2: #3a4150; --c-muted: #676f80; --c-subtle: #9aa1ae;
+  --c-ink: #0b0d12; --c-ink2: #3a4150; --c-muted: #676f80; --c-subtle: #7a8293;
   /* Edges: 1px alpha hairlines, never solid grey. */
   --c-line: rgb(12 16 28 / .08); --c-line-strong: rgb(12 16 28 / .14); --c-hover: rgb(12 16 28 / .035);
   --c-edge: inset 0 0 0 0 transparent;

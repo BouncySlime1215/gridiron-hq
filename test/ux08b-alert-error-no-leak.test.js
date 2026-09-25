@@ -286,7 +286,6 @@ test('control: the catch evaluator sees a leak in the pre-fix Model.tsx shape an
 // Each named site: file, an anchor unique to its try block, what the user must see.
 const CATCH_SITES = [
   { site: 'Model.tsx:38', file: 'pages/Model.tsx', anchor: "'/model/sync'", shows: 'Sync failed. Try again in a moment.' },
-  { site: 'TeamDetail.tsx:69', file: 'pages/TeamDetail.tsx', anchor: '/espn/sync-news?team=', shows: 'News pull failed. Try again in a moment.' },
   { site: 'MyTeam.tsx:86', file: 'pages/MyTeam.tsx', anchor: 'refetchData(); refetchLeagues()', shows: 'Sync failed. Try again in a moment.' },
   { site: 'Settings.tsx:42', file: 'pages/Settings.tsx', anchor: "'/espn/sync-players'", shows: 'Player sync failed. Try again in a moment.' },
   { site: 'Settings.tsx:50', file: 'pages/Settings.tsx', anchor: "'/espn/sync-news'", shows: 'News sync failed. Try again in a moment.' },

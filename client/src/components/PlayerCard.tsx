@@ -103,7 +103,8 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
       style={{ background: 'rgba(15,23,42,0.4)' }} onClick={onClose}>
-      <div className="card w-full max-w-2xl mt-8 shadow-xl" onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={`Player card${p?.name ? `: ${p.name}` : ''}`}
+        className="card w-full max-w-2xl mt-8 shadow-xl" onClick={e => e.stopPropagation()}>
         {loading || !p ? (
           <div className="p-8 text-sm text-slate-500">Loading player…</div>
         ) : (

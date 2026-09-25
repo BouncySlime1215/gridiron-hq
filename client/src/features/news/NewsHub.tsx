@@ -38,10 +38,10 @@ export default function NewsHub({ stories, stats, loading = false, refreshing = 
   }), [stories, tab, query, myPlayers]);
 
   return <section aria-labelledby="news-title">
-    <header className="mb-4 rounded-[24px] border border-sky-100 bg-[#fafdff] p-6 shadow-[0_12px_36px_rgba(70,120,150,.06)]">
+    <header className="ds-card ds-card-pad mb-4">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1"><div className="text-xs font-semibold tracking-wide text-slate-500">NFL intelligence</div><h1 id="news-title" className="mt-1 text-3xl font-black tracking-tight">News Command Center</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Roster-first reporting, typed injury and role claims, and source-grounded AI interpretation. Reporting stays separate from analysis, and fresh stories are ranked before the archive.</p></div>
+        <div className="min-w-0 flex-1"><h2 id="news-title" className="ds-h">Intelligence desk</h2>
+          <p className="ds-note mt-1 max-w-3xl">Roster-first reporting, typed injury and role claims, and source-grounded AI interpretation. Reporting stays separate from analysis, and fresh stories are ranked before the archive.</p></div>
         <button className="btn-primary text-sm" onClick={onRefresh} disabled={refreshing}>{refreshing ? 'Refreshing intelligence…' : 'Refresh intelligence'}</button>
       </div>
       {stats && <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -113,5 +113,5 @@ function NewsHubError({ error }: { error: string }) {
 }
 
 function DeskMetric({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'warn' }) {
-  return <div className="rounded-xl border border-slate-200 bg-white px-3 py-2"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div><div className={`mt-0.5 text-sm font-black ${tone === 'good' ? 'text-emerald-700' : tone === 'warn' ? 'text-amber-700' : 'text-slate-900'}`}>{value}</div></div>;
+  return <div className="rounded-xl border border-slate-200 bg-white px-3 py-2"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</div><div className={`mt-0.5 text-sm font-black ${tone === 'good' ? 'text-emerald-700' : tone === 'warn' ? 'text-amber-700' : 'text-slate-900'}`}>{value}</div></div>;
 }

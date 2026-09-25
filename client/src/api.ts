@@ -196,7 +196,8 @@ export function useApi<T = any>(path: string | null, opts?: { staleTime?: number
 
 /** Headshot URL from whichever platform id we have. */
 export function headshotUrl(p: { espn_id?: number | null; sleeper_id?: string | null }) {
-  if (p.espn_id) return `https://a.espncdn.com/i/headshots/nfl/players/full/${p.espn_id}.png`;
+  // A team defence has a negative ESPN id and no headshot: ask for nothing rather than a 404.
+  if (p.espn_id && Number(p.espn_id) > 0) return `https://a.espncdn.com/i/headshots/nfl/players/full/${p.espn_id}.png`;
   if (p.sleeper_id) return `https://sleepercdn.com/content/nfl/players/${p.sleeper_id}.jpg`;
   return null;
 }

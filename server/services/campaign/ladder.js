@@ -24,9 +24,11 @@
  *   Fuck-it        at most ALL_IN_GUESS_MAX_RUNGS (2) rungs while any rung's p is the guess (a
  *                  3-rung ladder at 0.30 each lands 2.7% of the time, under ALL_IN_MIN_COMPLETE)
  *
- * Dice: every card number is the planning seed's (LADDER_BASIS). A backup at a "no" is offered only when
- * the planner's confirmedActive (main's confirm-dice gate) returns it re-priced, i.e. it beats doing
- * nothing on the confirm dice; it then shows that number. No confirm dice, no backup: the rung says stop.
+ * Dice: the rung numbers are the planning seed's (LADDER_BASIS). A card is served only when the planner's
+ * confirmedActive (main's confirm-dice gate) returns it re-priced, i.e. it beats doing nothing on the
+ * confirm dice, with a re-priced expected gain above 0; the card carries that gain as confirmed_expected.
+ * A backup at a "no" passes the same gate and shows its confirm-dice number (dice: 'confirm'). No
+ * confirm dice, no card and no backup.
  *
  * SHADOW: the cards never re-rank, filter or re-price the deck, the next move or any served number;
  * they are one extra section. Flag GRIDIRON_LADDER ('1' on; anything else off, and preview does
@@ -47,11 +49,12 @@ export const ALL_IN_GUESS_MAX_RUNGS = 2;
 export const MAX_CARDS = 5;
 export const TIERS = Object.freeze(['blue_chip', 'level_below', 'depth', 'unscored']);
 export const DROP_REASONS = Object.freeze(['not_a_ladder', 'never_get', 'sold', 'reversal', 'memory_floor', 'gives_untouchable',
-  'overpay', 'final_unscored', 'final_below_floor', 'held_unscored', 'held_below_floor', 'all_in_rungs_p_guess', 'duplicate']);
+  'overpay', 'final_unscored', 'final_below_floor', 'held_unscored', 'held_below_floor', 'all_in_rungs_p_guess', 'duplicate',
+  'not_confirmed']);
 /** trade-memory.js reasons -> this module's drop reasons (the shadow ones drop only with its floor flag on). */
 const MEMORY_REASON = Object.freeze({ sold_recently: 'sold', reversal: 'reversal', below_his_floor: 'memory_floor', wrong_currency: 'memory_floor' });
 /** What every number on a card is priced on: the planning seed (the cards are built before the confirm pass). */
-export const LADDER_BASIS = 'planning dice: deltas and P(yes) from the planning seed, not confirmed on fresh dice';
+export const LADDER_BASIS = 'planning dice: rung deltas and P(yes) from the planning seed; confirmed_expected and backups are the confirm dice';
 
 
 /** 'on' | 'off'. */
@@ -137,14 +140,24 @@ export function ladderCards(plans, { mode = 'balanced', scoreOf = null, floor = 
     for (const q of kept) {
       if (q === p || q.steps.length <= i || prefixOf(q, i) !== pre || dealKey(q.steps[i]) === dealKey(p.steps[i])) continue;
       const c = confirmed(q);
-      if (!c) continue;
+      const g = c ? pathExpectation(c.steps).expected : null;
+      if (!(Number.isFinite(g) && g > 0)) continue;
       const s = c.steps[i];
-      return { kind: 'backup', partner: String(s.team), give: s.give.map(String), get: s.get.map(String),
-        expected: pathExpectation(c.steps).expected, dice: 'confirm' };
+      return { kind: 'backup', partner: String(s.team), give: s.give.map(String), get: s.get.map(String), expected: g, dice: 'confirm' };
     }
     return { kind: 'stop', keep: i === 0 ? 0 : rungs[i - 1].if_yes };
   };
-  const cards = kept.slice(0, n).map(p => {
+  // Nick's rule (main's gate): a card is served only when it beats doing nothing on the confirm dice, and it
+  // carries that gain (confirmed_expected > 0). No confirm dice, no card. Checked in rank order until n are kept.
+  const served = [];
+  for (const p of kept) {
+    if (served.length >= n) break;
+    const c = typeof confirmed === 'function' ? confirmed(p) : null;
+    const g = c ? pathExpectation(c.steps).expected : null;
+    if (!(Number.isFinite(g) && g > 0)) { dropped.not_confirmed++; continue; }
+    served.push({ p, confirmed_expected: g });
+  }
+  const cards = served.map(({ p, confirmed_expected }) => {
     const rungs = [];
     p.steps.forEach((s, i) => {
       const r = { partner: String(s.team), give: s.give.map(String), get: s.get.map(String), get_tier: tierOf(best(s.get), F),
@@ -155,7 +168,7 @@ export function ladderCards(plans, { mode = 'balanced', scoreOf = null, floor = 
     const e = pathExpectation(p.steps);
     return { target: String(p.target), owner: String(p.owner ?? p.steps[p.steps.length - 1].team),
       climb: [tierOf(best(p.steps[0].give), F), ...rungs.map(r => r.get_tier)], rank_basis: 'p_guess', rungs,
-      p_complete: e.p_complete, if_complete: e.delta_final, expected: e.expected };
+      p_complete: e.p_complete, if_complete: e.delta_final, expected: e.expected, confirmed_expected };
   });
   return { mode: m, floor: F, rank_basis: 'p_guess', dice: 'planning', basis: LADDER_BASIS,
     considered: plans.length, dropped_by_reason: dropped, cards };
@@ -186,7 +199,8 @@ export function ladderSection(l, { names = {}, unit = 'title_odds' } = {}) {
         on_no: r.on_no.kind === 'backup'
           ? { kind: 'backup', partner: r.on_no.partner, give: r.on_no.give, get: r.on_no.get, expected: d(r.on_no.expected), dice: r.on_no.dice }
           : { kind: 'stop', keep: d(r.on_no.keep) } })),
-      p_complete: p(c.p_complete), if_complete: d(c.if_complete), expected: d(c.expected) }));
+      p_complete: p(c.p_complete), if_complete: d(c.if_complete), expected: d(c.expected),
+      confirmed_expected: numF(c.confirmed_expected, 'sim.title', { unit }) }));
   return { status: 'ok', source: 'plan.path', guess: true,
     value: { mode: l.mode, floor: l.floor, rank_basis: l.rank_basis, dice: l.dice, basis: l.basis, considered: l.considered,
       dropped_by_reason: l.dropped_by_reason, cards } };

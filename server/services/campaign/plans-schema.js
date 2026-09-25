@@ -312,7 +312,7 @@ export const SECTIONS = Object.freeze({
         on_no: obj({ kind: oneOf(['backup', 'stop']) }, { partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), expected: numF, keep: numF,
           dice: oneOf(['confirm']) })
       }), { min: 2 }),
-      p_complete: probF, if_complete: numF, expected: numF
+      p_complete: probF, if_complete: numF, expected: numF, confirmed_expected: numF
     }), { max: 5 })
   }))
 });

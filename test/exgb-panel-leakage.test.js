@@ -15,8 +15,8 @@ const reason = probe.error ? `python3 not available (${probe.error.code})`
   : probe.status !== 0 ? 'python3 has no numpy' : null;
 
 test('E-XGB panel: lagged-only features, availability rows, leakage check', { skip: reason ?? false }, () => {
-  const r = spawnSync('python3', ['-m', 'unittest', 'scripts/eval/test_exgb_panel.py'],
+  const r = spawnSync('python3', ['-m', 'unittest', 'scripts/eval/test_exgb_panel.py', 'scripts/eval/test_exgb_models.py'],
     { cwd: ROOT, encoding: 'utf8', timeout: 120_000 });
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-  assert.match(r.stderr, /Ran 7 tests/);
+  assert.match(r.stderr, /Ran 11 tests/);
 });

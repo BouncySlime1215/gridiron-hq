@@ -1,0 +1,19 @@
+# E-XGB exploratory model arm (scripts/eval/exgb_models.py). Research only; no app-runtime
+# dependency, never imported by the server. scripts/eval/exgb_panel.py needs numpy only.
+#
+# Recreate the local environment (Python 3.14.3 on macOS arm64; libomp from Homebrew is
+# required by xgboost and lightgbm: `brew install libomp`):
+#   python3 -m venv ~/gridiron-local/venv-ml
+#   ~/gridiron-local/venv-ml/bin/pip install -r scripts/eval/requirements-exgb.txt
+#
+# Installed sizes measured 2026-09-25 in that venv: xgboost 10 MB, lightgbm 5.5 MB,
+# scikit-learn 47 MB, scipy 99 MB, numpy 34 MB, joblib 2.4 MB (about 200 MB together).
+# The coordinator's venv also carries pandas 3.0.6 (72 MB) and pyarrow 25.0.1 (126 MB);
+# exgb_models.py does not use them.
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.1  # the XGBRegressor / LGBMRegressor estimator API
+joblib==1.6.0
+threadpoolctl==3.7.0
+xgboost==3.4.1
+lightgbm==4.7.0

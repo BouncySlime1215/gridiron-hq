@@ -390,7 +390,8 @@ const run = obj({
 
 const league = obj(
   { league: int(1), me: id, names: map(/^[A-Za-z0-9_.:-]{1,64}$/, str) },
-  { error: str, sanity_composed_equals_direct: bool, _run: run, ...SECTIONS }
+  // PLANS-EXPIRE: when this league was planned (plan-age.js); a kept entry keeps its own. Optional: older files validate.
+  { error: str, sanity_composed_equals_direct: bool, planned_at: iso, _run: run, ...SECTIONS }
 );
 
 const HEAD = { schema: lit(SCHEMA_VERSION), generated_at: iso, producer: str, producer_version: str };

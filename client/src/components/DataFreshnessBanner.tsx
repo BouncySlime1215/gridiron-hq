@@ -181,40 +181,60 @@ export default function DataFreshnessBanner() {
             Why this matters: a working connection is not the same as current data. This reads the rows on file, not
             whether a download ran, so a table that fetched successfully but holds nothing for this week still shows as behind.
           </p>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="py-1 pr-3 font-semibold">Data</th>
-                <th className="py-1 pr-3 font-semibold">On file</th>
-                <th className="py-1 pr-3 font-semibold">Should have</th>
-                <th className="py-1 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.tables.map(t => {
-                const s = STATUS_STYLE[t.status];
-                return (
-                  <tr key={t.table} className="border-t border-slate-100 align-top">
-                    <td className="py-1.5 pr-3 font-semibold text-slate-800">{t.label}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">
-                      {span(t)}
-                      {t.status !== 'fresh' && (
-                        <div className="mt-0.5 text-[11px] text-amber-700">{behindSentence(t)}</div>
-                      )}
-                    </td>
-                    <td className="py-1.5 pr-3 text-slate-500">{t.current_rule ?? '—'}</td>
-                    <td className="py-1.5">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.chip}`}>{s.word}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <FreshnessTable report={report} />
         </div>
       )}
     </div>
   );
+}
+
+/** Every tracked table: what is on file, what should be, and its status (used by the bar and Settings → Health). */
+export function FreshnessTable({ report }: { report: FreshnessReport }) {
+  return (
+    <div className="overflow-x-auto">
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400">
+          <th className="py-1 pr-3 font-semibold">Data</th>
+          <th className="py-1 pr-3 font-semibold">On file</th>
+          <th className="py-1 pr-3 font-semibold">Should have</th>
+          <th className="py-1 font-semibold">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {report.tables.map(t => {
+          const s = STATUS_STYLE[t.status];
+          return (
+            <tr key={t.table} className="border-t border-slate-100 align-top">
+              <td className="py-1.5 pr-3 font-semibold text-slate-800">{t.label}</td>
+              <td className="py-1.5 pr-3 text-slate-600">
+                {span(t)}
+                {t.status !== 'fresh' && (
+                  <div className="mt-0.5 text-[11px] text-amber-700">{behindSentence(t)}</div>
+                )}
+              </td>
+              <td className="py-1.5 pr-3 text-slate-500">{t.current_rule ?? '—'}</td>
+              <td className="py-1.5">
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.chip}`}>{s.word}</span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+    </div>
+  );
+}
+
+/** Settings → Health: the freshness table on its own, not only behind the bar's "What is behind". */
+export function DataFreshnessDetail() {
+  const { data: report, error } = useApi<FreshnessReport>('/data-freshness');
+  if (error && !report) return <p className="text-sm text-slate-600">Data freshness could not be checked. No warning here does not mean your data is current.</p>;
+  if (!report) return <p className="ds-note">Reading the tables on file…</p>;
+  return <>
+    <p className="ds-note mb-2">{report.all_fresh ? `Every tracked source is current for ${report.season} week ${report.week}.` : `For ${report.season} week ${report.week}.`}</p>
+    <FreshnessTable report={report} />
+  </>;
 }
 
 interface DataCreditEntry {

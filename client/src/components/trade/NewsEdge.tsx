@@ -12,7 +12,7 @@ import { FIRST, oneCardPerMove } from './newsEdgeCards';
  */
 type Kind = 'claim_waiver' | 'buy_beneficiary' | 'buy_low' | 'hold_or_sell' | 'already_held';
 const KIND: Record<Kind, { label: string; tone: 'good' | 'accent' | 'warn' | 'neutral' }> = {
-  claim_waiver: { label: 'Claim now', tone: 'good' },
+  claim_waiver: { label: 'Waiver add', tone: 'good' },
   buy_beneficiary: { label: 'Buy the backup', tone: 'good' },
   buy_low: { label: 'Buy low', tone: 'accent' },
   hold_or_sell: { label: 'Hold or sell', tone: 'warn' },
@@ -69,6 +69,7 @@ export default function NewsEdge({ leagueId, teamId }: { leagueId: number; teamI
                   <Chip tone={k.tone}>{k.label}</Chip>
                   {o.action.target && <span className="min-w-0 break-words text-base font-semibold">{o.action.target}</span>}
                   {o.action.target_position && <span className="ds-note">{o.action.target_position}</span>}
+                  {o.action.kind === 'claim_waiver' && <span className="ds-note" data-testid="not-a-trade">not a trade: a lineup add off the wire</span>}
                   <span className="ds-note ml-auto tabular-nums">{ageText(o.age_hours)}</span>
                 </div>
                 <p className="mt-2 text-sm">{o.action.why}</p>

@@ -38,6 +38,9 @@ test('News edge is a Trades view again, drawn only from the gated route, with th
   const c = read('client/src/components/trade/NewsEdge.tsx');
   assert.match(c, /`\/trades\/\$\{leagueId\}\/news-edge\?hours=/);
   assert.match(c, /<RulesHidden n=\{data\?\.dropped_by_rule\}/);
+  // Coordinator (#468): waiver ideas are lineup adds, not trade gets (no 83+ floor), and say so.
+  assert.match(c, /claim_waiver: \{ label: 'Waiver add'/);
+  assert.match(c, /not a trade: a lineup add off the wire/);
   assert.doesNotMatch(read('client/src/pages/TradeLab.tsx'), /function NewsEdge|news-edge/, 'one News edge, not two');
   assert.match(read('server/routes/trades.js'), /gateNewsEdge\(out, ruleGate\(/);
 });

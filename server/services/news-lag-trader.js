@@ -125,7 +125,8 @@ function appIdOf(p) {
  *                             floor, priced) - a get with nothing given can never be an overpay
  *   hold_or_sell              a trade give with no get yet: never give (a one-sided sell has no
  *                             package to price, so overpay does not apply)
- *   claim_waiver              a wire claim, no trade: never get and sold this season (no buy-backs)
+ *   claim_waiver              a waiver add (a lineup add, not a trade get; coordinator #468): never get
+ *                             and sold this season (no buy-backs), never the 83+ blue-chip floor
  *   already_held, no_edge     nothing to do: not gated
  * An idea whose player has no app id cannot be checked, so it is dropped (fails closed).
  */

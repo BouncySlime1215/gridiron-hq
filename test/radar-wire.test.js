@@ -60,14 +60,15 @@ const watchOnly = () => ({
 const badNews = hoursAgo => ({ signal_type: 'availability', status: 'out', unavailable_probability: 0.9, role_delta: null,
   published_at: new Date(NOW - hoursAgo * HOUR).toISOString() });
 
-test('flag: =1 on, =0 off and vetoes preview, unset follows preview, default off', () => {
+test('flag: only =1 turns it on; unset stays off under preview mode (integration-9 policy)', () => {
   assert.equal(W.radarWireFlag({}), 'off');
   assert.equal(W.radarWireFlag({ [W.RADAR_WIRE_ENV]: '1' }), 'on');
   const prev = process.env[PREVIEW_ENV];
   process.env[PREVIEW_ENV] = '1';
   try {
-    assert.equal(W.radarWireFlag({}), 'preview');
+    assert.equal(W.radarWireFlag({}), 'off', 'preview mode never switches the label on');
     assert.equal(W.radarWireFlag({ [W.RADAR_WIRE_ENV]: '0' }), 'off');
+    assert.equal(W.radarWireFlag({ [W.RADAR_WIRE_ENV]: '1' }), 'on');
   } finally {
     if (prev === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = prev;
   }

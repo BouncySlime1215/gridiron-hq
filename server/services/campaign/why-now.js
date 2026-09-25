@@ -13,16 +13,15 @@
  * news never raises check_first.
  *
  * The label moves no number: flag off vs on differs only in `why_now` paths
- * (test/radar-wire.test.js). Flag GRIDIRON_RADAR_WIRE: =1 on, =0 off (vetoes preview),
- * unset follows preview mode. Default off.
+ * (test/radar-wire.test.js). Flag GRIDIRON_RADAR_WIRE: only =1 turns it on. Unset or anything
+ * else is off, preview mode included (integration-9 policy: no unit switches on via
+ * GRIDIRON_PREVIEW_UNCONFIRMED without its own flag).
  *
  * RADAR-GRADE: one ledger row per served flip row. A row with a direction predicts the sign of
  * the player's FantasyCalc value over GRADE_AFTER_DAYS; gradeLedger grades it once, against the
  * share of that week's ledger players that moved the same way. gateSummary is the weekly gate
  * (the #402 style): 90% CI clustered by week, lower bound above 0 on >= GRADE_MIN_ROWS rows.
  */
-import { previewUnconfirmed } from '../preview-mode.js';
-
 export const RADAR_WIRE_ENV = 'GRIDIRON_RADAR_WIRE';
 export const TREND_MIN_PCT = 0.10;
 export const TREND_MIN_DAYS = 7;
@@ -32,11 +31,9 @@ export const GRADE_MIN_ROWS = 20;
 const DAY = 24 * 3600e3;
 const WEEK = 7 * DAY;
 
-/** 'on' | 'preview' | 'off'. */
+/** 'on' | 'off'. Only its own flag turns it on; preview mode never does. */
 export function radarWireFlag(env = process.env) {
-  if (env[RADAR_WIRE_ENV] === '0') return 'off';
-  if (env[RADAR_WIRE_ENV] === '1') return 'on';
-  return previewUnconfirmed() ? 'preview' : 'off';
+  return env[RADAR_WIRE_ENV] === '1' ? 'on' : 'off';
 }
 
 const signed = (x, d = 0) => `${x >= 0 ? '+' : ''}${x.toFixed(d)}`;

@@ -36,8 +36,28 @@ plan that is days old reads as fresh and its next move stays actionable.
 
 ## RED
 
-(filled in after the RED commit)
+`c584c39`: `test/plans-expire.test.js` fails with `ERR_MODULE_NOT_FOUND` for
+`server/services/campaign/plan-age.js` (1 file, 0 of 1 pass).
 
 ## GREEN
 
-(filled in after the GREEN commit)
+`node --test test/plans-expire.test.js`: 17 of 17 pass.
+
+- Metric 1: 0 of N stale entries served with an `ok` section (30 h old; kept with no
+  time; kept in a `--leagues 4` merge over a stamped and over a legacy previous file,
+  leagues 1, 3, 5, 8). Pass.
+- Metric 2: fresh at 0 / 1 / 23.5 / 24 h, every fixture league with no plan times at
+  now + 400 days, and `GRIDIRON_PLANS_EXPIRE=0`: deep-equal to the incumbent view. Pass.
+- Metric 3: both layouts (classic `WarRoom`, `WarRoomV2`) render "Plan out of date ...
+  last planned 30 h ago" through the existing hidden-section reasons, with no
+  "I sent it" / "Copy message". A fresh view renders no such text. Pass. (No client file
+  changed: Nick's 2026-09-25 rule keeps `warroom/*` for the coordinator's cleanup.)
+- Metric 4: nightly all-league launch once per local day at the first tick at or after
+  03:00; `--leagues 4` otherwise; unset is byte-identical at 00:05, 03:05, 12:05. Pass.
+
+Test corrections after RED (test facts, not rules): the fixture's league 2 is a failed
+planner entry, so the "kept, no time" case uses league 3 and the merge case asserts that
+league 2 stays `failed`; the fixture also has a league 8, now in the merge order.
+Guard tests updated with this unit: `war-room-view.test.js` import allowlist gains the
+pure `plan-age.js`; `warroom-plans-contract.test.js` lists `planned_at` as written by
+`main()` only.

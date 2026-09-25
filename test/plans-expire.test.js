@@ -121,7 +121,7 @@ test('metric 1: an entry planned more than 24 h ago is served out of date, every
 });
 
 test('metric 1: a kept entry with no plan time in a dated file is out of date with its age unknown', () => {
-  const v = view(2, plansWith({ 4: iso(NOW) }));
+  const v = view(3, plansWith({ 4: iso(NOW) }));  // league 2 is the fixture's failed entry
   assert.deepEqual(okSections(v), []);
   assert.equal(v.plan_out_of_date.planned_at, null);
   assert.equal(v.plan_out_of_date.age_hours, null);
@@ -168,12 +168,15 @@ test('end to end: a --leagues 4 run over a stamped previous file and a legacy on
   const stamped = new Map(structuredClone(FIXTURE.leagues).map(e => [String(e.league), { ...e, planned_at: iso(NOW - 30 * H) }]));
   const legacy = new Map(structuredClone(FIXTURE.leagues).map(e => [String(e.league), e]));
   for (const previous of [stamped, legacy]) {
-    const merged = mergeKept(ran, previous, { order: [1, 2, 3, 4, 5], ran: [4] });
+    const merged = mergeKept(ran, previous, { order: [1, 2, 3, 4, 5, 8], ran: [4] });
     assert.equal(validatePlans(merged).ok, true);
     const plans = { status: 'ok', entries: merged.leagues, as_of: merged.generated_at, id: 'm' };
     assert.equal(view(4, plans).plan_out_of_date, undefined, 'the league that ran is fresh');
     assert.ok(okSections(view(4, plans)).includes('next_move'));
-    for (const lg of [1, 2, 3, 5]) {
+    // League 2 is the fixture's failed planner entry: it stays "failed", never "out of date".
+    assert.equal(view(2, plans).next_move.status, 'failed');
+    assert.equal(view(2, plans).plan_out_of_date, undefined);
+    for (const lg of [1, 3, 5, 8]) {
       const v = view(lg, plans);
       assert.ok(v.plan_out_of_date, `league ${lg} kept -> out of date`);
       assert.deepEqual(okSections(v), [], `league ${lg}: nothing actionable`);

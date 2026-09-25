@@ -69,6 +69,9 @@
  * every entry says "rank r of N" on the same scale; a kept entry's attention is
  * the only field that can change, and only when its rank moved.
  * Pushes, the failed count and the summary line count only the leagues that ran.
+ * PLANS-EXPIRE: main() stamps `planned_at` on every entry it planned (campaign/plan-age.js), and a
+ * kept entry keeps its own, so the War Room serves a kept plan more than 24 h old as "plan out of
+ * date". buildPlansFile does not stamp (the contract fixture stays byte-identical).
  *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3, or 8 with GRIDIRON_REACH on] [--no-finder] [--tick]
@@ -95,6 +98,7 @@ import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/cam
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
 import { fcFormatValues } from '../../server/services/fc-value.js';
+import { stampPlannedAt, plansExpireFlag, PLANS_EXPIRE_OFF_WARNING } from '../../server/services/campaign/plan-age.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -475,6 +479,7 @@ async function main() {
     const { tradeMemoryOn, TRADE_MEMORY_OFF_WARNING } = await import('../../server/services/campaign/trade-memory.js');
     if (getsFloorFlag(env) === 'off') console.error(`[warroom] ${GETS_FLOOR_OFF_WARNING}`);
     if (!tradeMemoryOn(env)) console.error(`[warroom] ${TRADE_MEMORY_OFF_WARNING}`);
+    if (plansExpireFlag(env) === 'off') console.error(`[warroom] ${PLANS_EXPIRE_OFF_WARNING}`);
     console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
     // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.
@@ -534,13 +539,14 @@ async function main() {
     const consumed = [];
     const radarLedger = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
-    const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
+    // PLANS-EXPIRE: every entry this run planned carries its own plan time, so a kept one can go out of date.
+    const file = stampPlannedAt(await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
       radarLedger,
       // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
       model: planModelKey({ flags }),
-      log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
+      log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) }));
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.
     const { reasonPlans } = await import('../reasoning/reason-plans.mjs');

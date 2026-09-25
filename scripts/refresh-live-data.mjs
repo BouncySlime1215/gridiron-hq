@@ -45,6 +45,10 @@
  *                        those leagues (--leagues); the others keep their previous entries.
  *                        Unset, empty or 'all' plans every league (the default). Set it in
  *                        the local runner (e.g. ~/gridiron-local/refresh.sh), not in the repo.
+ *                        GRIDIRON_WARROOM_NIGHTLY_ALL=1 (PLANS-EXPIRE, default off): the first
+ *                        tick at or after 03:00 local each day plans every league anyway, so
+ *                        the kept leagues' plans never pass their 24 h expiry.
+ *                        Marker: nightly-all.json next to the plans file.
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -236,7 +240,7 @@ export function chatBackfill({ spawn = spawnSync, log = console.log, record = re
  * finished run's summary line (from its log) as sync_log 'warroom_plans'.
  */
 export function warRoomPlans({ launch = launchDetached, log = console.log, record = recordSync, env = process.env,
-  files = warRoomFiles(), flag = warRoomFlag } = {}) {
+  files = warRoomFiles(), flag = warRoomFlag, now = () => new Date() } = {}) {
   if (!flag().enabled) return;
   const holder = fs.existsSync(files.lock) ? Number(fs.readFileSync(files.lock, 'utf8')) : null;
   let running = false;
@@ -256,12 +260,60 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
     log(`${stamp()} ${'warroom_plans'.padEnd(18)} still running (pid ${holder}); last: ${(last ?? 'none yet').slice(0, 160)}`);
     return;
   }
-  const only = warRoomLeagues(env);
+  let only = warRoomLeagues(env);
+  // PLANS-EXPIRE: GRIDIRON_WARROOM_NIGHTLY_ALL=1 plans every league on the first tick at or after 03:00 local.
+  let nightly = null;
+  if (only) {
+    const marker = files.nightly ?? path.join(path.dirname(files.plans), 'nightly-all.json');
+    const read = readNightlyMarker(marker);
+    const at = now();
+    if (nightlyAllDue({ env, now: at, last: read.last })) {
+      only = null;
+      nightly = { marker, date: localDate(at), at: at.toISOString(),
+        line: read.error ? `nightly all-league replan; nightly marker unreadable (${read.error})` : 'nightly all-league replan' };
+    }
+  }
   // REACH-01: with GRIDIRON_REACH=1 (default off) the loop searches 8 targets (ONE-PLAN night 1), else the producer's 3.
   const reach = reachFlag(env) !== 'off';
   const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs',
     ...(only ? ['--leagues', only] : []), ...(reach ? ['--targets', String(REACH_TARGETS)] : [])], { cwd: ROOT, env, log: files.log });
-  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}${only ? `, leagues ${only}` : ''}); last: ${(last ?? 'none yet').slice(0, 160)}`);
+  // Written only once the all-league run launched, so a launch that throws leaves the night due.
+  if (nightly) {
+    fs.mkdirSync(path.dirname(nightly.marker), { recursive: true });
+    fs.writeFileSync(nightly.marker, JSON.stringify({ date: nightly.date, at: nightly.at }));
+  }
+  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}${only ? `, leagues ${only}` : ''}${nightly ? `, ${nightly.line}` : ''}); last: ${(last ?? 'none yet').slice(0, 160)}`);
+}
+
+export const WARROOM_NIGHTLY_ALL_ENV = 'GRIDIRON_WARROOM_NIGHTLY_ALL';
+/** The local hour the nightly all-league replan is due from. */
+export const NIGHTLY_ALL_HOUR = 3;
+
+/** 'YYYY-MM-DD' in local time. */
+export function localDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * PLANS-EXPIRE: whether this tick is the nightly all-league replan. Only with
+ * GRIDIRON_WARROOM_NIGHTLY_ALL=1 (never preview), at or after 03:00 local, and at most once per
+ * local day (`last`: the local date of the last one, from the marker next to the plans file).
+ */
+export function nightlyAllDue({ env = process.env, now = new Date(), last = null } = {}) {
+  if (env?.[WARROOM_NIGHTLY_ALL_ENV] !== '1') return false;
+  if (now.getHours() < NIGHTLY_ALL_HOUR) return false;
+  return last !== localDate(now);
+}
+
+/** The marker: absent -> { last: null }; unreadable -> { last: null, error } (reported, and the night runs). */
+function readNightlyMarker(file) {
+  if (!fs.existsSync(file)) return { last: null };
+  try {
+    const d = JSON.parse(fs.readFileSync(file, 'utf8'))?.date;
+    return typeof d === 'string' ? { last: d } : { last: null, error: 'no date in it' };
+  } catch (e) {
+    return { last: null, error: String(e?.message ?? e).slice(0, 80) };
+  }
 }
 
 export const WARROOM_LEAGUES_ENV = 'GRIDIRON_WARROOM_LEAGUES';

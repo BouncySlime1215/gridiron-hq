@@ -83,3 +83,64 @@ test('LIVE-BLEND labels: a blended P(yes) is never called "today\'s model" on a 
   assert.deepEqual(wrong, [], 'blend-served numbers labelled as the clone band');
   assert.ok(lines.every(l => l.includes(BLEND_LABEL)), 'each line names the blend');
 });
+
+const { ruleViolations, countByRule } = await import('./fixtures/nick-rules.mjs');
+const total = c => Object.values(c).reduce((a, n) => a + n, 0);
+
+test('every Batch B flag on: 0 rule breaks on every surface, and the risk rules do not collapse Safe', () => {
+  const served = {};
+  for (const mode of ['safe', 'balanced', 'all_in']) {
+    let decks = 0, decksOff = 0, alts = 0, ladders = 0;
+    const v = {};
+    for (const seed of SEEDS) {
+      const a = makeFuzzLeague(seed);
+      const res = plan(a, mode);
+      assert.equal(res.error, undefined);
+      if (res.deck.length) decks++;
+      if (plan(makeFuzzLeague(seed), mode, {}).deck.length) decksOff++;
+      alts += altsOf(res).length;
+      ladders += res.ladders?.cards?.length ?? 0;
+      for (const [k, n] of Object.entries(countByRule(ruleViolations(a, res)))) v[k] = (v[k] ?? 0) + n;
+    }
+    assert.equal(total(v), 0, `${mode}: ${JSON.stringify(v)}`);
+    // The risk rule may only tighten "beats doing nothing" (Safe: no ending below today); never to nothing.
+    assert.ok(decks >= Math.floor(0.9 * decksOff), `${mode}: ${decks} leagues serve a deck with the flags on, ${decksOff} off`);
+    served[mode] = { decks, decksOff, alts, ladders };
+  }
+  assert.ok(served.safe.decks >= 0.4 * SEEDS.length, `Safe serves a deck in ${served.safe.decks} of ${SEEDS.length}`);
+  assert.ok(served.balanced.alts > 0 && served.balanced.ladders > 0, `non-vacuous: ${JSON.stringify(served)}`);
+});
+
+test('LIVE-BLEND with every Batch B flag on: the blend moves order and shown p, never a rule outcome', () => {
+  const blend = (a, w) => {
+    const base = a.priceStep;
+    a.priceStep = (t, g, h) => { const r = base(t, g, h); return { ...r, p: w * r.p + (1 - w) * (1 - r.p), basis: BLEND_BASIS, p_gate: r.p }; };
+    return a;
+  };
+  const key = p => p.steps.map(s => `${s.team}:${[...s.give].map(S).sort()}>${[...s.get].map(S).sort()}`).join('|');
+  let shared = 0, moved = 0;
+  for (const seed of SEEDS.slice(0, 30)) {
+    for (const mode of ['safe', 'balanced']) {
+      const [x, y] = [1, 0.7].map(w => { const a = blend(makeFuzzLeague(seed), w); return { a, res: plan(a, mode) }; });
+      for (const r of [x, y]) {
+        const c = countByRule(ruleViolations(r.a, r.res));
+        // beats_no_trade in the oracle reads the SHOWN expected; the gate reads p_gate, checked below.
+        delete c.beats_no_trade;
+        assert.equal(total(c), 0, `seed ${seed} ${mode}: ${JSON.stringify(c)}`);
+        for (const card of r.res.deck) {
+          assert.notEqual(card.confirm.verdict, 'failed');
+          assert.equal(card.confirm.gate, 'p_gate');
+        }
+      }
+      const gx = new Map(x.res.deck.map(c => [key(c.plan), c.confirm.gate_expected]));
+      for (const c of y.res.deck) {
+        if (!gx.has(key(c.plan))) continue;
+        shared++;
+        assert.ok(Math.abs(gx.get(key(c.plan)) - c.confirm.gate_expected) < 1e-12, `seed ${seed} ${mode}: same plan, same gate number`);
+      }
+      if (JSON.stringify(x.res.deck.map(c => c.plan.steps[0].p)) !== JSON.stringify(y.res.deck.map(c => c.plan.steps[0].p))) moved++;
+    }
+  }
+  assert.ok(shared > 20, `non-vacuous: ${shared} shared cards`);
+  assert.ok(moved > 0, 'the blend did move the shown P(yes)');
+});

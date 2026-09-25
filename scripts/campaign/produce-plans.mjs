@@ -89,6 +89,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -353,6 +354,9 @@ export async function buildPlansFile(leagues, {
             read_error: brain.read.error } : { status: 'not_read' },
           // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
+          // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.
+          // Read after planning, so it can never constrain the search; nothing served reads it.
+          ...(adapter.love ? { love: loveSummary(adapter.love(loveIdsOf(entry), { draft: adapter.draft?.by_player ?? null })) } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.

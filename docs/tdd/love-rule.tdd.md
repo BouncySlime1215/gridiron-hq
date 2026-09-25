@@ -37,3 +37,25 @@ whatever tag the luck-free rule gives, printed with the CI once graded.
 What would fail it: either reproduction misses with the thresholds as written.
 The thresholds in `LOVE_RULE` are GUESSES until that run; they are declared
 in one frozen object so the local run can report exactly what it judged.
+
+## RED
+
+`dd17697b`: `ERR_MODULE_NOT_FOUND: server/services/campaign/love.js`; the whole file fails.
+
+## GREEN
+
+- `server/services/campaign/love.js`: `loveTag` (the rule), `LOVE_RULE` (frozen thresholds,
+  labelled GUESS), `loveSummary` (ids and counts for `_run.inputs.love`), `loveIdsOf` (the
+  players an entry shows), `loveEnabled` (`GRIDIRON_LOVE_TAG`, off unless `'1'`).
+- `server/services/campaign/love-inputs.js`: one parameterised read per source, weeks before
+  N only; absent tables reported per source.
+- `scripts/campaign/league-adapter.mjs`: `adapter.love(ids, { draft })`, flag-gated.
+- `scripts/campaign/produce-plans.mjs`: `_run.inputs.love`, read after planning.
+
+21 of 21 pass.
+
+## Decision the rule takes that the plan left open
+
+Section 4d says LOVE uses "actual AND expected" points; section 5 and CT-29 say luck has weight 0.
+Actual minus expected IS the luck term, so the tag reads expected points and share only, and
+actual points appear only in the luck sentence. Flagged in the PR under "Not confirmed".

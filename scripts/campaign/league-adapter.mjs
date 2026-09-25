@@ -17,6 +17,8 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { loveEnabled } from '../../server/services/campaign/love.js';
+import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -190,7 +192,7 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null } = {}) {
+  rescoreCache = null, love = loveEnabled() } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -374,6 +376,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.
     untouchable: untouchableIds([...managers.values()].map(m => m.nick).concat([myNick])),
     ...(finder ? { finderBest } : {}),
+    // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): the tag's inputs for ids the producer asks about, weeks < this week.
+    ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

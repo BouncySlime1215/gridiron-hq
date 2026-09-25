@@ -18,7 +18,8 @@ import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { tradeBlocks } from '../../server/services/espn-trade-block.js';
-import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
+import { tradeBlockRead, chatInterestRead } from '../../server/services/campaign/his-side.js';
+import { readChatTradeInterest } from '../../server/services/people/chat-trade-interest.js';
 import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
@@ -524,6 +525,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   // espn_id 0 is a placeholder on historical rows (ONE-PLAN 4b row 5), never a real id.
   for (const a of assets.values()) if (Number(a?.espn_id) > 0) byEspn.set(Number(a.espn_id), a.id);
   const tradeBlock = tradeBlockRead(tradeBlocks(payload), e => byEspn.get(Number(e)) ?? null);
+  // CHAT-TRADE-INTEREST (shadow): what each manager's own draft / analyzer screens say he'd give and wants.
+  const chatInterest = chatInterestRead(readChatTradeInterest(svc.db, Number(leagueId), Number(season)), e => byEspn.get(Number(e)) ?? null);
 
   // PLAYER-SCORE (flag GRIDIRON_PLAYER_SCORE / preview): the blue-chip board, and Nick's blue chips
   // join his untouchables so no step ever gives one away without his approval.
@@ -539,7 +542,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock, chatInterest,
     // FC-VALUE: which value Nick's rules read, and how many rostered players it could not price.
     valueSource: { status: fc.status, source: fc.source, fetched_at: fc.fetched_at, ...(fc.reason ? { reason: fc.reason } : {}),
       unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },

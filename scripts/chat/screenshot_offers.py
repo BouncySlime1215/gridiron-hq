@@ -465,10 +465,14 @@ def parse_screen(ctx, lines, meta):
            'from_roster': None, 'to_roster': None, 'give_ids': [], 'get_ids': [], 'status': None,
            'proposed_at': None, 'proposed_at_basis': None,
            'ocr_confidence': round(sum(l.get('conf', 0) for l in lines) / len(lines), 3) if lines else 0.0}
-    if kind in ('hypothetical', 'block'):
+    if kind == 'block':
         rec.update(confidence=round(0.5 * strength + 0.5 * min(1, len(players_all) / 2), 3), needs_review=0,
                    review_reasons=['not_an_offer'])
         return rec
+    # A hypothetical (analyzer, calculator, 'Trade for' comparison) is never an offer, but its sides are
+    # still read: the manager who built it shows whom he would give and whom he wants (chat_trade_interest).
+    what_if = kind == 'hypothetical'
+    if what_if: reasons.append('not_an_offer')
 
     # headers: a roster's exact-name lines; a line that only CONTAINS the name (a subtitle) is a header
     # only when the roster has no exact line at all
@@ -512,6 +516,16 @@ def parse_screen(ctx, lines, meta):
         at = meta['posted_at'] if kind != 'accepted' else \
             (datetime.strptime(meta['posted_at'], ISO) - timedelta(days=3)).strftime(ISO)
         owners, obasis = ctx.owners(league, at)
+    if what_if and league and poster_roster is not None and (a is None or b is None or poster_roster not in (a, b)):
+        # a calculator names no ESPN team: the explorer is the poster, the other side whoever holds the rest
+        others = {}
+        for _, pid, _ in players:
+            o = owners.get(pid)
+            if o is not None and o != poster_roster: others[o] = others.get(o, 0) + 1
+        named = [r for r in (a, b) if r is not None and r != poster_roster]
+        other = named[0] if named else (max(others, key=others.get) if others else None)
+        if other is not None:
+            a, b = poster_roster, other; reasons.append('sides_from_poster_and_rosters')
     header_lines = sorted((i, r) for r in (a, b) if r in headers for i in headers[r])
     if a is not None and b is not None and len({r for _, r in header_lines}) == 2:
         la = [lines[i] for i in headers[a]]; lb = [lines[i] for i in headers[b]]
@@ -566,11 +580,14 @@ def parse_screen(ctx, lines, meta):
     a_sends = a_list if listing == 'sends' else b_list if listing == 'receives' else []
     b_sends = b_list if listing == 'sends' else a_list if listing == 'receives' else []
 
-    # who proposed
-    if proposer is None and a is not None and b is not None and poster_roster in (a, b) and owner_receives != owner_proposed:
+    # who proposed (for a hypothetical: who built it, the poster)
+    if what_if:
+        proposer = poster_roster if poster_roster is not None and poster_roster in (a, b) else None
+        if proposer is not None: rec['proposer_basis'] = 'poster_explorer'
+    if proposer is None and not what_if and a is not None and b is not None and poster_roster in (a, b) and owner_receives != owner_proposed:
         proposer = poster_roster if owner_proposed else (b if poster_roster == a else a)
         rec['proposer_basis'] = 'poster_' + ('proposer' if owner_proposed else 'receiver')
-    if proposer is None and a is not None and b is not None:
+    if proposer is None and not what_if and a is not None and b is not None:
         m2 = re.search(r'([^\n]+?)\s+(?:has\s+)?(?:accepted|declined|rejected)\s+your', low)
         t = match_team(ctx, m2.group(1), season, league) if m2 and league else None
         if t and t[2] in (a, b):
@@ -585,11 +602,11 @@ def parse_screen(ctx, lines, meta):
     elif a is not None and b is not None:
         rec['from_roster'], rec['to_roster'] = a, b          # unordered: needs_review says so
         rec['give_ids'], rec['get_ids'] = a_sends, b_sends
-    rec['status'] = {'offer': 'proposed', 'finalize': 'proposed', 'accepted': 'accepted', 'declined': 'declined'}[kind]
+    rec['status'] = {'offer': 'proposed', 'finalize': 'proposed', 'accepted': 'accepted', 'declined': 'declined'}.get(kind)
 
     d = screen_date(text, meta['posted_at'], r'(?:proposed|sent|offered)')
     if d: rec['proposed_at'], rec['proposed_at_basis'] = d, 'screen_date'
-    elif kind in ('offer', 'finalize'):
+    elif kind in ('offer', 'finalize', 'hypothetical'):
         rec['proposed_at'], rec['proposed_at_basis'] = meta['posted_at'], 'posted_at_upper_bound'
     else:
         rec['proposed_at_basis'] = 'unknown'

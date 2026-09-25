@@ -19,6 +19,9 @@
  *                     runner's own pre-migration backup
  *       [--dry-run]   read and match only; write nothing to either DB
  *
+ * Also writes chat_trade_interest (people/chat-trade-interest.js): a league-mate's own finalize/draft or
+ * analyzer screen as wants / would-give ids, a shadow signal for the his-side lens. Nick's own are skipped.
+ *
  * PRIVACY: local only. No network, no model call. Prints counts only (no names, no text).
  */
 import path from 'node:path';
@@ -40,6 +43,7 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
   const ledger = await import('../../server/services/trade-outcomes.js');
   const { loadDecidedOffers } = await import('../../server/services/eval/decided-offers.js');
   const { deriveFormat } = await import('../../server/services/format.js');
+  const { recordChatTradeInterest } = await import('../../server/services/people/chat-trade-interest.js');
   const { rows, row } = dbmod;
   const appDb = dbmod.db;
 
@@ -118,11 +122,26 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
       for (const f of Object.keys(settle)) settle[f] += r[f] ?? 0;
     }
   }
+  // CHAT-TRADE-INTEREST: a league-mate's own finalize draft or analyzer screen says whom he would give
+  // (give_ids: his side) and whom he wants (get_ids). Nick's own screens are not a signal about a partner.
+  const interest = { candidates: 0, recorded: 0, already_recorded: 0, nicks_own: 0, refused: 0, table_absent: 0 };
+  const mine = new Map(rows('SELECT id, my_team_id FROM leagues').map(r => [Number(r.id), r.my_team_id == null ? null : Number(r.my_team_id)]));
+  for (const s of chat.prepare(`SELECT attachment_guid, kind, league_id, season, from_roster, give_ids, get_ids, posted_at, confidence
+      FROM screenshot_trades WHERE source = 'ocr' AND needs_review = 0 AND kind IN ('finalize', 'hypothetical')
+        AND league_id IS NOT NULL AND from_roster IS NOT NULL`).all()) {
+    interest.candidates++;
+    if (mine.get(Number(s.league_id)) === Number(s.from_roster)) { interest.nicks_own++; continue; }
+    if (dryRun) continue;
+    const r = recordChatTradeInterest({ league_id: s.league_id, season: s.season, roster_id: s.from_roster,
+      would_give_ids: JSON.parse(s.give_ids ?? '[]'), wants_ids: JSON.parse(s.get_ids ?? '[]'), kind: s.kind,
+      seen_at: s.posted_at, confidence: s.confidence, source_key: s.attachment_guid });
+    interest[r.state] = (interest[r.state] ?? 0) + 1;
+  }
   chat.close();
   const after = decided();
   const ledgerRows = rows(`SELECT status, COUNT(*) AS n FROM trade_outcomes WHERE source = 'observed_screenshot' GROUP BY status`)
     .reduce((m, r) => ({ ...m, [r.status]: r.n }), {});
-  return { counts, settle, screenshot_rows_in_ledger: ledgerRows, decided_offers: { before, after } };
+  return { counts, settle, screenshot_rows_in_ledger: ledgerRows, decided_offers: { before, after }, chat_trade_interest: interest };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

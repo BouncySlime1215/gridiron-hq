@@ -183,6 +183,14 @@ class Parse(unittest.TestCase):
         self.assertEqual((r['from_roster'], r['to_roster'], r['give_ids'], r['get_ids']), (2, 1, [102], [101]))
         self.assertTrue(r['sides_basis'].startswith('owner_direct'))
 
+    def test_calculator_by_a_league_mate_reads_his_would_give_and_wants(self):
+        # no ESPN team on a calculator: the explorer is the poster (Quin, roster 2), the other side whoever holds the rest
+        lines = [L('Trade Calculator', 0.17, 0.1), L('Tavi Ruskin RB', 0.1, 0.3), L('Marlo Venn WR', 0.6, 0.3)]
+        r = so.parse_screen(self.c, lines, {'posted_at': POSTED, 'poster_name': 'Quin', 'is_from_me': 0})
+        self.assertEqual(r['kind'], 'hypothetical'); self.assertIsNone(r['status'])
+        self.assertEqual((r['from_roster'], r['to_roster'], r['give_ids'], r['get_ids']), (2, 1, [102], [101]))
+        self.assertIn('not_an_offer', r['review_reasons'])
+
     def test_non_trade_returns_none(self):
         self.assertIsNone(so.parse_screen(self.c, [L('game day!', 0.1, 0.1)], META))
 

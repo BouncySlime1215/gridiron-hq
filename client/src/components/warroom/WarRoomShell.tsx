@@ -4,7 +4,7 @@ import WarRoomV2 from './WarRoomV2';
 import { readLayout, writeLayout, type WarRoomLayout } from './layoutPref';
 
 /**
- * WAR-ROOM-UI v2: the War Room as TradeBrain mounts it. The new layout (WarRoomV2: hero
+ * WAR-ROOM-UI v2: the War Room as Trades → Next move mounts it. The new layout (WarRoomV2: hero
  * next move, one Details disclosure, Coach drawer) is the default; "Classic layout" swaps
  * in the old one-screen dashboard (WarRoom.tsx, unchanged) and "New layout" swaps back.
  * The choice is kept in this browser (layoutPref.ts).

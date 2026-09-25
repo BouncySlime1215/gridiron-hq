@@ -133,6 +133,7 @@ test('nav is 7 items and App.tsx gains no War Room route', () => {
   assert.equal((groups.match(/\{ to: '/g) ?? []).length, 7);
   const app = fs.readFileSync(path.join(REPO, 'client', 'src', 'App.tsx'), 'utf8');
   assert.doesNotMatch(app, /war-room|warroom/i);
-  const brain = fs.readFileSync(path.join(REPO, 'client', 'src', 'pages', 'TradeBrain.tsx'), 'utf8');
-  assert.match(brain, /TABS\.filter\(t => t\.id !== 'war-room' \|\| warOn\)/, 'the tab is drawn only when the view is enabled');
+  // Trade Brain's tabs are gone; the planner is Trades → Next move, drawn only when the view is enabled.
+  const trades = fs.readFileSync(path.join(REPO, 'client', 'src', 'pages', 'Trades.tsx'), 'utf8');
+  assert.match(trades, /if \(view === 'planner' && warOn && activeId && warRoom\.data\) \{/, 'the planner is drawn only when the view is enabled');
 });

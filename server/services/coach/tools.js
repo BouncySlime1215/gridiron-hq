@@ -32,6 +32,9 @@ import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js
 import { NAV_TOOL, navOn, NavigatorError } from './navigator.js';
 import { NEG_TOOL, negotiateOn, warmNegotiator, NegotiatorError } from './negotiator.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
+import { row as dbRow, rows as dbRows } from '../../db/index.js';
+import { draftNamesBlocked } from '../campaign/never-give.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -362,6 +365,11 @@ export function runCoachTool(name, input, { ledger } = {}) {
   }
   if (tool.kind === 'ui_action') {
     const { action } = tool.run(input);
+    // RULES-EVERYWHERE: a drafted message that names a player Nick's hard rules keep out of a trade is dropped.
+    if (action.type === 'draft_message' && draftNamesBlocked({ row: dbRow, rows: dbRows }, action.text).length) {
+      return { entry: null, dropped_by_rule: 1,
+        summary: { refused: "That draft names a player Nick's hard rules keep out of any trade, so it was not put in the message box.", dropped_by_rule: 1 } };
+    }
     return { entry: null, action,
       summary: { action, note: PLAN_CHANGING.includes(action.type)
         ? 'Sent to the dashboard as a preview. Nothing changes until Nick taps Confirm.'
@@ -405,10 +413,10 @@ export function runCoachTool(name, input, { ledger } = {}) {
       throw e;
     }
     const entry = ledger.queries.at(-1) ?? null;
-    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}), dropped_by_rule: out.dropped_by_rule ?? 0,
       summary: { kind: out.kind, recommendation: out.recommendation, reprice: out.reprice, draft: out.draft,
         claims: out.answer.claims, refusals: out.answer.refusals, as_of: out.answer.as_of,
-        grounded: out.verification.ok, sends: out.sends,
+        grounded: out.verification.ok, sends: out.sends, dropped_by_rule: out.dropped_by_rule ?? 0,
         note: 'Put these claims and refusals in your answer as they are. The draft is in the message box for Nick to ' +
           'copy; nothing was sent and nothing was logged. Never state a price that is not in these claims.' } };
   }

@@ -58,7 +58,8 @@ const plansFile = path.join(temp, 'plans.json');
 fs.writeFileSync(plansFile, JSON.stringify(PLANS));
 process.env.GRIDIRON_WARROOM_PLANS = plansFile;
 
-const { run, row } = await import('../server/db/index.js');
+const { db, run, row } = await import('../server/db/index.js');
+const { priceForRules } = await import('./fixtures/rule-gate.mjs');
 await (await import('../server/db/migrate.js')).runMigrations();
 const { newLedger } = await import('../server/services/coach/ledger.js');
 const { verifyAnswer } = await import('../server/services/coach/verify.js');
@@ -73,6 +74,9 @@ try { neg = await import('../server/services/coach/negotiator.js'); } catch (e) 
 
 run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
      VALUES (${LEAGUE}, 'espn', 'neg-4', 2026, 'Fixture', '1', 4, 1, '{}', '2026-09-23 01:00:00')`);
+// RULES-EVERYWHERE: the made-up league priced for Nick's rule gate (Nick's P1-P7 low, the rest high);
+// the rules themselves are covered by test/rules-everywhere.test.js.
+priceForRules(db, { mine: [1, 2, 3, 4, 5, 6, 7], theirs: [11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35] });
 
 /* The engine: the made-up league's adapter, with every call counted. */
 const ADAPTER = makeAdapter();
@@ -417,4 +421,32 @@ if (!t.activeTools().some(x => x.name === 'negotiate_reply')) throw new Error('n
   const r = spawnSync(process.execPath, [script], { env, timeout: 45_000, encoding: 'utf8' });
   assert.equal(r.signal, null, `the process had to be killed: it did not exit on its own (${r.stderr})`);
   assert.equal(r.status, 0, r.stderr);
+});
+
+// RULES-EVERYWHERE (surface: Coach negotiate_reply): the step gets K. Knox (P21). Once Nick has sold
+// Knox this season, Coach never drafts an acceptance of it, nor takes or counters with him: walk,
+// counted in dropped_by_rule. Made-up ledger row; removed after.
+test('RULES-EVERYWHERE: a step that gets a player Nick sold this season is never accepted or countered, counted', () => {
+  db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+    league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+    type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+    team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+    bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, PRIMARY KEY (league_id, season, tx_id))`);
+  const had = row('SELECT id FROM players WHERE id = 21');
+  if (!had) run(`INSERT INTO players (id, name, position, espn_id) VALUES (21, 'K. Knox', 'WR', 9921)`);
+  else run('UPDATE players SET espn_id = 9921 WHERE id = 21');
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, processed_at, items_json, first_seen_at, last_seen_at)
+       VALUES (${LEAGUE}, 2026, 'rules-sold', 'TRADE_ACCEPT', 'EXECUTED', 'PROCESS', '2026-09-10T12:00:00Z', ?, 'now', 'now')`,
+  JSON.stringify([{ playerId: 9921, fromTeamId: 1, toTeamId: 3, type: 'TRADE' }]));
+  try {
+    for (const input of [{ reply_kind: 'accept' }, { reply: 'No, but Dell for Knox works' }]) {
+      const s = withFlag(() => tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, ...input }, { ledger: newLedger() }).summary);
+      assert.equal(s.recommendation?.do, 'walk', JSON.stringify(input));
+      assert.equal(s.dropped_by_rule, 1);
+      assert.doesNotMatch(String(s.draft ?? ''), /\bdeal\b|accept/i);
+    }
+  } finally {
+    run(`DELETE FROM league_transactions_raw WHERE tx_id = 'rules-sold'`);
+  }
 });

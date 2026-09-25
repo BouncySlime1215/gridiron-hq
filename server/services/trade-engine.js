@@ -51,7 +51,9 @@
  * consumers call `tradeIdeas`.
  */
 import crypto from 'node:crypto';
-import { rows } from '../db/index.js';
+import { row, rows } from '../db/index.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate every trade idea passes before it is returned.
+import { ruleGate, idsOf } from './campaign/never-give.js';
 import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
@@ -1848,6 +1850,62 @@ export function tradeIdeasFingerprint(lg, opts = {}, ctx = null) {
 }
 
 export function findTrades(lg, opts = {}) {
+  return gateIdeas(lg, findTradesRaw(lg, opts), opts.myTeamId);
+}
+
+/**
+ * RULES-EVERYWHERE: Nick's hard rules (campaign/never-give.js#ruleGate) on findTrades' result.
+ * Ideas that break a rule are dropped, never shown with a warning; `dropped_by_rule` counts them.
+ * A new object, so the cached search result is never mutated; the LOST_IDEAS symbol rides along.
+ */
+const gatedMemo = new WeakMap();
+export function gateIdeas(lg, out, myTeamId) {
+  if (!out || !Array.isArray(out.deals)) return out;
+  const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: out.me?.roster_id ?? myTeamId ?? lg.my_team_id });
+  const sides = d => ({ give: idsOf(d.i_give), get: idsOf(d.i_get), partner: d.partner_id, premium: d.title?.me ?? null });
+  const deals = gate.filter(out.deals, sides);
+  const tm = Array.isArray(out.title_mutual?.deals) ? gate.filter(out.title_mutual.deals, sides) : null;
+  // A cache hit stays a cache hit: the same search result with the same rule outcome is the same object.
+  const key = [deals.kept.length, deals.dropped_by_rule, tm?.kept.length ?? -1, tm?.dropped_by_rule ?? -1,
+    ...deals.kept.map(d => out.deals.indexOf(d)), ...(tm?.kept ?? []).map(d => out.title_mutual.deals.indexOf(d))].join(',');
+  const memo = gatedMemo.get(out);
+  if (memo?.key === key) return memo.gated;
+  const gated = { ...out, deals: deals.kept,
+    ...(tm ? { title_mutual: { ...out.title_mutual, deals: tm.kept } } : {}),
+    dropped_by_rule: deals.dropped_by_rule + (tm?.dropped_by_rule ?? 0) };
+  if (out[LOST_IDEAS]) Object.defineProperty(gated, LOST_IDEAS, { value: out[LOST_IDEAS], enumerable: false });
+  gatedMemo.set(out, { key, gated });
+  return gated;
+}
+
+/**
+ * RULES-EVERYWHERE: the same gate on one offer ladder (offerFor, and each offerForMany ladder). The get
+ * is the target(s); every rung, the opening ask, the fair price, the ceiling and the alternatives are
+ * checked, and a rung that fails is dropped (a single slot that fails is null).
+ */
+export function gateLadder(lg, out, myTeamId) {
+  if (!out || typeof out !== 'object') return out;
+  const get = idsOf(out.targets ?? (out.target ? [out.target] : []));
+  const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: out.me?.roster_id ?? myTeamId ?? lg.my_team_id });
+  const sides = p => ({ give: idsOf(p.i_give), get, partner: out.owner_id });
+  let dropped = 0;
+  const list = key => {
+    if (!Array.isArray(out[key])) return {};
+    const r = gate.filter(out[key], sides);
+    dropped += r.dropped_by_rule;
+    return { [key]: r.kept };
+  };
+  const one = key => {
+    if (!out[key] || !Array.isArray(out[key].i_give)) return {};
+    const r = gate.filter([out[key]], sides);
+    dropped += r.dropped_by_rule;
+    return { [key]: r.kept[0] ?? null };
+  };
+  return { ...out, ...list('offers'), ...list('alternatives'), ...one('open_with'), ...one('fair'), ...one('max'),
+    dropped_by_rule: dropped };
+}
+
+function findTradesRaw(lg, opts = {}) {
   if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
   // Playoff odds for MY team, resolved BEFORE the key so two searches with
   // different odds can never share a cache entry. Without them the horizon used
@@ -2203,7 +2261,7 @@ function findTradesUncached(lg, {
   // candidate in the combinatorial search, which would multiply the cost of the
   // inner loop by the price of a valuation lookup for nothing.
   const tacticsStartedAt = Date.now();
-  attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey });
+  attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey, meId: me.roster_id });
   const tacticsMs = Date.now() - tacticsStartedAt;
 
   const out = { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
@@ -2268,8 +2326,12 @@ function findTradesUncached(lg, {
  * `playerValuation` the valuation map and the trade card use — injected, not
  * re-derived — so a tactic and the card it sits on cannot disagree.
  */
-function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey }) {
+function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey, meId = null }) {
   if (!shown.length) return;
+  // RULES-EVERYWHERE: the anchor ladder's ask / fair / floor quote other variants by name; a variant
+  // that breaks one of Nick's rules is never one of them.
+  const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: meId ?? lg.my_team_id });
+  const variantOk = v => gate.filter([v], d => ({ give: idsOf(d.i_give), get: idsOf(d.i_get), partner: d.partner_id })).kept.length === 1;
   const byEspn = new Map();
   for (const a of assets.values()) if (a.espn_id != null) byEspn.set(String(a.espn_id), a);
   const valueOfEspn = espnId => byEspn.get(String(espnId))?.value ?? null;
@@ -2320,7 +2382,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     const sameReturn = list => list.map(p => p.id).sort((a, b) => a - b).join(',');
     const returning = sameReturn(d.i_get);
     const variants = deals
-      .filter(v => v.partner_id === d.partner_id && v.edge.passes && sameReturn(v.i_get) === returning)
+      .filter(v => v.partner_id === d.partner_id && v.edge.passes && sameReturn(v.i_get) === returning && variantOk(v))
       .map(v => ({ give_value: v.i_give.reduce((s, p) => s + (p.value ?? 0), 0),
         get_value: v.i_get.reduce((s, p) => s + (p.value ?? 0), 0),
         perception_delta: v.counterparty?.perception_delta ?? null,
@@ -2461,7 +2523,9 @@ export function findTradeSequences(lg, opts = {}) {
     })
     .slice(0, 5);
 
-  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })) };
+  // RULES-EVERYWHERE: both searches are gated (findTrades); the count covers both.
+  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })),
+    dropped_by_rule: (first.dropped_by_rule ?? 0) + (second.dropped_by_rule ?? 0) };
 }
 
 /**
@@ -2592,7 +2656,11 @@ function rungCounterparty(counterparties, owner, tier, { theirGive, theirGet }) 
  * Offer ladder for a specific target: the cheapest package that plausibly gets it
  * done, a fair-market version, and the point past which you are overpaying.
  */
-export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdds }) {
+export function offerFor(lg, opts) {
+  return gateLadder(lg, offerForRaw(lg, opts), opts?.myTeamId);
+}
+
+function offerForRaw(lg, { myTeamId, targetId, excludeIds = null, playoffOdds }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -2755,7 +2823,15 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
  * two players on different rosters come back as two separate ladders, one per
  * owner, rather than pretending a single package could land both.
  */
-export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playoffOdds }) {
+export function offerForMany(lg, opts) {
+  const out = offerForManyRaw(lg, opts);
+  if (!Array.isArray(out?.ladders)) return out;
+  const ladders = out.ladders.map(l => gateLadder(lg, { ...l, me: out.me }, opts?.myTeamId));
+  return { ...out, ladders: ladders.map(({ me: _me, dropped_by_rule: _d, ...l }) => l),
+    dropped_by_rule: ladders.reduce((s, l) => s + (l.dropped_by_rule ?? 0), 0) };
+}
+
+function offerForManyRaw(lg, { myTeamId, targetIds, excludeIds = null, playoffOdds }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);

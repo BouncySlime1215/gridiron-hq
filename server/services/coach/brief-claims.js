@@ -62,13 +62,24 @@ export function nextMove(entry, ledger, section) {
     out.push({ section, text: `No next move: ${reason}`, cites: [c(0, 'reason')] });
     return out;
   }
-  const move = nm.value;
-  const step = move.steps?.[0];
+  return moveClaims(entry, ledger, section, nm.value, { isNext: true });
+}
+
+/**
+ * The claims for one served move (the next move, or an alternative in the deck),
+ * told from step k: the offer, where it sits in the move, the title-odds change,
+ * the chance he says yes, the planner's case and when to send. `isNext` adds
+ * the "what changed" line, which the producer writes for the next move only.
+ */
+export function moveClaims(entry, ledger, section, move, { k = 0, isNext = false } = {}) {
+  const out = [];
+  const step = move?.steps?.[k];
   if (!step) return out;
   const names = entry.names ?? {};
-  const changed = entry._run?.changed;
+  const changed = isNext ? entry._run?.changed : null;
   const row = {
     move_id: String(move.move_id), partner: String(step.partner), partner_label: teamOf(entry, step.partner), steps: move.steps.length,
+    step: k + 1,
     p_yes: val(step.p_yes) ?? null, guess: step.p_yes?.guess === true,
     delta: val(step.title_odds_delta) ?? null, title_after: val(step.title_after) ?? null,
     delta_final: val(move.delta_final) ?? null, p_complete: val(move.p_complete) ?? null, expected: val(move.expected) ?? null,
@@ -84,7 +95,8 @@ export function nextMove(entry, ledger, section) {
   const deal = [...list('give'), ...list('get')].flatMap(x => [p(x.i, 'pid'), p(x.i, 'name')]);
   out.push({ section, cites: [c(0, 'partner'), c(0, 'partner_label'), ...deal],
     text: `Offer ${row.partner_label} ${list('give').map(x => x.name).join(' + ')} for ${list('get').map(x => x.name).join(' + ')}.` });
-  if (row.steps > 1) out.push({ section, text: `It is the first of ${row.steps} steps.`, cites: [c(0, 'steps')] });
+  if (k > 0) out.push({ section, text: `It is step ${row.step} of ${row.steps}: the steps before it go first.`, cites: [c(0, 'step'), c(0, 'steps')] });
+  else if (row.steps > 1) out.push({ section, text: `It is the first of ${row.steps} steps.`, cites: [c(0, 'steps')] });
   if (row.delta != null && row.title_after != null) {
     out.push({ section, text: `If he says yes, title odds move ${pts(row.delta)} to ${pct(row.title_after)}.`,
       cites: [c(0, 'delta'), c(0, 'title_after')] });
@@ -101,7 +113,7 @@ export function nextMove(entry, ledger, section) {
     .filter(t => t != null && t !== 'undefined').map(String)), ...Object.keys(val(entry.teams) ?? {})]
     .flatMap(t => [`Team ${t}`, teamOf(entry, t)]);
   const labels = [...teams, ...players.map(x => x.name), `${row.steps} step(s)`, `${row.steps} steps`];
-  const numeric = ['delta', 'p_yes', 'title_after', 'delta_final', 'p_complete', 'expected'].map(k => c(0, k));
+  const numeric = ['delta', 'p_yes', 'title_after', 'delta_final', 'p_complete', 'expected'].map(k2 => c(0, k2));
   if (row.case_for) out.push({ section, strict: true, labels, text: `Why: ${row.case_for}`, cites: numeric });
   if (row.changed && row.changed_reason) {
     out.push({ section, strict: true, labels, text: `What changed: ${row.changed_reason}`, cites: [c(0, 'changed_reason'), ...numeric] });
@@ -549,6 +561,196 @@ export function answerClaimsFor(intent, { entry, ledger }) {
   if (intent === 'all_in') return allIn(entry, ledger, section);
   if (intent === 'message_first') return messageFirst(entry, ledger, section);
   throw new Error(`unknown starter intent ${intent}`);
+}
+
+/* ------------------------------------------- COACH-PARTNER: one partner */
+
+/** The served moves in deck order: the next move first, then the alternatives it is not. */
+export function servedMoves(entry) {
+  const nm = ok(entry.next_move) ? entry.next_move.value : null;
+  const alts = (val(entry.alternatives) ?? []).filter(m => m?.steps?.length);
+  return [...(nm?.steps?.length ? [nm] : []), ...alts.filter(m => !nm || m.move_id !== nm.move_id)];
+}
+
+/** The deck the War Room swipes (client warroomCoach.ts#deckOf): the alternatives, else the next move alone. */
+export function deckMoves(entry) {
+  const alts = (val(entry.alternatives) ?? []).filter(m => m?.steps?.length);
+  if (alts.length) return alts;
+  return ok(entry.next_move) && entry.next_move.value?.steps?.length ? [entry.next_move.value] : [];
+}
+
+/** A served move's claims ordered like the next-move answer: offer, where it sits, then the rest. */
+function servedMoveClaims(entry, ledger, section, move, k) {
+  const isNext = ok(entry.next_move) && entry.next_move.value?.move_id === move.move_id;
+  const draft = moveClaims(entry, ledger, section, move, { k, isNext });
+  const out = [...draft];
+  const step = move.steps[k];
+  const msg = val(step?.message);
+  // A draft that does not name every player in the step is about some other deal: not shown.
+  const core = pid => String((entry.names ?? {})[pid] ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const fits = typeof msg === 'string' && [...(step?.give ?? []), ...(step?.get ?? [])]
+    .every(pid => core(pid) && new RegExp(`(^|[^A-Za-z0-9])${core(pid).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9]|$)`).test(msg));
+  if (fits && msg.trim()) {
+    const m = record(ledger, 'plan_message', [{ move_id: String(move.move_id), message: msg }]);
+    out.splice(1, 0, { section, text: `Draft to copy and send yourself: "${msg}"`, cites: [m(0, 'message')] });
+  }
+  if (move.steps.length > 1 && val(move.expected) != null) {
+    const e = record(ledger, 'plan_move', [{ expected: val(move.expected), p_complete: val(move.p_complete) ?? null,
+      guess: move.p_complete?.guess === true }]);
+    const pc = val(move.p_complete);
+    out.push({ section, cites: [e(0, 'expected'), ...(pc != null ? [e(0, 'p_complete')] : [])],
+      text: `Whole move: expected ${pts(val(move.expected))} of title odds${pc != null ? `, completes ${pct(pc)} of the time${move.p_complete?.guess ? ' (a guess)' : ''}` : ''}.` });
+  }
+  return out;
+}
+
+const flipIds = (legs, key, lead) => (Array.isArray(legs[`${key}_ids`]) && legs[`${key}_ids`].some(x => x != null)
+  ? legs[`${key}_ids`].filter(x => x != null).map(String) : [String(legs[lead])]);
+
+/** The best flip leg with one roster: flip_map in the producer's order, legs priced only. */
+function flipLegClaims(entry, ledger, section, roster, flip) {
+  const names = entry.names ?? {};
+  const legs = flip.legs;
+  const buyLeg = String(flip.buy_from) === roster;
+  const other = buyLeg ? String(flip.sell_to) : String(flip.buy_from);
+  const nameOf = pid => names[pid] ?? `player ${pid}`;
+  const give = flipIds(legs, 'give_a', 'give_a');
+  const get = flipIds(legs, 'get_b', 'get_b');
+  const players = [{ pid: String(flip.player), name: nameOf(flip.player), side: 'flip' },
+    ...give.map(pid => ({ pid, name: nameOf(pid), side: 'give' })), ...get.map(pid => ({ pid, name: nameOf(pid), side: 'get' }))];
+  const p = record(ledger, 'plan_flip_players', players);
+  const t = record(ledger, 'plan_flip', [{ partner: roster, partner_label: teamOf(entry, roster), other, other_label: teamOf(entry, other),
+    leg: buyLeg ? 1 : 2, legs: 2,
+    p_his: val(buyLeg ? legs.p1 : legs.p2) ?? null, guess: (buyLeg ? legs.p1 : legs.p2)?.guess === true,
+    p_both: val(legs.p_both) ?? null, nick_after: val(legs.nick_after) ?? null, clears: legs.nick_after?.clears_2se === true,
+    spread: val(flip.spread) ?? null }]);
+  const side = s2 => players.map((x, i) => ({ ...x, i })).filter(x => x.side === s2);
+  const cite = xs => xs.flatMap(x => [p(x.i, 'pid'), p(x.i, 'name')]);
+  const [f] = side('flip');
+  const joined = xs => xs.map(x => x.name).join(' + ');
+  const out = [];
+  const lead = [t(0, 'partner'), t(0, 'partner_label'), t(0, 'other'), t(0, 'other_label'), ...cite([f]), ...cite(side('give')), ...cite(side('get'))];
+  out.push({ section, cites: lead, text: buyLeg
+    ? `Best flip leg with him: offer ${teamOf(entry, roster)} ${joined(side('give'))} for ${f.name}, then sell ${f.name} to ${teamOf(entry, other)} for ${joined(side('get'))}.`
+    : `Best flip leg with him: buy ${f.name} from ${teamOf(entry, other)} for ${joined(side('give'))}, then offer ${teamOf(entry, roster)} ${f.name} for ${joined(side('get'))}.` });
+  out.push({ section, cites: [t(0, 'leg'), t(0, 'legs')], text: `His is leg ${buyLeg ? 1 : 2} of 2; each leg is a separate offer.` });
+  const pHis = buyLeg ? legs.p1 : legs.p2;
+  if (val(pHis) != null) {
+    out.push({ section, cites: [t(0, 'p_his')],
+      text: `Chance he says yes to his leg: ${pct(val(pHis))}${pHis.guess ? ', a guess until the yes-model is proven' : ''}.` });
+  }
+  if (val(legs.p_both) != null) out.push({ section, cites: [t(0, 'p_both')], text: `Both legs land ${pct(val(legs.p_both))} of the time.` });
+  if (val(legs.nick_after) != null) {
+    out.push({ section, cites: [t(0, 'nick_after'), t(0, 'clears')],
+      text: `If both land, your title odds change ${pts(val(legs.nick_after))}${legs.nick_after.clears_2se ? ', past the noise bar' : ', inside the noise'}.` });
+  }
+  const caseFor = namedTeams(entry, val(flip.reasoning)?.case_for ?? null);
+  if (caseFor) {
+    const labels = [roster, other, String(entry.me)].flatMap(x => [`Team ${x}`, teamOf(entry, x)]).concat(players.map(x => x.name));
+    out.push({ section, strict: true, labels, text: `Why: ${caseFor}`, cites: [t(0, 'spread'), t(0, 'p_both'), t(0, 'nick_after')] });
+  }
+  return out;
+}
+
+const CHAT_LABEL = s2 => String(s2).replace(/_/g, ' ').replace(':', ' ');
+
+/** The partners read of one roster, and the honest "nothing clears with him". */
+function partnerReadClaims(entry, ledger, section, roster) {
+  const out = [];
+  const label = teamOf(entry, roster);
+  const h = record(ledger, 'plan_partner', [{ partner: roster, partner_label: label }]);
+  out.push({ section, cites: [h(0, 'partner'), h(0, 'partner_label')],
+    text: `No fair trade with ${label} clears your rules right now: no served plan or flip leg goes through him.` });
+  const pa = ok(entry.partners) ? entry.partners.value.find(x => String(x.team) === roster) : null;
+  if (!pa) {
+    out.push({ section, cites: [h(0, 'partner_label')], text: `The plans file has no partner read for ${label}.` });
+  } else {
+    const names = entry.names ?? {};
+    const wants = (pa.reason_chain ?? []).filter(r => r?.feature === 'wants_player' && r.player != null)
+      .map(r => names[r.player] ?? `player ${r.player}`);
+    const row = { p_responds: typeof pa.p_responds === 'number' ? pa.p_responds : null, basis: pa.basis ?? null,
+      edge: val(pa.edge) ?? null, holes: Array.isArray(pa.roster_holes) && pa.roster_holes.length ? pa.roster_holes.join(', ') : null,
+      wants: wants.length ? wants.join(' + ') : null,
+      chat: Array.isArray(pa.chat_labels) && pa.chat_labels.length ? pa.chat_labels.map(CHAT_LABEL).join(', ') : null,
+      offers_logged: typeof pa.offers_logged === 'number' ? pa.offers_logged : null,
+      blocked: pa.blocked === true, checked_out: pa.checked_out === true };
+    const c = record(ledger, 'plan_partners', [row]);
+    if (row.blocked || row.checked_out) {
+      out.push({ section, cites: [c(0, row.blocked ? 'blocked' : 'checked_out')],
+        text: `The planner has him ${row.blocked ? 'blocked' : 'checked out'}, so it builds nothing with him.` });
+    }
+    if (row.p_responds != null) {
+      out.push({ section, cites: [c(0, 'p_responds'), ...(row.basis ? [c(0, 'basis')] : [])],
+        text: `${pct(row.p_responds)} chance he responds${row.basis ? `; basis: ${row.basis}` : ''}.` });
+    }
+    if (row.holes) out.push({ section, cites: [c(0, 'holes')], text: `He needs ${row.holes}.` });
+    if (row.wants) out.push({ section, cites: [c(0, 'wants')], text: `He wants a player you have: ${row.wants}.` });
+    if (row.chat) out.push({ section, cites: [c(0, 'chat')], text: `Approach: the chat reads ${row.chat}.` });
+    if (row.edge != null) out.push({ section, cites: [c(0, 'edge')], text: `The plan's edge with him is ${pts(row.edge)}.` });
+    if (row.offers_logged) out.push({ section, cites: [c(0, 'offers_logged')], text: `Offers logged with him: ${row.offers_logged}.` });
+  }
+  const nm = entry.next_move;
+  if (!entry.error && !ok(nm) && nm?.reason) {
+    const r = record(ledger, 'plan_read', [{ status: nm.status ?? 'missing', reason: nm.reason }]);
+    out.push({ section, cites: [r(0, 'reason')], text: `Closest miss this week (the whole league, not only him): ${nm.reason}` });
+  }
+  return out;
+}
+
+/**
+ * COACH-PARTNER: a trade idea aimed at one roster, from served plans only (so
+ * Nick's rules hold; nothing is invented): the best served move whose first
+ * step goes to him, else one with any step through him, else the best priced
+ * flip leg with him, else his partners read and "nothing clears with him".
+ *
+ * @returns {{claims: object[], source: string, move_id?: string}}
+ */
+export function partnerClaims(entry, ledger, roster) {
+  const section = 'partner';
+  const id = String(roster);
+  if (entry.error) {
+    const c = record(ledger, 'plan_read', [{ error: String(entry.error) }]);
+    return { source: 'error', claims: [{ section, text: `The last plan run failed: ${entry.error}`, cites: [c(0, 'error')] }] };
+  }
+  const moves = servedMoves(entry);
+  const first = moves.find(m => String(m.steps[0].partner) === id);
+  if (first) return { source: 'plan_first_step', move_id: String(first.move_id), claims: servedMoveClaims(entry, ledger, section, first, 0) };
+  const any = moves.find(m => m.steps.some(s2 => String(s2.partner) === id));
+  if (any) {
+    const k = any.steps.findIndex(s2 => String(s2.partner) === id);
+    return { source: 'plan_any_step', move_id: String(any.move_id), claims: servedMoveClaims(entry, ledger, section, any, k) };
+  }
+  const flip = (val(entry.flip_map) ?? []).find(f => f?.legs && (String(f.buy_from) === id || String(f.sell_to) === id));
+  if (flip) {
+    const h = record(ledger, 'plan_partner', [{ partner: id, partner_label: teamOf(entry, id) }]);
+    return { source: 'flip_leg', claims: [
+      { section, cites: [h(0, 'partner'), h(0, 'partner_label')], text: `No served plan goes through ${teamOf(entry, id)}.` },
+      ...flipLegClaims(entry, ledger, section, id, flip)] };
+  }
+  return { source: 'partner_read', claims: partnerReadClaims(entry, ledger, section, id) };
+}
+
+/** COACH-PARTNER: card i of the deck ("what else"), in full, or the end of the deck. */
+export function alternativeClaims(entry, ledger, index) {
+  const section = 'alternative';
+  const deck = deckMoves(entry);
+  const c = record(ledger, 'plan_deck', [{ card: index + 1, cards: deck.length }]);
+  if (!deck.length) {
+    const why = ok(entry.next_move) ? 'the plans file has no alternatives for this league.' : (entry.next_move?.reason ?? 'the plans file has no alternatives for this league.');
+    const r = record(ledger, 'plan_read', [{ reason: why }]);
+    return [{ section, cites: [r(0, 'reason')], text: `No alternatives in the deck: ${why}` }];
+  }
+  if (index >= deck.length) {
+    return [{ section, cites: [c(0, 'cards')], text: `That was the last alternative in the deck (${deck.length} of ${deck.length}). Say "undo" to go back one.` }];
+  }
+  const move = deck[index];
+  const claims = servedMoveClaims(entry, ledger, section, move, 0);
+  claims.splice(1, 0, { section, cites: [c(0, 'card'), c(0, 'cards')], text: `Card ${index + 1} of ${deck.length} in the deck.` });
+  if (val(move.expected) != null && move.steps.length === 1) {
+    const e = record(ledger, 'plan_move', [{ expected: val(move.expected) }]);
+    claims.push({ section, cites: [e(0, 'expected')], text: `Expected: ${pts(val(move.expected))} of title odds.` });
+  }
+  return claims;
 }
 
 /* ----------------------------------------------------------------- kinds */

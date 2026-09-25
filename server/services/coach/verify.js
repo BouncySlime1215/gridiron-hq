@@ -71,6 +71,44 @@ function numericTokens(text) {
   return [...String(text ?? '').matchAll(NUMBER)].map(match => match[0]);
 }
 
+/**
+ * COACH-PARTNER: small whole numbers that only structure Coach's own sentence.
+ *
+ * "step 1 of 2", "#2", "the 2nd card", "1 of 3", "9 managers", a "1." list
+ * marker: these count or order the things Coach is talking about, and tracing
+ * them to a cell rejected good answers ("could not trace 3 numbers (9, 1, 2)").
+ * Exempt only when ALL of these hold: an unsigned integer <= ORDINAL_MAX with no
+ * decimal, not followed by a unit (%, pts, points, x, a unit word), and in one
+ * of the structural shapes below. Every other number (points, percentages,
+ * odds, values, dates, weeks, a count of anything on the field) is checked
+ * exactly as before.
+ */
+const ORDINAL_MAX = 10;
+/** Nouns that count the structure of the league or of Coach's own answer, never a football stat. */
+const STRUCTURE_NOUN = /^\s+(?:(?:other|more|served|listed|reachable|possible|remaining|trade|flip)\s+)?(?:managers?|teams?|leagues?|league-mates|steps?|options?|alternatives?|ideas?|cards?|legs?|paths?|choices?)\b/i;
+const BEFORE_ORDINAL = /(?:\b(?:step|option|alternative|idea|card|leg|choice|number|no\.)\s*|#)$/i;
+const OF_N = /^\s+of\s+(\d+)\b(?!\s*(?:%|pts?\b|points?\b|percent))/i;
+const SUFFIX = /^(?:st|nd|rd|th)\b/i;
+
+/** Is this match a list position, step count or ordinal (and nothing that measures anything)? */
+function isStructural(text, match) {
+  const token = match[0];
+  if (!/^\d+$/.test(token) || Number(token) > ORDINAL_MAX) return false;
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + token.length);
+  if (/^\s*(?:%|pts?\b|points?\b|percent|x\b|\.\d)/i.test(after)) return false;
+  if (/[-+$]$/.test(before)) return false;
+  if (SUFFIX.test(after)) return true;
+  if (BEFORE_ORDINAL.test(before)) return true;
+  const of = after.match(OF_N);
+  if (of && Number(of[1]) <= ORDINAL_MAX) return true;
+  // "1 of 3": the 3 is the count the first one is out of.
+  if (/\b\d+\s+of\s+$/i.test(before) && Number(before.match(/(\d+)\s+of\s+$/)[1]) <= ORDINAL_MAX) return true;
+  if (STRUCTURE_NOUN.test(after)) return true;
+  if (/(?:^|\n)\s*$/.test(before) && /^[.)]\s/.test(after)) return true;
+  return false;
+}
+
 function asNumber(token) {
   const value = Number(String(token).replace(/,/g, ''));
   return Number.isFinite(value) ? value : null;
@@ -193,8 +231,10 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
       cells.push(cell);
     }
 
-    for (const token of numericTokens(text)) {
+    for (const match of String(text).matchAll(NUMBER)) {
+      const token = match[0];
       numbersChecked += 1;
+      if (isStructural(text, match)) continue;
       if (cells.some(cell => grounds(cell.value, token, BRAIN_TOOL_NAMES.includes(toolOf(cell))))) continue;
       violations.push({
         kind: VIOLATIONS.UNGROUNDED_NUMBER, claim_index: claimIndex, number: token, text,

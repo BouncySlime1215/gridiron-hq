@@ -237,3 +237,29 @@ test('the check reports how many numbers it examined, so an empty check is visib
   assert.equal(result.numbers_checked, 1);
   assert.equal(result.ok, false, 'WR1 contains a 1 that is in no cited cell');
 });
+
+/* ------------------------------------------ COACH-PARTNER: small counts */
+
+test('a list position, step count or ordinal in Coach\'s own text is not a quantity to trace', () => {
+  const ledger = ledgerWithUsage();
+  const ok = text => verifyAnswer({ ledger, answer: { claims: [{ text, cites: ['r1#0.name'] }] } });
+  for (const text of ['It is step 1 of 2 toward A Player.', 'Of the 9 managers, he answers fastest.',
+    'This is option #2.', 'Alternative 1 of 3 in the deck.', 'The 2nd card is the safer one.',
+    '1. Offer him the package.', 'It takes 3 steps.']) {
+    const r = ok(text);
+    assert.equal(r.ok, true, `${text}: ${JSON.stringify(r.violations)}`);
+  }
+});
+
+test('a real quantity is still checked, however small: points, percentages, odds, values, dates', () => {
+  const ledger = ledgerWithUsage();
+  const bad = text => verifyAnswer({ ledger, answer: { claims: [{ text, cites: ['r1#0.name'] }] } });
+  for (const text of ['Title odds move +4.2 pts.', 'It is step 1 of 2 and adds +4.2 pts.', 'Chance he says yes: 9%.',
+    'He scores 7 points a game.', 'He saw 2 targets.', 'Week 5 is his bye.', 'Worth 3 managers\' +2 pts.',
+    'He has 8 wins.', '2 of 3 of his offers were accepted at 4.5 points.']) {
+    const r = bad(text);
+    assert.equal(r.ok, false, `${text} must not pass`);
+  }
+  const r = bad('It is step 1 of 2 and adds +4.2 pts.');
+  assert.deepEqual(r.violations.map(v => v.number), ['+4.2']);
+});

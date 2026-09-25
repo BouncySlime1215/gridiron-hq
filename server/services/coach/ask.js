@@ -42,7 +42,7 @@ import { recordCoachAnswer } from './audit.js';
 import { warRoomEnabled } from '../warroom-actions/store.js';
 import { routeIntent } from '../warroom-actions/intent.js';
 import { coachBriefFlag } from './brief.js';
-import { starterIntent, starterAnswer, starterActions } from './starter-answers.js';
+import { starterIntent, starterAnswer, starterActions, partnerAnswer } from './starter-answers.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
@@ -186,13 +186,16 @@ export async function askCoach({ question, context = null, leagueId = null,
 
   // The brief flag gates the plan-read path; a screen command with no model key still runs below.
   const planAnswers = coachBriefFlag().on;
-  const intent = planAnswers ? starterIntent(asked) : null;
+  const league = leagueId ?? (Number.isInteger(context?.league) ? context.league : null);
+  // COACH-PARTNER: "a trade to send to <manager>" names someone; answered from his served plans.
+  const partner = planAnswers ? await partnerAnswer({ question: asked, leagueId: league }) : null;
+  const intent = partner ? 'partner' : (planAnswers ? starterIntent(asked) : null);
   if (intent || (planAnswers && !hasModel && !fast)) {
-    const league = leagueId ?? (Number.isInteger(context?.league) ? context.league : null);
-    const out = await starterAnswer({ question: asked, intent, leagueId: league });
+    const out = partner ?? await starterAnswer({ question: asked, intent, leagueId: league });
     const starterActs = [];
     if (warRoom && intent) {
-      for (const [tool, input] of (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent))) {
+      const acts = out.actions ?? (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent));
+      for (const [tool, input] of acts) {
         const { action } = runCoachTool(tool, input, { ledger });
         starterActs.push(action);
         emit({ t: 'action', action, fast_path: true });
@@ -202,7 +205,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     const auditId = recordCoachAnswer({ question: asked, route: context?.route ?? null, leagueId: league, model: 'none:starter',
       answer: out.answer, ledger: out.ledger, plan, verification: out.verification, costUsd: 0 });
     return { question: asked, answer: out.answer, actions: starterActs, ledger: out.ledger, verification: out.verification,
-      dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0,
+      dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0, ...(out.partner ? { partner: out.partner } : {}),
       ...(out.preview ? { preview: true, preview_reason: out.preview_reason } : {}) };
   }
 

@@ -505,7 +505,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     risk_modes, partners,
     teams: teams && Object.keys(teams).length ? ok(teams, 'campaign.plan') : unknown('The league adapter read no team or manager names.', 'campaign.plan'),
     blue_chips: blueChipsSection(board, res),
-    p_yes_basis: res.p_yes_basis ? ok(res.p_yes_basis, pSrcOf(res.p_yes_basis)) : unknown('This run served no P(yes) table (a fixture or the clone path).', 'clone.accept'),
+    // LIVE-BLEND: which P(yes) the steps serve; unknown when the adapter read no table (a fixture).
+    p_yes_basis: res.p_yes_basis ? ok(res.p_yes_basis, pSrcOf(res.p_yes_basis))
+      : unknown('This run read no P(yes) table, so the steps carry the adapter\'s own p.', 'clone.accept'),
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,

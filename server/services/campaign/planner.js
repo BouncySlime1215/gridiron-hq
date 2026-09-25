@@ -48,12 +48,13 @@ const firstKey = p => dealKey(p.steps[0]);
  * the served p; `gate` says which p decided 'failed'.
  */
 export function confirmGate(planned, reconfirmed) {
+  const shown = confirmVerdict(pathExpectation(planned.steps), pathExpectation(reconfirmed.steps));
+  // The clone path carries no p_gate: the verdict is today's, object and all.
+  if (!planned.steps.some(s => s.p_gate != null)) return shown;
   const gate = steps => steps.map(s => (s.p_gate != null ? { ...s, p: s.p_gate } : s));
   const g = confirmVerdict(pathExpectation(gate(planned.steps)), pathExpectation(gate(reconfirmed.steps)));
-  const shown = confirmVerdict(pathExpectation(planned.steps), pathExpectation(reconfirmed.steps));
   const verdict = g.verdict === 'failed' ? 'failed' : shown.verdict === 'failed' ? g.verdict : shown.verdict;
-  return { ...shown, verdict, gate_expected: g.confirmed_expected,
-    gate: planned.steps.some(s => s.p_gate != null) ? 'p_gate' : 'p' };
+  return { ...shown, verdict, gate_expected: g.confirmed_expected, gate: 'p_gate' };
 }
 
 /** Top plans with distinct first moves (the swipe deck). */

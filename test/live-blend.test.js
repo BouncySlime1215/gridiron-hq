@@ -158,6 +158,7 @@ test('confirm dice: the served p cannot flip "beats doing nothing"; the gate p d
   // Without the gate the served p WOULD flip it: this is what the gate protects.
   const noGate = (p1, p2) => ({ steps: path(p1, p2).steps.map(({ p_gate, ...s }) => s) });
   assert.equal(confirmGate(noGate(0.9, 0.2), noGate(0.9, 0.2)).verdict, 'failed');
+  assert.equal('gate' in confirmGate(noGate(0.9, 0.2), noGate(0.9, 0.2)), false, 'clone path: the verdict object is unchanged');
   assert.notEqual(confirmGate(noGate(0.3, 0.9), noGate(0.3, 0.9)).verdict, 'failed');
 });
 

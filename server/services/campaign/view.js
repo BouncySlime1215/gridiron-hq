@@ -25,6 +25,7 @@ import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
+import { ladderSection } from './ladder.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -499,6 +500,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     risk_modes, partners,
     teams: teams && Object.keys(teams).length ? ok(teams, 'campaign.plan') : unknown('The league adapter read no team or manager names.', 'campaign.plan'),
     blue_chips: blueChipsSection(board, res),
+    // LADDER-01: only when the planner built cards (flag on); off, the entry is byte for byte today's.
+    ...(res.ladders ? { ladders: ladderSection(res.ladders, { names, unit }) } : {}),
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,

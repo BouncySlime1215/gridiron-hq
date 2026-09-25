@@ -119,7 +119,7 @@ test('a ladder card: depth -> level below -> blue chip, p per rung as a guess, "
 
 const step = (team, give, get, p = 0.3, delta = 0.01) => ({ team, give, get, p, delta, se: 0.002 });
 const plan = (target, steps) => ({ target, owner: steps[steps.length - 1].team, steps, chained: true });
-const players = new Map(Object.entries({ 1: 100, 2: 100, 3: 100, 5: 100, 80: 100, 160: 100, 277: 100, 290: 100, 7: 100, 8: 100, 9: 90, 10: 200 })
+const players = new Map(Object.entries({ 1: 100, 2: 100, 3: 100, 5: 100, 80: 100, 160: 100, 277: 100, 290: 100, 7: 100, 8: 100, 9: 100, 10: 200, 99: 100 })
   .map(([id, value]) => [id, { value }]));
 const sc = { 1: 20, 2: 20, 3: 20, 5: 76, 7: 90, 8: 82, 9: 76, 10: 95, 80: 90, 160: 90, 277: 85, 290: 84 };
 const scoreOf2 = id => (sc[id] == null ? null : { score: sc[id] });
@@ -146,8 +146,8 @@ test('no rung gives 160, 80, 277 or an adapter untouchable; no rung gets Olave (
 });
 
 test('a rung that gives more market value than it gets (past the cap) is dropped', () => {
-  // 10 (200) for 7 (100): +100% overpay.
-  const over = plan('7', [step('2', ['1'], ['5']), step('3', ['10'], ['7'])]);
+  // Rung 1 brings in 10 (200) for 1 (100); rung 2 spends 10 (200) on 7 (100): +100% overpay.
+  const over = plan('7', [step('2', ['1'], ['10']), step('3', ['10'], ['7'])]);
   const out = cardsFor([over]);
   assert.equal(out.cards.length, 0);
   assert.equal(out.dropped_by_reason.overpay, 1);
@@ -207,10 +207,11 @@ test('flag on: the entry validates, carries the ladders section, and nothing els
     const { ladders, ...rest } = on.entry;
     assert.ok(ladders, `${mode}: section present`);
     assert.deepEqual(rest, off.entry, `${mode}: every other section is byte for byte the flag-off entry`);
-    const errs = validateLeague(on.entry);
+    const errs = validateLeague(on.entry).errors;
     assert.deepEqual(errs, [], `${mode}: ${JSON.stringify(errs.slice(0, 3))}`);
     assert.equal(ladders.status, 'ok');
     assert.equal(ladders.guess, true);
+    if (mode !== 'safe') assert.ok(ladders.value.cards.length > 0, `${mode}: the fixture builds at least one ladder card`);
     for (const c of ladders.value.cards) {
       assert.ok(SCORE_FIX[c.target] >= 83, 'final get is a Blue chip');
       if (mode === 'all_in') assert.ok(c.rungs.length <= 2);
@@ -220,4 +221,10 @@ test('flag on: the entry validates, carries the ladders section, and nothing els
       }
     }
   }
+});
+
+test('the schema\'s rung tiers are the module\'s', async () => {
+  const { LADDER_TIERS, OPTIONAL_SECTIONS } = await import('../server/services/campaign/plans-schema.js');
+  assert.deepEqual([...LADDER_TIERS], [...L.TIERS]);
+  assert.ok(OPTIONAL_SECTIONS.includes('ladders'), 'a file written before LADDER-01 still validates');
 });

@@ -25,6 +25,7 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { ladderFlag, ladderCards, scoreReader } from './ladder.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -160,6 +161,10 @@ export function planLeague(adapter, settings) {
   const pool = objective.kind === 'player' ? plans.filter(p => String(p.target) === String(objective.target)) : plans;
   const { tol, ctx } = ctxFor(objective.risk_mode);
   const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx);
+  // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths; shadow, they move nothing served.
+  const ladders = ladderFlag(env) === 'on'
+    ? ladderCards(ranked, { mode: objective.risk_mode, scoreOf: scoreReader(adapter), players: adapter.players, untouchable, maxOverpay })
+    : null;
 
   // Confirm on fresh dice: re-price the deck on an independent seed, show those numbers, drop failures.
   let deck = deckOf(ranked, DECK_SIZE + 2);
@@ -340,6 +345,7 @@ export function planLeague(adapter, settings) {
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     untouchable: { ids: [...untouchable], refused_targets: refused },
+    ...(ladders ? { ladders } : {}),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

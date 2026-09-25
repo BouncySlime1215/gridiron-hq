@@ -279,7 +279,7 @@ async function unwindTo(name) {
   const latest = () => row('SELECT name FROM schema_migrations WHERE name <> ? ORDER BY rowid DESC LIMIT 1',
     LEGACY_SCHEMA_MIGRATION)?.name;
   for (let guard = 0; latest() && latest() !== name; guard++) {
-    assert.ok(guard < 20 && latest() > name, `cannot unwind to ${name}: latest is ${latest()}`);
+    assert.ok(guard < 40 && latest() > name, `cannot unwind to ${name}: latest is ${latest()}`);
     await rollbackMigration(latest());
   }
   assert.equal(latest(), name);

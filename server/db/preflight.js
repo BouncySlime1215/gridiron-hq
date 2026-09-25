@@ -57,6 +57,7 @@
  */
 
 import { inspectWithdrawn, widenTradeOutcomesStatus } from './trade-outcomes-withdrawn.js';
+import { inspectScreenshotSource, widenTradeOutcomesSource } from './trade-outcomes-screenshot-source.js';
 
 const OPPORTUNITY_TABLE = 'nfl_execution_opportunities';
 const LIFECYCLE_TABLE = 'nfl_execution_lifecycle_events';
@@ -64,6 +65,7 @@ const REBUILD_TABLE = 'nfl_execution_opportunities_preflight_027';
 
 export const OPPORTUNITY_CASCADE_REPAIR = 'preflight_027_execution_opportunity_cascade';
 export const TRADE_OUTCOMES_WITHDRAWN_REPAIR = 'preflight_105_trade_outcomes_withdrawn';
+export const TRADE_OUTCOMES_SCREENSHOT_REPAIR = 'preflight_106_trade_outcomes_screenshot_source';
 
 /** The vocabulary 027 widens `status` to. Kept here in full so the rebuilt table is byte-comparable with 027's own. */
 const STATUS_VOCABULARY = ['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled',
@@ -211,6 +213,13 @@ const REPAIRS = [{
   inspect: inspectWithdrawn,
   summarize: finding => `widening ${finding.table}.status with 'withdrawn' (${finding.rows} row(s) copied through)`,
   run: database => widenTradeOutcomesStatus(database),
+}, {
+  // SCREENSHOT-OFFERS: trade_outcomes.source gains 'observed_screenshot' (offers read off chat
+  // screenshots). Same foreign-key-parent rebuild as 105 (trade-outcomes-screenshot-source.js).
+  name: TRADE_OUTCOMES_SCREENSHOT_REPAIR,
+  inspect: inspectScreenshotSource,
+  summarize: finding => `widening ${finding.table}.source with 'observed_screenshot' (${finding.rows} row(s) copied through)`,
+  run: database => widenTradeOutcomesSource(database),
 }];
 
 function ensureLedger(database) {

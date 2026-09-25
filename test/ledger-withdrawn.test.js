@@ -22,7 +22,7 @@ await (await import('../server/db/migrate.js')).runMigrations();
 const { settleOfferLoop, outcomesFor } = await import('../server/services/trade-outcomes.js');
 const { readReplies } = await import('../server/services/coach/brief-inputs.js');
 const { allowsWithdrawn } = await import('../server/db/trade-outcomes-withdrawn.js');
-const { planPreflightRepairs, applyPreflightRepairs, TRADE_OUTCOMES_WITHDRAWN_REPAIR } = await import('../server/db/preflight.js');
+const { planPreflightRepairs, applyPreflightRepairs, TRADE_OUTCOMES_WITHDRAWN_REPAIR, TRADE_OUTCOMES_SCREENSHOT_REPAIR } = await import('../server/db/preflight.js');
 const M067 = await import('../server/migrations/067_outcome_ledgers.js');
 const M080 = await import('../server/migrations/080_trade_outcomes_offer_loop.js');
 const M105 = await import('../server/migrations/105_trade_outcomes_withdrawn.js');
@@ -47,7 +47,8 @@ test('an existing database with child rows is widened by the preflight repair, r
   assert.equal(allowsWithdrawn(d), false);
   assert.throws(() => d.exec(`UPDATE trade_outcomes SET status = 'withdrawn' WHERE id = 1`), /CHECK/);
   const plan = planPreflightRepairs(d);
-  assert.deepEqual(plan.map(r => r.name), [TRADE_OUTCOMES_WITHDRAWN_REPAIR]);
+  // A database at 067 also predates 106's 'observed_screenshot' source: both widenings are planned, in order.
+  assert.deepEqual(plan.map(r => r.name), [TRADE_OUTCOMES_WITHDRAWN_REPAIR, TRADE_OUTCOMES_SCREENSHOT_REPAIR]);
   applyPreflightRepairs(d, plan);
   assert.equal(allowsWithdrawn(d), true);
   assert.equal(d.prepare('PRAGMA foreign_keys').get().foreign_keys, 1, 'foreign keys restored');

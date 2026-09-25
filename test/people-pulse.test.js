@@ -169,12 +169,12 @@ const BASE = [
 test('pulseTick: first pass is a backfill (never replans); a new credible statement is live; re-runs add nothing', () => {
   const chat = makeChat(BASE);
   try {
-    const first = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0 });
+    const first = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0, pulse02: true });
     assert.equal(first.backfill, true);
     assert.equal(first.read, 2, "a non-member and Nick's own message are never read");
     assert.equal(first.liveCredible.length, 0, 'a backfill never triggers a replan');
     assert.ok(first.statements >= 2);
-    const again = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0 });
+    const again = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0, pulse02: true });
     assert.equal(again.read, 0);
     assert.equal(again.statements, 0);
   } finally { chat.close(); }
@@ -185,7 +185,7 @@ test('pulseTick: first pass is a backfill (never replans); a new credible statem
     { id: 106, name: 'Speaker Two', ts: '2026-09-21T13:01:00Z', text: 'I want Merrowind too, what would it take' }],
   { 104: { want_player: 0.9, shop: 0.05, urgency: 0.05, refusal: 0.05 } });
   try {
-    const live = P.pulseTick({ database: db, chat: chat2, leagueId: LEAGUE, now: '2026-09-21T13:05:00Z' });
+    const live = P.pulseTick({ database: db, chat: chat2, leagueId: LEAGUE, now: '2026-09-21T13:05:00Z', pulse02: true });
     assert.equal(live.backfill, false);
     assert.equal(live.read, 2);
     assert.equal(live.with_jev, 1);
@@ -299,7 +299,7 @@ test('runPulse: a live credible statement asks for a replan and the run row reco
       usage: { inputTokens: 600, outputTokens: 70 } };
   };
   const classify = args => jevCli.classifyPending({ ...args, env: { GRIDIRON_PULSE_JEV: '1' }, evaluate });
-  const summary = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:05:00Z', log: l => lines.push(l), replan, classify });
+  const summary = await cli.runPulse({ leagueId: LEAGUE, env: { GRIDIRON_PULSE_02: '1' }, now: '2026-09-21T16:05:00Z', log: l => lines.push(l), replan, classify });
   assert.equal(summary.status, 'ok');
   assert.equal(summary.jev.status, 'ok');
   assert.equal(summary.jev.ok, 1, 'the one new message was classified before labelling');
@@ -314,7 +314,7 @@ test('runPulse: a live credible statement asks for a replan and the run row reco
   const runRow = row('SELECT replan_status, replan_detail FROM people_pulse_runs WHERE league_id = ? ORDER BY id DESC LIMIT 1', LEAGUE);
   assert.equal(runRow.replan_status, summary.replan);
   assert.match(runRow.replan_detail, /1 credible \(WANT_PLAYER\)/);
-  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:10:00Z', log: () => {}, replan, classify });
+  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: { GRIDIRON_PULSE_02: '1' }, now: '2026-09-21T16:10:00Z', log: () => {}, replan, classify });
   assert.equal(quiet.replan, 'not_needed');
   assert.equal(asks.length, 1, 'no new credible statement, no replan');
 });
@@ -426,12 +426,16 @@ test('PULSE-02 labeller: a rule hit needs the Jev answer >= lo; Jev alone needs 
 });
 
 test('PULSE-02 lexicon: dotless full names, run-together hyphenated first names, lower-case consonant initialisms', () => {
-  const lex = P.buildLexicon([
+  const four = [
     { espn_id: 1, name: 'A.J. Quillfeather', pos: 'WR', roster_id: 1 },
     { espn_id: 2, name: 'Amon-Ra St. Dorrance', pos: 'WR', roster_id: 2 },
     { espn_id: 3, name: 'Brock Tuvelle', pos: 'TE', roster_id: 3 },
     { espn_id: 4, name: 'DK Marrowgate', pos: 'WR', roster_id: 3 },
-  ]);
+  ];
+  const lex = P.buildLexicon(four, { pulse02: true });
+  const off = P.buildLexicon(four, { pulse02: false });
+  assert.deepEqual(P.resolvePlayers('gimme amonra', off), [], 'flag off: PULSE-01 aliases only');
+  assert.deepEqual(P.resolvePlayers('ajq for bt?', off), [], 'flag off: no lower-case initialisms');
   assert.deepEqual(P.resolvePlayers('aj quillfeather for you', lex), [1]);
   assert.deepEqual(P.resolvePlayers('gimme amonra', lex), [2]);
   assert.deepEqual(P.resolvePlayers('st dorrance is a stud', lex), [2]);
@@ -457,7 +461,9 @@ test('PULSE-02 ownership: a trade the feed logged only as a proposal counts when
   run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, proposed_at, processed_at, items_json, first_seen_at, last_seen_at)
        VALUES (?, 2026, 'p5', 'TRADE_PROPOSAL', 'CANCELED', '2026-09-15T00:00:00Z', NULL, ?, 'x', 'x')`,
   LEAGUE, JSON.stringify([{ type: 'TRADE', playerId: 9004, fromTeamId: 2, toTeamId: 1 }]));
-  const tl = P.ownershipTimeline(LEAGUE, db);
+  const tl = P.ownershipTimeline(LEAGUE, db, { pulse02: true });
+  assert.equal(P.ownershipTimeline(LEAGUE, db, { pulse02: false }).at('2026-09-12T00:00:00Z').get(9004), 3,
+    'flag off: a proposal-only trade is not inferred (PULSE-01 behaviour)');
   assert.equal(tl.at('2026-09-05T00:00:00Z').get(9004), 3, 'drafted by roster 3');
   assert.equal(tl.at('2026-09-12T00:00:00Z').get(9004), 2, 'the snapshot shows roster 2: the 09-10 proposal happened');
   assert.equal(tl.at('2026-09-18T00:00:00Z').get(9004), 2, 'no snapshot ever shows roster 1: that proposal did not');
@@ -493,6 +499,32 @@ test('PULSE-02 Jev state: SPEAKER / NICK / OTHER and whose team each player is o
   w.close();
   assert.deepEqual(await jevCli.classifyPending({ leagueId: LEAGUE, database: db, env: {} }), { status: 'off' }, 'a paid call is opt-in');
   assert.deepEqual(await jevCli.classifyPending({ leagueId: LEAGUE, database: db, env: { GRIDIRON_PULSE_JEV: '1' } }), { status: 'no_key' });
-  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-22T12:00:00Z', log: () => {}, replan: async () => ({ status: 'x' }) });
+  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: { GRIDIRON_PULSE_02: '1' }, now: '2026-09-22T12:00:00Z', log: () => {}, replan: async () => ({ status: 'x' }) });
   assert.equal(quiet.jev.status, 'off', 'the pulse without the opt-in sends nothing');
+});
+
+test('PULSE-02 is grading only until GRIDIRON_PULSE_02=1: flag off, the tick labels and replans exactly as PULSE-01', () => {
+  assert.equal(P.PULSE_02_FLAG, 'GRIDIRON_PULSE_02');
+  assert.equal(P.pulse02On({}), false, 'default off');
+  assert.equal(P.pulse02On({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), false, 'preview mode never turns it on');
+  assert.equal(P.pulse02On({ GRIDIRON_PULSE_02: '1' }), true);
+  // 110: rules-only want (PULSE-02 would gate it). 111: a stored Jev answer that disagrees
+  // (PULSE-02 would drop the rule hit); flag off never reads it.
+  const cursor = P.lastCursor(LEAGUE, db);
+  const chat = makeChat([...BASE,
+    { id: cursor + 10, name: 'Speaker Two', ts: '2026-09-22T13:00:00Z', text: 'I want Merrowind, what would it take' },
+    { id: cursor + 11, name: 'Speaker Three', ts: '2026-09-22T13:01:00Z', text: 'I want Quendrick, what do you want for him' }],
+  { [cursor + 11]: { want_player: 0.05, shop: 0.05, urgency: 0.05, refusal: 0.05 } });
+  try {
+    const r = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: '2026-09-22T13:05:00Z', env: {} });
+    assert.equal(r.read, 2);
+    assert.equal(r.with_jev, 0, 'flag off: the pulse Jev answers are not read');
+    assert.deepEqual(r.gated, [], 'flag off: no replan gate');
+    assert.deepEqual(r.liveCredible.map(x => x.type), ['WANT_PLAYER', 'WANT_PLAYER'], 'both credible wants replan, as PULSE-01');
+  } finally { chat.close(); }
+  const stored = rows('SELECT labeller_version FROM people_pulse WHERE league_id = ? AND msg_id > ?', LEAGUE, cursor);
+  assert.ok(stored.length >= 2);
+  for (const s of stored) assert.equal(s.labeller_version, 'pulse-1');
+  assert.equal(P.PULSE_VERSION, 'pulse-1');
+  assert.equal(P.PULSE_02_VERSION, 'pulse-2');
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Move, Target, WarRoomView } from './types';
 import { namer, teamLabel } from './types';
 import { FieldBlock, Val } from './FieldState';
@@ -10,6 +10,8 @@ import Avatar from './Avatar';
 import { MoveDetails } from './HeroCard';
 import type { CurrentMove } from './NextMoveDeck';
 import { isGuess } from './heroStatus';
+import { EmptyState } from './icons';
+import BlueChipBoard from './BlueChipBoard';
 
 const FIT: Record<string, string> = { fits: 'fits your mode', needs_all_in: 'needs all-in', too_risky_for_safe: 'too risky for safe' };
 
@@ -47,6 +49,15 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
   const path = paths.find(m => m.move_id === pathId) ?? paths[0] ?? null;
   const selTarget = targets.find(t => t.player === sel) ?? null;
 
+  // The sections under the fold (composer, blue chips, stops) render one task later, so the
+  // switch to this screen paints the targets and paths in one short frame.
+  const [rest, setRest] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const id = window.requestAnimationFrame(() => { t = setTimeout(() => setRest(true), 0); });
+    return () => { window.cancelAnimationFrame(id); if (t) clearTimeout(t); };
+  }, []);
+
   const [asked, setAsked] = useState<Record<string, 'saving' | 'saved'>>({});
   const [error, setError] = useState<string | null>(null);
   const approve = (player: string) => {
@@ -67,7 +78,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
         <FieldBlock f={field} label="Suggested targets">
           {() => (
             <>
-              <div className="wr-tgrid" role="listbox" aria-label="Targets">
+              <div className="wr-tgrid wr-stagger" role="listbox" aria-label="Targets">
                 {targets.map(t => (
                   <TargetCard key={t.player} t={t} name={n.one(t.player).name} on={t.player === sel}
                     onPick={() => { setPicked(t.player); setPathId(null); }}
@@ -75,7 +86,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
                     onApprove={onRequest ? () => approve(t.player) : undefined} />
                 ))}
               </div>
-              {!targets.length && <div className="wr-empty">No suggested targets in this run.</div>}
+              {!targets.length && <EmptyState icon="target" title="No suggested targets in this run." />}
               {hiddenUt.length > 0 && (
                 <div className="wr-hint" data-testid="targets-untouchable" title={hiddenUt.map(h => `${n.one(h.player).name}: ${h.label}`).join('\n')}>
                   {hiddenUt.length} hidden: {hiddenUt.map(h => `${n.one(h.player).name} (${teamLabel(h.owner)}, ${h.label})`).join('; ')}
@@ -91,14 +102,13 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
         <h3 className="wr-card2-h"><span className="wr-stepno">2</span>{sel ? <>Paths to {n.one(sel).name}</> : "The plan's moves"}
           {sel && <button type="button" className="wr-link wr-h-note" onClick={() => { setPicked(null); setPathId(null); }}>Show every plan move</button>}
         </h3>
-        {!paths.length && !sel ? <div className="wr-empty">The planner has no move this week.</div>
+        {!paths.length && !sel ? <EmptyState icon="inbox" title="The planner has no move this week." />
           : !paths.length && sel ? (
-            <div className="wr-empty" role="status">
-              No plan leads to {n.one(sel).name} yet.{' '}
+            <EmptyState icon="search" title={<>No plan leads to {n.one(sel).name} yet.</>}>
               {selTarget && !isOk(selTarget.p_reach) && selTarget.p_reach.reason ? selTarget.p_reach.reason : 'Approve him and the next planner run plans toward him.'}
-            </div>
+            </EmptyState>
           ) : (
-            <div className="wr-paths">
+            <div className="wr-paths wr-stagger">
               {paths.map(m => (
                 <div key={m.move_id} role="button" tabIndex={0} className={`wr-path${path?.move_id === m.move_id ? ' wr-on' : ''}`}
                   aria-pressed={path?.move_id === m.move_id} onClick={() => setPathId(m.move_id)} data-path={m.move_id}
@@ -130,7 +140,8 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
           )}
       </section>
 
-      {path && (
+      {!rest && <div className="wr-card2 wr-defer" aria-hidden><span className="wr-skel wr-skel-line" /><span className="wr-skel wr-skel-line wr-skel-short" /></div>}
+      {rest && path && (
         <section className="wr-card2" data-panel="composer" aria-label="The offer">
           <h3 className="wr-card2-h"><span className="wr-stepno">3</span>The offer to {teamLabel(path.steps[0].partner)}</h3>
           <MoveDetails move={path} view={view} leagueId={leagueId}
@@ -139,10 +150,16 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
         </section>
       )}
 
-      <section className="wr-card2" data-panel="stops" aria-label="Your plan">
+      {rest && view.blue_chips && isOk(view.blue_chips) && (
+        <section className="wr-card2" data-panel="blue_chips" aria-label="Blue chips">
+          <BlueChipBoard field={view.blue_chips} big />
+        </section>
+      )}
+
+      {rest && <section className="wr-card2" data-panel="stops" aria-label="Your plan">
         <h3 className="wr-card2-h">Your plan, stop by stop</h3>
         <Itinerary field={view.itinerary} big />
-      </section>
+      </section>}
     </div>
   );
 }

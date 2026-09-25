@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Move } from './types';
 import { Val } from './FieldState';
 import { isOk } from './format';
+import Icon from './icons';
 
 /**
  * Card parts shared by the classic NEXT MOVE card (NextMoveDeck.tsx) and the v2 hero
@@ -81,7 +82,7 @@ export function CopyButton({ text, label = 'Copy message', primary, onCopy }: {
   };
   return (
     <button type="button" className={`wr-btn wr-btn-lg${primary ? ' wr-primary' : ''}`} onClick={copy} title={state === 'failed' ? 'Copy was blocked here. Open the message below and select it.' : undefined}>
-      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy blocked' : label}
+      <Icon name={state === 'copied' ? 'check' : 'copy'} size={18} />{state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy blocked' : label}
     </button>
   );
 }

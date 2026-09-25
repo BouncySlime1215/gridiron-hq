@@ -3,6 +3,7 @@ import type { Destination, WarRoomView } from './types';
 import { Val } from './FieldState';
 import { pct, NOT_COMPUTED, isOk } from './format';
 import { railOrder, TARGET_LEAGUE_ID, type LeagueChoice } from './LeagueRail';
+import Icon from './icons';
 
 const MODES: Record<string, string> = { safe: 'Safe', balanced: 'Balanced', all_in: "Fuck it, let's go" };
 
@@ -45,7 +46,7 @@ export default function TopBarV2({ view, leagues, activeId, onLeague, onExit, th
       <div className="wr-bar2-brand">War Room</div>
       <details className="wr-league-dd" ref={dd} data-testid="league-picker">
         <summary title={current ? name(current) : undefined} aria-label="Pick a league">
-          <span className="wr-league-cur">{current ? name(current) : 'League'}</span>
+          <span className="wr-league-cur">{current ? name(current) : 'League'}</span><Icon name="down" size={14} className="wr-league-chev" />
         </summary>
         <div className="wr-menu-list wr-league-list" role="listbox" aria-label="Leagues">
           {target && pick(target, 'target')}
@@ -69,7 +70,7 @@ export default function TopBarV2({ view, leagues, activeId, onLeague, onExit, th
       {health}
       {coach}
       <details className="wr-menu">
-        <summary aria-label="More">⋯</summary>
+        <summary aria-label="More"><Icon name="more" size={18} /></summary>
         <div className="wr-menu-list">
           <button type="button" onClick={onTheme}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
           <button type="button" onClick={explain}>What am I looking at?</button>

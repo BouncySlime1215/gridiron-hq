@@ -21,7 +21,7 @@ export default function ScreenLeague({ view, onAsk }: { view: WarRoomView; onAsk
       ) : (
         <FieldBlock f={view.partners} label="Partners">
           {list => (
-            <ul className="wr-people">
+            <ul className="wr-people wr-stagger">
               {list.map(p => {
                 const n = moves.filter(m => m.steps.some(s => String(s.partner) === String(p.team))).length;
                 return (

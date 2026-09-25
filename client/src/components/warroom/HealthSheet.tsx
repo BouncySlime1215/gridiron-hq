@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { WarRoomView } from './types';
 import { isOk } from './format';
 import BrainCheckCard from './BrainCheckCard';
+import Icon from './icons';
 
 /** The top bar's health chip: one dot for the brain check and the number audit together (worst wins). */
 export function healthTone(view: WarRoomView): { tone: 'green' | 'amber' | 'red' | 'grey'; label: string; short: string } {
@@ -32,7 +33,7 @@ export default function HealthSheet({ view, open, onClose }: { view: WarRoomView
           <div><div className="wr-ch-t">Is the brain working?</div>
             <div className="wr-ch-s">Nothing turns green until its check passes.</div></div>
           <span className="wr-sp" />
-          <button type="button" className="wr-icon-btn" onClick={onClose} aria-label="Close health" ref={closeRef}>×</button>
+          <button type="button" className="wr-icon-btn" onClick={onClose} aria-label="Close health" ref={closeRef}><Icon name="close" size={18} /></button>
         </div>
         <div className="wr-sheet-b" data-panel="brain_report">
           <BrainCheckCard brain={view.brain_report} health={view.number_health} big />

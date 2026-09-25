@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './warroom.css';
 import './warroom-v2.css';
 import { setTeamNames, teamLabel, type WarRoomView } from './types';
@@ -20,6 +20,7 @@ import { CoachDrawer, FIXED_QUESTIONS, useWarRoomCoach, type Panel as CoachPanel
 import { useNegotiations, usePlayerHeadshots } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
 import { wasOpenedOnTarget, markOpenedOnTarget } from './WarRoom';
+import Icon, { type IconName } from './icons';
 
 /**
  * WAR-ROOM-UI v2: the War Room as four calm screens (WarRoomShell's default).
@@ -51,12 +52,7 @@ export const COACH_SCREEN: Record<CoachPanel, ScreenId | 'health' | null> = {
 /** The question a League card asks Coach. */
 export const tradeWith = (team: string) => `Find a trade for ${teamLabel(team)}`;
 
-const ICONS: Record<ScreenId, ReactNode> = {
-  today: <path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.5 1.5M16.5 16.5 18 18M6 18l1.5-1.5M16.5 7.5 18 6M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />,
-  goget: <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-4a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0-4a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />,
-  market: <path d="M4 17l5-5 4 4 7-8M15 8h5v5" />,
-  league: <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20c.6-3 3-5 6-5s5.4 2 6 5M14 15.3c.6-.2 1.3-.3 2-.3 3 0 5.4 2 6 5" />,
-};
+const ICONS: Record<ScreenId, IconName> = { today: 'today', goget: 'target', market: 'trend', league: 'users' };
 
 export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus, onClassic }: {
   view: WarRoomView;
@@ -157,10 +153,7 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
     </PanelBoundary>
   );
 
-  const coachIcon = (
-    <svg viewBox="0 0 24 24" aria-hidden width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /></svg>
-  );
+  const coachIcon = <Icon name="coach" size={18} />;
   const coachOn = coach.enabled !== false;
   // One switcher, drawn twice: in the top bar on a wide screen, as the bottom tab bar (with a Coach tab) on a phone.
   const tabs = (where: 'top' | 'bottom') => (
@@ -170,8 +163,7 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
         <button key={s.id} type="button" role="tab" aria-selected={screen === s.id} data-screen={where === 'top' ? s.id : undefined}
           data-tab-screen={where === 'bottom' ? s.id : undefined}
           className={screen === s.id ? 'wr-on' : undefined} onClick={() => go(s.id)}>
-          <svg viewBox="0 0 24 24" aria-hidden width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"
-            strokeLinecap="round" strokeLinejoin="round">{ICONS[s.id]}</svg>
+          <Icon name={ICONS[s.id]} size={where === 'top' ? 16 : 22} />
           <span>{s.name}</span>
         </button>
       ))}
@@ -192,7 +184,7 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
             health={
               <button type="button" className={`wr-health-chip wr-hc-${health.tone}`} onClick={() => setHealthOpen(true)}
                 data-testid="health-chip" aria-haspopup="dialog" title={`${health.label}. Is the brain working? Brain check and number audit`}>
-                <span className="wr-hc-dot" aria-hidden /><span className="wr-hc-t">{health.label}</span><span className="wr-hc-s">{health.short}</span>
+                <Icon name={health.tone === 'green' ? 'ok' : health.tone === 'grey' ? 'pulse' : 'warn'} size={14} className="wr-hc-ic" /><span className="wr-hc-t">{health.label}</span><span className="wr-hc-s">{health.short}</span>
               </button>
             }
             coach={coachOn ? (

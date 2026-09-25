@@ -317,8 +317,7 @@ test('V6: every screen draws its contract sections', async () => {
     const scr = await go(ui, id);
     for (const [panel, field, first] of list) {
       assert.equal(field.status, 'ok', `${panel}: the producer computed it`);
-      const p = one(scr, 'data-panel', panel);
-      assert.ok(p, `${panel} is on the ${id} screen`);
+      const p = await waitFor(() => one(scr, 'data-panel', panel), 2000, `${panel} on the ${id} screen`);
       assert.ok(textOf(p).includes(first(field.value)), `${panel} shows its first row (${first(field.value)})`);
       const blocks = all(p, e => e.getAttribute('role') === 'status' && ['unknown', 'failed'].includes(e.getAttribute('data-state')));
       assert.deepEqual(blocks.map(textOf), [], `${panel} renders no unknown/failed block`);
@@ -335,7 +334,7 @@ test('V6: every screen draws its contract sections', async () => {
   const brain = one(sheet, 'data-panel', 'brain_report');
   assert.ok(textOf(brain).includes(L4.brain_report.value.checks[0].id), 'brain checks');
   for (const id of ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']) assert.ok(textOf(brain).includes(id), id);
-  click(button(sheet, '×'));
+  click(one(sheet, 'aria-label', 'Close health'));
   await waitFor(() => !one(ui.container, 'data-testid', 'health-sheet'), 2000, 'the sheet closes');
   assert.doesNotMatch(textOf(ui.container), /NaN|undefined|\[object Object\]/);
 });
@@ -376,7 +375,7 @@ test('V8: Coach drawer: fixed questions; "Ask Coach about this" answers the next
   assert.ok(one(drawer, 'data-testid', 'coach-context'), 'context shows once, at the top');
   assert.equal(modelCalls.length, 0, 'the next-move question never calls a model');
   assert.ok(all(drawer, e => e.localName === 'input' && e.getAttribute('aria-label') === 'Ask Coach')[0], 'free text stays, below');
-  click(button(drawer, '×'));
+  click(one(drawer, 'aria-label', 'Close Coach'));
   await waitFor(() => !/wr-open/.test(drawer.getAttribute('class')), 2000, 'the drawer closes');
   // A League card opens Coach already asked about a trade with that manager.
   const league = await go(ui, 'league');

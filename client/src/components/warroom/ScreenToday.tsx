@@ -4,6 +4,7 @@ import type { Negotiations } from './negotiateModel';
 import { Val } from './FieldState';
 import { pct, isOk } from './format';
 import { stopCounts, watchItems } from './today';
+import Icon, { EmptyState } from './icons';
 
 /**
  * WAR-ROOM-UI v2, TODAY (the default screen): the "Do this now" card (the hero deck,
@@ -29,15 +30,15 @@ export default function ScreenToday({ view, negotiations, deck }: {
         <section className="wr-card2" data-panel="watching" aria-label="Watching">
           <h3 className="wr-card2-h">Watching</h3>
           {items.length ? (
-            <ul className="wr-watch">
+            <ul className="wr-watch wr-stagger">
               {items.map(it => (
                 <li key={it.id} className={`wr-watch-i wr-watch-${it.tone}`} title={it.detail}>
-                  <span className="wr-watch-dot" aria-hidden />
+                  <Icon name={it.tone === 'red' ? 'stop' : it.tone === 'amber' ? 'warn' : 'clock'} size={16} className="wr-watch-ic" />
                   <span className="wr-watch-t">{it.text}</span>
                 </li>
               ))}
             </ul>
-          ) : <p className="wr-sub">Nothing needs watching right now.</p>}
+          ) : <EmptyState icon="ok" title="Nothing needs watching right now." />}
         </section>
 
         <section className="wr-card2" data-panel="progress" aria-label="Season progress">

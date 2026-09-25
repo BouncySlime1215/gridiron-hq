@@ -9,6 +9,8 @@ import { useHisScreen } from './useWarRoom';
 import { CopyBlock, CopyButton, Ladder, messageLabel } from './cardParts';
 import { heroStatus, isGuess, playerParts, valueEdgeText } from './heroStatus';
 import Avatar from './Avatar';
+import Icon from './icons';
+import { useSpotlight } from './spotlight';
 import CountUp from './CountUp';
 
 /**
@@ -40,9 +42,11 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
   const titleNow = isOk(view.destination) ? view.destination.value.title_now : undefined;
   const noise = isOk(s.title_odds_delta) && s.title_odds_delta.clears_2se === false;
   const both = isOk(titleNow) && isOk(s.title_after);
+  const spot = useSpotlight<HTMLElement>();
 
   return (
-    <article className="wr-hero-card" data-testid="hero-card" aria-label="Next move">
+    <article className="wr-hero-card" data-testid="hero-card" aria-label="Next move" {...spot.handlers} ref={spot.ref}>
+      <span className="wr-spot" aria-hidden><span className="wr-spot-blob" /></span>
       <div className="wr-hero-head">
         <div className="wr-hero-partner">
           <span className="wr-k">Send to</span>
@@ -50,13 +54,13 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
         </div>
         <span className={`wr-status wr-status-${status.tone}`} data-testid="hero-status" data-tone={status.tone}
           title={status.reasons.length ? `Why not yet: ${status.reasons.join('; ')}` : 'Nothing shown is a guess and the gain clears 2 SE.'}>
-          {status.label}
+          <Icon name={status.tone === 'green' ? 'ok' : status.tone === 'red' ? 'stop' : 'warn'} size={16} />{status.label}
         </span>
       </div>
 
       <div className="wr-hero-deal">
         <Side label="You give" ids={s.give} n={n} side="give" />
-        <span className="wr-hero-arrow" aria-hidden>→</span>
+        <span className="wr-hero-arrow" aria-hidden><Icon name="arrow" size={20} /></span>
         <Side label="You get" ids={s.get} n={n} side="get" />
       </div>
 

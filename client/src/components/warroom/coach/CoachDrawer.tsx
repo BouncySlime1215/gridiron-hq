@@ -3,6 +3,7 @@ import CoachBrief, { SourcesToggle } from './CoachBrief';
 import { PreviewPanel } from './CoachDock';
 import PlugInCard, { FIELD_LABELS } from './PlugInCard';
 import type { CoachMessage, WarRoomCoach } from './useWarRoomCoach';
+import Icon from '../icons';
 
 /**
  * WAR-ROOM-UI v2: Coach as a right-side drawer, closed by default. It opens to a short
@@ -90,7 +91,7 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
           <button type="button" className="wr-btn wr-sm" onClick={() => coach.undo()}
             disabled={!coach.session.history.length && !coach.pending}
             title={!coach.session.history.length && !coach.pending ? 'Nothing to undo yet: Coach has not changed the screen' : 'Undo the last change Coach made'}>Undo</button>
-          <button type="button" className="wr-icon-btn" onClick={onClose} aria-label="Close Coach" ref={closeRef}>×</button>
+          <button type="button" className="wr-icon-btn" onClick={onClose} aria-label="Close Coach" ref={closeRef}><Icon name="close" size={18} /></button>
         </div>
         <p className="wr-drawer-ctx" data-testid="coach-context">
           <span>{coach.footer.destination}</span>
@@ -104,7 +105,7 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
             </div>
           )}
           <PreviewPanel coach={coach} />
-          <ul className="wr-fixedq" aria-label="Ask Coach">
+          <ul className="wr-fixedq wr-stagger" aria-label="Ask Coach">
             {[...custom, ...FIXED_QUESTIONS].map(q => {
               const a = answers[q];
               const on = shown === q;
@@ -112,7 +113,7 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
                 <li key={q} data-testid={custom.includes(q) ? 'coach-custom-q' : 'coach-fixed-q'}>
                   <button type="button" className={`wr-q${on ? ' wr-on' : ''}`} aria-expanded={on && !!a}
                     disabled={a === 'asking'} onClick={() => (on && a && a !== 'asking' && a !== 'failed' ? setShown(null) : run(q))}>
-                    {q}
+                    <span>{q}</span><Icon name="right" size={16} className="wr-q-chev" />
                   </button>
                   {on && a && <Answer slot={a} question={q} onRetry={() => run(q)} />}
                 </li>

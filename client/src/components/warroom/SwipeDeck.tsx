@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import Icon from './icons';
 
 /**
  * WR-SWIPE: the frame of the NEXT MOVE deck (WAR-ROOM-UI.md v3 + v2 section 4). One card
@@ -129,10 +130,10 @@ export default function SwipeDeck<T extends { move_id: string }>({ cards, index,
       {arrows ? (
         <div className="wr-swipe-bar wr-plan-switch" role="group" aria-label="Plans">
           <button type="button" className="wr-arrow" aria-label="Previous plan" disabled={!canBack} onClick={onBack}
-            title={canBack ? 'Back to the plan you skipped' : 'This is the first plan'}>‹</button>
+            title={canBack ? 'Back to the plan you skipped' : 'This is the first plan'}><Icon name="left" size={16} /></button>
           <span className="wr-count wr-swipe-pos" data-testid="deck-count" aria-live="polite">{positionLabel(at, total)}</span>
           <button type="button" className="wr-arrow" aria-label="Next plan (skips this one)" title={card ? 'Skip to the next plan. The planner hears that you passed.' : 'That was the last plan'}
-            disabled={!card} onClick={() => next()}>›</button>
+            disabled={!card} onClick={() => next()}><Icon name="right" size={16} /></button>
           {bar}
         </div>
       ) : (

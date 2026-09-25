@@ -7,6 +7,7 @@ import { groupFlips } from './FlipMap';
 import CatchUp from './CatchUp';
 import Avatar from './Avatar';
 import { isGuess } from './heroStatus';
+import { EmptyState } from './icons';
 
 /**
  * WAR-ROOM-UI v2, MARKET: the flip radar as a board of cards (one per player, the
@@ -27,14 +28,15 @@ export default function ScreenMarket({ view }: { view: WarRoomView }) {
       <section className="wr-card2" data-panel="flip_map" aria-label="Flip radar">
         <h3 className="wr-card2-h">Flip radar <span className="wr-muted wr-h-note">buy low from one manager, sell high to another</span></h3>
         <FieldBlock f={view.flip_map} label="Flip map">
-          {list => !list.length ? <div className="wr-empty">No flips found in this run.</div> : (
+          {list => !list.length ? <EmptyState icon="trend" title="No flips found in this run." /> : (
             <>
               {!shown.length && (
-                <div className="wr-empty" data-testid="flip-none-actionable">
-                  No flip has a fair leg on both sides yet: gaps on {groups.length} player{groups.length > 1 ? 's' : ''}, none sendable.
-                </div>
+                <EmptyState icon="trend" testid="flip-none-actionable"
+                  title={<>No flip has a fair leg on both sides yet: gaps on {groups.length} player{groups.length > 1 ? 's' : ''}, none sendable.</>}>
+                  Show all to see the gaps anyway.
+                </EmptyState>
               )}
-              <div className="wr-fgrid">
+              <div className="wr-fgrid wr-stagger">
                 {shown.map(({ best: f, rows: rs, player }) => {
                   const name = n.one(f.player).name;
                   const give = f.legs ? n.text(f.legs.give_a_ids?.length ? f.legs.give_a_ids : [f.legs.give_a]) : null;

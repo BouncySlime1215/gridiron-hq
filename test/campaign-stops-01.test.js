@@ -133,6 +133,31 @@ test('S3 pricing: covers come only from the ranked (rule-filtered) list', () => 
   assert.equal(row.status, 'unreachable');
 });
 
+test('integration-10a: a cover must beat doing nothing on the confirm dice (rule 6); the next confirmed one is used', () => {
+  const now = weeksOf(w => (w === 11 ? 100 : 120));
+  const hole = findHoles({ weeks: now, roster: ROSTER, currentWeek: 4 })[0];
+  const head = plan(0.03, 2), unconfirmed = plan(0.025, 15), confirmedCover = plan(0.02, 12);
+  const [row] = priceHoles({ holes: [hole], ranked: [head, unconfirmed, confirmedCover], nowWeeks: now, currentWeek: 4,
+    weeklyOf: p => weeksOf(w => (w === 11 ? 100 + p.lift11 : 120)), served: head, confirmed: p => p !== unconfirmed });
+  assert.equal(row.status, 'ok');
+  assert.equal(row.cover.score, 0.02, 'the unconfirmed plan is skipped');
+  const [none] = priceHoles({ holes: [hole], ranked: [head, unconfirmed], nowWeeks: now, currentWeek: 4,
+    weeklyOf: p => weeksOf(w => (w === 11 ? 100 + p.lift11 : 120)), served: head, confirmed: p => p !== unconfirmed });
+  assert.equal(none.status, 'unreachable');
+});
+
+test('integration-10a: with no served move the stop is unreachable and never says "your best path already fills"', () => {
+  const now = weeksOf(w => (w === 11 ? 100 : 120));
+  const hole = findHoles({ weeks: now, roster: ROSTER, currentWeek: 4 })[0];
+  const [row] = priceHoles({ holes: [hole], ranked: [plan(0.03, 11)], nowWeeks: now, currentWeek: 4,
+    weeklyOf: p => weeksOf(w => (w === 11 ? 100 + p.lift11 : 120)), served: null, confirmed: () => false });
+  assert.equal(row.status, 'unreachable');
+  assert.equal(row.cost, undefined);
+  assert.equal(row.stop_label, 'Cover the week 11 bye');
+  assert.match(row.because, /no move beats doing nothing on the fresh dice this week/);
+  assert.doesNotMatch(row.because, /your best path/);
+});
+
 /* -------------------------------------------------- S4 the week-11 cluster */
 
 test('S4 bye clusters: week -> teams, sorted; the six-team week reads as one cluster', () => {

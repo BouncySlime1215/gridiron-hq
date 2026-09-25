@@ -99,11 +99,16 @@ function pairedLift(before, after) {
  * nowWeeks:  today's weekly samples (the holes' own basis)
  * weeklyOf:  plan -> [{ week, samples }] for the plan's final roster, or null
  * blocked:   ids no cover may give (adapter.untouchable after never-give.js#withNeverGive, plus the objective's)
+ * served:    the plan the served next move is on (the confirmed deck head), or null when no move is served;
+ *            defaults to ranked[0] (the unit tests' pure form). The stop is priced against it.
+ * confirmed: plan -> truthy when the plan beats doing nothing on the confirm dice (planner.js#confirmedActive),
+ *            or null (pure form: every ranked plan counts). integration-10a: a cover is a served move, so it
+ *            obeys Nick's rule 6 like a backup or a catch-up deal.
  * Returns one row per hole: the stopTradeOff fields plus { week, hole_kind, stop, cover } or
  * { status: 'unreachable', because }.
  */
 export function priceHoles({ holes, ranked = [], nowWeeks, weeklyOf, currentWeek, daysLeftInWeek = 7, names = id => `player ${id}`,
-  blocked = new Set(), scan = COVER_SCAN, share = COVER_SHARE }) {
+  blocked = new Set(), scan = COVER_SCAN, share = COVER_SHARE, served = ranked[0] ?? null, confirmed = null }) {
   const byWeek = new Map((nowWeeks ?? []).map(w => [w.week, w.samples]));
   const givesOf = p => [...new Set(p.steps.flatMap(s => s.give).map(String))];
   // Belt and braces: ranked is already rule-filtered; a plan giving a blocked id is still never a cover (fail closed).
@@ -115,24 +120,33 @@ export function priceHoles({ holes, ranked = [], nowWeeks, weeklyOf, currentWeek
     const who = h.players.map(names).join(', ');
     const cause = h.kind === 'bye' ? `${who} on bye` : `${who} injured`;
     const base = byWeek.get(h.week);
+    const common0 = { week: h.week, hole_kind: h.kind, stop, drop: h.drop, players: h.players, stop_label: stop.label };
+    // integration-10a: no served move this week -> nothing to price the stop against (never "your best path").
+    if (!served) {
+      return { ...common0, status: 'unreachable',
+        because: `${cause}; no move beats doing nothing on the fresh dice this week, so no path is priced for this hole` };
+    }
     let cover = null;
     for (const p of pool) {
       if (arrivalWeek(p, currentWeek, { daysLeftInWeek }) > h.week) continue;
       const wk = weeksOf(p)?.find(w => w.week === h.week)?.samples;
       if (!base || !wk) continue;
       const { lift, se } = pairedLift(base, wk);
-      if (lift >= share * h.drop && lift > 2 * se) { cover = { plan: p, lift, se }; break; }
+      if (!(lift >= share * h.drop && lift > 2 * se)) continue;
+      // integration-10a: only a plan that beats doing nothing on the confirm dice may be the cover.
+      if (confirmed && !confirmed(p)) continue;
+      cover = { plan: p, lift, se }; break;
     }
     const common = { week: h.week, hole_kind: h.kind, stop, drop: h.drop, players: h.players };
     if (!cover) {
       return { ...common, stop_label: stop.label, status: 'unreachable',
         because: `${cause}; no searched path fills this week inside your rules and sliders` };
     }
-    const t = stopTradeOff({ label: stop.label, without: ranked[0], with: cover.plan, gain: 0, se: ranked[0]?.expected_se ?? null,
+    const t = stopTradeOff({ label: stop.label, without: served, with: cover.plan, gain: 0, se: served.expected_se ?? null,
       gain_text: `Week ${h.week} lineup: +${cover.lift.toFixed(1)} pts on this path, against a ${h.drop.toFixed(1)}-point hole.` });
     const first = cover.plan.steps[0];
     return { ...common, ...t, status: 'ok',
-      because: `${cause}; ${cover.plan === ranked[0] ? 'your best path already fills this week' : t.because}`,
+      because: `${cause}; ${cover.plan === served ? 'your best path already fills this week' : t.because}`,
       cover: { first_step: first ? { team: first.team, give: first.give, get: first.get, p: first.p ?? null } : null, give: givesOf(cover.plan), steps: cover.plan.steps.length,
         lift: cover.lift, lift_se: cover.se, score: cover.plan.score } };
   });

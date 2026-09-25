@@ -708,7 +708,9 @@ export function planLeague(adapter, settings) {
     const holes = nowWeeks ? findHoles({ weeks: nowWeeks, roster, currentWeek: L.week }) : [];
     const blocked = new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String));
     stops = { mode: stopsM, holes, rows: priceHoles({ holes, ranked, nowWeeks, currentWeek: L.week, daysLeftInWeek: clock.daysLeftInWeek,
-      weeklyOf: p => weeklyOf(p.steps[p.steps.length - 1].state), names: id => names(idOf(id)), blocked }) };
+      weeklyOf: p => weeklyOf(p.steps[p.steps.length - 1].state), names: id => names(idOf(id)), blocked,
+      // integration-10a: priced against the served move's plan, covers only from plans that beat doing nothing on the confirm dice.
+      served: best?.planned_on ?? best ?? null, confirmed: p => !!confirmedActive(p) }) };
   }
 
   // Catch-up list.

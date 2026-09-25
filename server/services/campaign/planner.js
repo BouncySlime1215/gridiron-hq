@@ -229,6 +229,19 @@ export function planLeague(adapter, settings) {
     depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
+  // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
+  // floor on, every player Nick still holds at the end of the path (gets minus later gives) must pass it;
+  // shadow counts the paths it would drop.
+  if (floor.sink.mode !== 'off') {
+    const failsHeld = p => {
+      const held = new Set();
+      for (const st of p.steps) { for (const id of st.give) held.delete(String(id)); for (const id of st.get) held.add(String(id)); }
+      return [...held].some(id => !floor.read(id).passes);
+    };
+    const bad = plans.filter(failsHeld).length;
+    floor.sink[floorOn ? 'paths_dropped' : 'paths_would_drop'] = bad;
+    if (floorOn && bad) plans = plans.filter(p => !failsHeld(p));
+  }
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
   const tmApplied = TM ? applyTradeMemory(plans, TM, { env }) : null;
   if (tmApplied) plans = tmApplied.plans;

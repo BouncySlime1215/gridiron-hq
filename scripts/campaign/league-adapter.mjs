@@ -23,6 +23,7 @@ import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } fr
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
 import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
+import { draftCapital, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -251,7 +252,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env } = {}) {
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env) } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -469,6 +470,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     scoreOf: id => board.byId?.get(String(id)) ?? null,
     boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),
+    // DRAFT-ID-MAP (shadow, GRIDIRON_DRAFT_ID_MAP=1): draft capital by players.espn_id, owner from these rosters.
+    ...(draftIdMap ? { draft: draftCapital(svc.db, { leagueId, season, rosters }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

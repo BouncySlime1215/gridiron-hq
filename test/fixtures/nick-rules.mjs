@@ -18,8 +18,15 @@
  *                  season, no price-fall exception).
  *   no_undo        no step with a manager both takes back from him a player Nick sent him and gives him
  *                  back a player he sent Nick, in one trade this season between the two.
- *   beats_no_trade every served deck card and backup beats doing nothing on the confirm dice:
- *                  confirm.verdict is not 'failed' and the confirm-dice expected gain is > 0.
+ *   beats_no_trade every move served as something to send beats doing nothing on the confirm dice:
+ *                  - deck cards: confirm.verdict is not 'failed', beats_no_trade is not false, and the
+ *                    confirm-dice expected gain (plan.expected) is > 0;
+ *                  - backups: expected > 0;
+ *                  - catch-up items that name a deal (desperate with a plan_key, swing) and flips: gain > 0;
+ *                  - LADDER-01 cards, each rung's on_no backup, and the negotiation.alt_package second
+ *                    package (#386): must carry a confirm-dice number, i.e. `dice: 'confirm'` with
+ *                    `expected` > 0 (or `confirmed_expected` > 0). A number on the planning dice, or none,
+ *                    is a violation: Nick's rule is the confirm dice, not the dice the plan was found on.
  *
  * Surfaces covered (offersOf): best plan; every deck card, each of its playbooks' opening, walk-away,
  * ladder packages, reply-table next moves and negotiation.alt_package (#386); backups; the risk-mode
@@ -128,6 +135,13 @@ export function ruleViolations(adapter, res) {
   const out = [];
   const bad = (rule, surface, detail) => out.push({ rule, surface, detail });
   const { offers, plans } = offersOf(res);
+  /** A served move with no confirm-dice gain, or one <= 0, does not beat doing nothing. */
+  const confirmedGain = (surface, x) => {
+    const num = v => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+    const g = num(x?.confirmed_expected) ?? (x?.dice === 'confirm' ? num(x?.expected) : null);
+    if (g == null) bad('beats_no_trade', surface, `no confirm-dice gain (dice ${x?.dice ?? 'none'})`);
+    else if (!(g > 0)) bad('beats_no_trade', surface, `confirm-dice gain ${g}`);
+  };
 
   for (const o of offers) {
     const give = o.give.map(S), get = o.get.map(S);
@@ -156,8 +170,29 @@ export function ruleViolations(adapter, res) {
     if (c.confirm?.verdict === 'failed') bad('beats_no_trade', `deck[${j}]`, 'confirm verdict failed');
     if (!(Number(c.plan.expected) > 0)) bad('beats_no_trade', `deck[${j}]`, `confirm-dice expected ${c.plan.expected}`);
   }
+  for (const [j, c] of (res.deck ?? []).entries()) {
+    if (c.plan && c.beats_no_trade === false) bad('beats_no_trade', `deck[${j}]`, 'beats_no_trade false');
+    for (const pb of c.playbooks ?? [c.playbook]) {
+      const alt = pb?.negotiation?.alt_package;
+      if (alt) confirmedGain(`deck[${j}].playbook[${pb.step_index ?? 0}].negotiation.alt_package`, alt);
+    }
+  }
+  for (const pb of res.playbook ?? []) {
+    const alt = pb?.negotiation?.alt_package;
+    if (alt) confirmedGain(`playbook[${pb.step_index}].negotiation.alt_package`, alt);
+  }
   for (const [i, b] of (res.backups ?? []).entries()) {
     if (b?.step && !(Number(b.expected) > 0)) bad('beats_no_trade', `backup[${i}]`, `expected ${b.expected}`);
+  }
+  for (const [i, it] of (res.catch_up ?? []).entries()) {
+    const deal = (it?.kind === 'desperate' && it.plan_key) || it?.kind === 'swing' || it?.kind === 'flip';
+    if (deal && !(Number(it.gain) > 0)) bad('beats_no_trade', `catch_up[${i}].${it.kind}`, `gain ${it.gain}`);
+  }
+  for (const [j, card] of (res.ladders?.cards ?? []).entries()) {
+    confirmedGain(`ladders[${j}]`, { dice: res.ladders.dice, ...card });
+    for (const [i, r] of (card.rungs ?? []).entries()) {
+      if (r.on_no?.give) confirmedGain(`ladders[${j}].rung[${i}].on_no`, r.on_no);
+    }
   }
   for (const s of res.suggestions ?? []) {
     if (!blue(s.player)) bad('final_get', 'suggestions', `${s.player} scores ${score(s.player)}`);

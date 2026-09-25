@@ -72,6 +72,43 @@ no_buyback (13 in each mode; `BUYBACK_FALL` lets a sold player back after a 10%
 fall). Safe serves a deck in 0 of 80 leagues and picks no trade in all 80;
 balanced and all_in serve decks in 79.
 
+## Batch B: GREEN on main decf7ebf, every rule hard (required CI test)
+
+Merged origin/main decf7ebf (integration-7) into this branch. Sweep seeds
+1..300 (+ recorded), served env, no flags: **0 violations of every rule in
+every mode.** All `todo`s were removed; the file is 39 tests, 39 pass, 0 todo,
+about 30 s. `npm test` runs it in CI, so a rule break on any seed is now red.
+
+| | safe | balanced | all_in |
+|---|---|---|---|
+| leagues with a deck | 145 | 296 | 296 |
+| explicit no-trade pick | 155 | 4 | 4 |
+| deck floor (MIN_DECK_SHARE) | 40% (120) | 85% (255) | 85% (255) |
+
+Changes this round:
+- `beats_no_trade` now also covers catch-up deals (desperate with a
+  plan_key, swing, flip: gain > 0), LADDER-01 cards and each rung's on_no
+  backup, and the #386 `negotiation.alt_package` second package. Those three
+  must carry a confirm-dice number (`dice: 'confirm'` with `expected` > 0, or
+  `confirmed_expected` > 0); a planning-dice number is a break. Deck cards
+  with `beats_no_trade: false` break it too.
+- Buy-back (any team) and undo (two-way only) were split in round 1 and hold.
+- A test ties the oracle's ids (160, 80, 277, 290) to main's
+  `never-give.js` `PINNED_NEVER_GIVE` / `PINNED_NEVER_GET`.
+- Safe bar: the old bar (deck OR no-trade pick in half the leagues) let Safe
+  pass at 0 decks. Each mode now has a deck floor about 15% under main's
+  measurement; Safe's is 40% (main 145/300, Nick's own read 142/300).
+
+Mutation checks (RULE_FUZZ_N=40, each reverted):
+- drop 160 from `PINNED_NEVER_GIVE`: 4 red (pin test, notes-missing x3).
+- serve catch-up flips without the confirm-dice filter: 3 red (beats_no_trade x3).
+- empty `PINNED_NEVER_GET`: 4 red (pin test, no_olave x3).
+
+Exercised on main, first 60 seeds x 3 modes: 27 swing and 120 flip catch-up
+items, 248 backups. Not exercised on main (the surfaces are not there yet):
+desperate items with a plan_key (the fixture has no seller reads), ladders
+(#394) and alt_package (#386); the hand-built test covers each.
+
 ## Reproduce a failure
 
 ```

@@ -9,10 +9,11 @@
  * below, overridable for a wider local run), plus every seed in test/fixtures/rule-fuzz-seeds.json.
  * A failure names its seed and mode; makeFuzzLeague(seed) rebuilds the league exactly.
  *
- * Rules the planner on main enforces are hard tests. Rules whose enforcement is still in an open PR
- * (or in none) run as `todo`: they run in full and print their violation count, but do not fail CI
- * until that enforcement lands on main. Moving a rule from PENDING to ENFORCED is the check that the
- * merged PR really holds over random leagues.
+ * Every rule is a hard test and this file is a required CI test (npm test runs test/*.test.js in
+ * .github/workflows/ci.yml). Batch A (main decf7ebf, integration-7) enforces all of them on the served
+ * path, measured at 0 violations in every mode before the `todo`s were removed. A PR that breaks one of
+ * Nick's rules on any seed now turns CI red. A new rule whose enforcement is not on main yet goes in
+ * PENDING (node:test `todo`, runs in full, prints its count) until its PR merges.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -39,17 +40,31 @@ const SERVED_ENV = {};
  */
 const ENFORCED = [
   { rule: 'never_give', name: '160 and 80 never given (notes read)', when: a => a.draw.notes },
+  // Without Nick's notes only main's never-give.js id pins protect them.
+  { rule: 'never_give', name: '160 and 80 never given (notes missing)', when: a => !a.draw.notes },
   { rule: 'overpay', name: 'no overpay beyond the 1c exception' },
+  { rule: 'aj_brown', name: 'A.J. Brown only for a consistent Blue chip' },
+  { rule: 'final_get', name: 'every final get scores 83+' },
+  { rule: 'no_olave', name: 'Chris Olave never offered or targeted' },
+  { rule: 'no_buyback', name: 'no buy-back, from any team, of a player sold this season' },
+  { rule: 'no_undo', name: 'no trade made this season is undone' },
+  { rule: 'beats_no_trade', name: 'every served card, backup, catch-up deal, ladder and second package beats doing nothing on the confirm dice' },
 ];
-const PENDING = [
-  { rule: 'never_give', name: '160 and 80 never given (notes missing)', when: a => !a.draw.notes, todo: '#381 / #398 never-give.js pins 160 and 80 by id' },
-  { rule: 'aj_brown', name: 'A.J. Brown only for a consistent Blue chip', todo: '#381 / #398 pin 277 as never-give until a consistency read exists' },
-  { rule: 'final_get', name: 'every final get scores 83+', todo: '#381 GETS-FLOOR; #398 keeps GRIDIRON_GETS_FLOOR off on the served path, so it stays open until #398 serves the floor' },
-  { rule: 'no_olave', name: 'Chris Olave never offered or targeted', todo: '#394 pins 290; #398 blocks him as sold this season' },
-  { rule: 'no_buyback', name: 'no buy-back of a player sold this season', todo: '#398 trade memory is whole-season, but BUYBACK_FALL lets a player back in after a 10% price fall' },
-  { rule: 'no_undo', name: 'no trade made this season is undone', todo: '#379 / #398 trade memory (c)' },
-  { rule: 'beats_no_trade', name: 'every served card and backup beats doing nothing on the confirm dice', todo: '#398 NO-TRADE-SHRINK confirm pass' },
-];
+/** Rules whose enforcement is not on main yet: { rule, name, todo: 'the PR that enforces it' }. None today. */
+const PENDING = [];
+
+/**
+ * Non-vacuity floor: the share of leagues each mode must serve a deck in. Measured on main decf7ebf,
+ * seeds 1..300: safe 145, balanced 296, all_in 296 (Nick's own measurement of Safe was 142/300).
+ * Safe is low by design, not by fault: since integration-7 a Safe card is served only when it beats
+ * doing nothing on the confirm dice under Safe's tolerances, and in about half the random leagues no
+ * Safe move does, so Safe explicitly picks no trade there. The old bar (a deck OR a no-trade pick in
+ * half the leagues) passed Safe even at 0 decks, which is how #398's pre-merge Safe collapse (0 of 80)
+ * went through. The floors sit about 15% under the measurement: a regression back toward
+ * "Safe serves nothing" fails, fixture noise from a changed seed range does not. Raise them when a PR
+ * deliberately serves more; lowering one needs a written reason in that PR.
+ */
+const MIN_DECK_SHARE = { safe: 0.40, balanced: 0.85, all_in: 0.85 };
 
 /* One planner run per (seed, mode), shared by every test below. */
 const runs = new Map();
@@ -115,6 +130,24 @@ test('the oracle catches each rule on a hand-built result', () => {
   assert.equal(countByRule(ruleViolations(a, { ...res, deck: [card('holds', 0)] })).beats_no_trade, 1);
   assert.equal(countByRule(ruleViolations(a, { ...res, deck: [card('holds', 0.01)] })).beats_no_trade, 0);
   assert.equal(countByRule(ruleViolations(a, { ...res, backups: [{ step: step(other, [mine[0]], [cheap]), expected: -0.001 }] })).beats_no_trade, 1);
+  assert.equal(countByRule(ruleViolations(a, { ...res, deck: [{ ...card('holds', 0.01), beats_no_trade: false }] })).beats_no_trade, 1);
+  // Catch-up deals, ladder cards and on_no backups, and the second package all need a confirm-dice gain > 0.
+  const beats = r => countByRule(ruleViolations(a, { ...res, ...r })).beats_no_trade;
+  const key = `${other}|${mine[0]}|${cheap}`;
+  assert.equal(beats({ catch_up: [{ kind: 'desperate', gain: 0, plan_key: key }] }), 1, 'desperate at 0');
+  assert.equal(beats({ catch_up: [{ kind: 'swing', gain: -0.01, plan_key: key }] }), 1, 'swing below 0');
+  assert.equal(beats({ catch_up: [{ kind: 'flip', gain: null, player: cheap }] }), 1, 'flip not priced');
+  assert.equal(beats({ catch_up: [{ kind: 'desperate', gain: null, team: other }, { kind: 'timing', gain: null }] }), 0, 'no deal named: nothing to beat');
+  assert.equal(beats({ catch_up: [{ kind: 'desperate', gain: 0.01, plan_key: key }] }), 0);
+  const rung = (extra = {}) => ({ partner: other, give: [String(mine[0])], get: [String(cheap)], ...extra });
+  assert.equal(beats({ ladders: { dice: 'planning', cards: [{ expected: 0.02, rungs: [rung()] }] } }), 1, 'ladder on the planning dice');
+  assert.equal(beats({ ladders: { cards: [{ dice: 'confirm', expected: 0, rungs: [rung()] }] } }), 1, 'ladder at 0 on the confirm dice');
+  assert.equal(beats({ ladders: { cards: [{ dice: 'confirm', expected: 0.02, rungs: [rung({ on_no: { kind: 'backup', ...rung(), expected: 0.01, dice: 'planning' } })] }] } }), 1, 'on_no backup on the planning dice');
+  assert.equal(beats({ ladders: { cards: [{ dice: 'confirm', expected: 0.02, rungs: [rung({ on_no: { kind: 'stop', keep: 0 } }), rung({ on_no: { kind: 'backup', ...rung(), expected: 0.01, dice: 'confirm' } })] }] } }), 0);
+  const alt = x => ({ deck: [{ ...card('holds', 0.01), playbook: { step_index: 0, ladder: {}, negotiation: { alt_package: { give: [String(mine[0])], get: [String(cheap)], ...x } } } }] });
+  assert.equal(beats(alt({})), 1, 'second package with no confirm-dice gain');
+  assert.equal(beats(alt({ dice: 'confirm', expected: -0.01 })), 1, 'second package loses on the confirm dice');
+  assert.equal(beats(alt({ dice: 'confirm', expected: 0.01 })), 0);
   // A clean even 1-for-1 for a Blue chip, not Olave, not a move-back, breaks nothing.
   const moved = new Set(moves.map(m => m.player));
   const blueOut = a.rosters.get(other).find(id => a.scoreOf(id).score >= 83 && id !== OLAVE_ID && !moved.has(id));
@@ -181,6 +214,15 @@ test('same seed, same league and the same violations (recorded seeds replay)', (
   assert.notDeepEqual([...makeFuzzLeague(43).rosters], [...x.rosters]);
 });
 
+test("the oracle's pinned ids are main's never-give.js ids (no 9001-style stand-ins)", async () => {
+  // The oracle keeps its own copy of Nick's rule text on purpose (it must not share code with what it
+  // checks); this pins the two together so neither can drift.
+  const { PINNED_NEVER_GIVE, PINNED_NEVER_GET } = await import('../server/services/campaign/never-give.js');
+  for (const id of [NICO_COLLINS, CHASE_BROWN, AJ_BROWN]) assert.ok(PINNED_NEVER_GIVE.includes(String(id)), `${id} not in PINNED_NEVER_GIVE`);
+  assert.ok(PINNED_NEVER_GET.includes(String(OLAVE_ID)), `${OLAVE_ID} not in PINNED_NEVER_GET`);
+  assert.deepEqual([NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID], [160, 80, 277, 290]);
+});
+
 /* ------------------------------------------- the planner, every risk mode */
 
 for (const mode of MODES) {
@@ -207,6 +249,8 @@ for (const mode of MODES) {
     // A league counts as searched when it serves a deck or explicitly picks keeping the roster on the
     // confirm dice (#398); a sweep with neither would pass every rule vacuously.
     assert.ok(withDeck + keep >= rs.length / 2, `${mode}: only ${withDeck} decks and ${keep} explicit no-trade picks in ${rs.length} leagues`);
+    const floor = Math.ceil(MIN_DECK_SHARE[mode] * rs.length);
+    assert.ok(withDeck >= floor, `${mode}: decks in ${withDeck} of ${rs.length} leagues, under the floor of ${floor} (MIN_DECK_SHARE ${MIN_DECK_SHARE[mode]})`);
   });
 }
 

@@ -176,7 +176,7 @@ const move = obj({
   expected: numF,
   reasoning: field(reasoning)
 }, {
-  // TRADE-MEMORY (a): the card buys back a player Nick sold inside the window, after his price fell 10%+.
+  // TRADE-MEMORY (a): retired (integration-7: no buy-backs, no exceptions); kept optional so older files validate.
   buy_back: arr(obj({ player: pid, was: num, now: num, text: str }), { min: 1 })
 });
 

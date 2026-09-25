@@ -1,11 +1,9 @@
 /**
  * TRADE-MEMORY (ONE-PLAN 4c): the planner remembers this season's executed trades.
  *
- *  (a) a player Nick gave away this season (TRADE_MEMORY_WINDOW_DAYS: the whole season ledger; integration-7,
- *      Nick's rule is "this season", not 4 weeks) is never a target, a get or a flip
- *      buy, unless his market value fell BUYBACK_FALL or more since the trade; then he is a buy-back and
- *      the card says "buy-back: price fell from X to Y". No price on the trade day: no fall can be shown,
- *      so he stays excluded.
+ *  (a) a player Nick gave away this season (TRADE_MEMORY_WINDOW_DAYS: the whole season ledger) is never
+ *      a target, a get, a filler, a flip buy or a flip leg-2 get, from ANY team. Nick's rule (integration-7):
+ *      no buy-backs this season, no exceptions; the price fall is kept for the record only.
  *  (b) a counterparty's floor for a player he bought this season is what he paid: the market value, on
  *      the trade day, of what he gave, split across what he got by what each was worth then. His currency
  *      is the positions he gave up (sells) and took in (wants), net over his season's trades.
@@ -19,14 +17,14 @@
  */
 /** The whole season: the ledger holds only this season's trades, so no day cut-off applies. */
 export const TRADE_MEMORY_WINDOW_DAYS = Infinity;
-export const BUYBACK_FALL = 0.10;
+/** Nick 9/24 (integration-7): no buy-back exception at any price fall. Kept as null so older readers see it is gone. */
+export const BUYBACK_FALL = null;
 export const FLOOR_FLAG = 'GRIDIRON_TRADE_MEMORY_FLOOR';
 const DAY = 864e5;
 const HARD = ['sold_recently', 'reversal'];
 const SHADOW = ['below_his_floor', 'wrong_currency'];
 
 const toMsDefault = v => { const t = Date.parse(v ?? ''); return Number.isFinite(t) ? t : null; };
-const fmt = n => Math.round(n).toLocaleString('en-US');
 
 /**
  * league_transactions_raw rows -> executed trades. An executed trade is the TRADE_ACCEPT / PROCESS /
@@ -61,7 +59,8 @@ export function executedTrades(rows, { idOfEspn, toMs = toMsDefault }) {
  * ledger: { now, trades: [{ tx_id, at, moves: [{ player, from, to }] }], valueAt(id, atMs) -> number|null }.
  * opts: { me, valueNow(id) -> number, positionOf(id) -> string|null, holderOf(id) -> team|null (optional) }.
  */
-export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null, windowDays = TRADE_MEMORY_WINDOW_DAYS, fall = BUYBACK_FALL }) {
+export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null, windowDays = TRADE_MEMORY_WINDOW_DAYS }) {
+  const fall = BUYBACK_FALL;
   const now = ledger.now;
   const trades = ledger.trades ?? [];
   const then = (id, at) => { const v = ledger.valueAt?.(id, at); return Number.isFinite(v) ? v : null; };
@@ -113,9 +112,8 @@ export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null,
       const cur = valueNow(m.player);
       // No price now (missing or 0) is unknown, not a 100% fall: he stays excluded.
       const fell = was != null && was > 0 && Number.isFinite(cur) && cur > 0 ? (was - cur) / was : null;
-      const buyback = fell != null && fell >= fall - 1e-12;
-      sold.set(String(m.player), { player: m.player, at: t.at, to: m.to, was, now: cur, fell, buyback,
-        text: buyback ? `buy-back: price fell from ${fmt(was)} to ${fmt(cur)}` : null });
+      // No buy-backs this season, whatever the price did (the fall is recorded, never an exception).
+      sold.set(String(m.player), { player: m.player, at: t.at, to: m.to, was, now: cur, fell, buyback: false, text: null });
     }
   }
 

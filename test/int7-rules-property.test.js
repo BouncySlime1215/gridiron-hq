@@ -4,8 +4,8 @@
  * Ids only; no real data. Each rule is its own test so a failure names the rule and the surface.
  *
  * Rules: 1 never give 160 / 80 / 277; 2 every final get scores 83+; 3 overpay cap 0 except a
- * depth-only 2-for-1 up to +12% confirmed on fresh dice; 4 no buy-back of a player sold THIS SEASON
- * unless his price fell 10%+ (the PR uses a 28-day window: counted separately); 5 no reversal;
+ * depth-only 2-for-1 up to +12% confirmed on fresh dice; 4 no buy-back of a player sold THIS SEASON (any team, any price);
+ * 5 no reversal;
  * 6 a served move beats doing nothing on the confirm dice.
  */
 import test from 'node:test';
@@ -162,10 +162,10 @@ const allGets = res => {
     ...flips.flatMap(f => [{ where: 'flip.leg1', team: S(f.a), give: (f.legs.give_a_ids ?? [f.legs.give_a]).map(S), get: [S(f.player)] },
       { where: 'flip.leg2', team: S(f.b), give: [S(f.player)], get: (f.legs.get_b_ids ?? [f.legs.get_b]).map(S) }])];
 };
-const soldNoFall = (L, id) => L.trades.find(t => t.moves.some(m => S(m.player) === id && m.from === '1')
-  && !(L.then.get(Number(id)) > 0 && (L.then.get(Number(id)) - val(L, id)) / L.then.get(Number(id)) >= 0.1 - 1e-12));
+// Nick 9/24 (integration-7): no buy-backs this season, no exceptions (a price fall does not count), from any team.
+const soldNoFall = (L, id) => L.trades.find(t => t.moves.some(m => S(m.player) === id && m.from === '1'));
 
-test('rule 4 (28-day window, as the PR implements it): no buy-back inside the window without a 10%+ fall', () => {
+test('rule 4 (last 28 days): no buy-back', () => {
   const bad = [];
   for (const { seed, mode, L, res } of runs) for (const g of allGets(res)) for (const id of g.get) {
     const t = soldNoFall(L, id);
@@ -174,7 +174,7 @@ test('rule 4 (28-day window, as the PR implements it): no buy-back inside the wi
   assert.deepEqual(bad, [], report(bad));
 });
 
-test('rule 4 (as stated: the whole season): no buy-back without a 10%+ fall', () => {
+test('rule 4 (the whole season, any team, any price fall): no buy-back', () => {
   const bad = [];
   for (const { seed, mode, L, res } of runs) for (const g of allGets(res)) for (const id of g.get) {
     const t = soldNoFall(L, id);

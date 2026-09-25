@@ -17,7 +17,7 @@
  *      that is also a deck card) and team 4 checked out
  *   4  go get player 21, points side panel at 105 a week (reachable under the FIX-05 balanced fallback: by_week is ok)
  *   5  sliders at zero assets: nothing clears, so next_move is unknown with its reason
- *   8  a made-up season trade ledger (TRADE-MEMORY): a buy-back card, a sold player and a
+ *   8  a made-up season trade ledger (TRADE-MEMORY): a sold player whose price fell (still never a get), a sold player and a
  *      reversal dropped, the count in _run.dropped_by_reason
  *
  * The FEAS-140 points side panel is switched on (ENV below, never the process env), so
@@ -102,7 +102,7 @@ function withPeople(a) {
 
 /**
  * League 8's season ledger (TRADE-MEMORY, made up): Nick sold P11 to team 2 twelve days ago at 5,000
- * (4,200 now, a 16% fall, so a buy-back card) and P22 to team 3 for P4 (a reversal is never served).
+ * (4,200 now, a 16% fall: still never a get, no buy-backs) and P22 to team 3 for P4 (a reversal is never served).
  */
 function withLedger(a) {
   const at = Date.parse(FIRST_AT) - 12 * 864e5;

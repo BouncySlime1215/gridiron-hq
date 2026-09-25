@@ -206,9 +206,6 @@ export interface WarRoomView {
   risk_modes?: Field<RiskModeRow[]>;
   teams?: Field<Record<string, TeamName>>;
   partners?: Field<Partner[]>;
-  /** PEOPLE-BOARD: the rail's switch and its tiles (war-room-view.js#buildPeopleBoard). */
-  people_board?: { enabled: boolean; preview: boolean };
-  people?: Field<PersonTile[]>;
   /** PLAYER-SCORE: the blue-chip board (people/player-score.js via the producer). */
   blue_chips?: Field<BlueChipBoardData>;
 }
@@ -284,25 +281,4 @@ export interface Partner {
   offers_logged?: number;
   checked_out?: boolean;
   blocked?: boolean;
-}
-
-/** PEOPLE-BOARD: one league-mate's tile, served whole; the client formats and computes nothing. */
-export interface PersonWord { status: 'proven' | 'manager_split' | 'noise'; n: number; weight: number | null }
-export interface PersonTile {
-  team: string;
-  label: string;
-  /** Nick's notes over the models: 'never' (can't reach him) sits last, 'last' (not a buyer) before it. */
-  standing: 'live' | 'last' | 'never';
-  nick: { never: boolean; last: boolean; hard: boolean; said: string[]; source: string | null };
-  checked_out: boolean;
-  blocked: boolean;
-  p_responds: Field<{ p: number; basis: string }>;
-  fatigue: Field<{ used: number; limit: number | null }>;
-  mood: Field<string>;
-  in_market: Field<{ said: { text: string; ago: string; credible: boolean; fading: boolean }[]; said_n: number; wants_n: number }>;
-  word: Field<{ wants: PersonWord | null; shop: PersonWord | null; as_of: string }>;
-  approach: Field<string>;
-  last_contact: Field<string>;
-  /** How many of the plan's moves have a step with him (what a tap focuses the deck on). */
-  moves_n: number;
 }

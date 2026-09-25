@@ -150,20 +150,25 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints, bat
     return counts;
   }
 
+  // U1c: a subtree (round r onward, from these slots) does not depend on the rest of the field, only on
+  // who is in the slots and their seeds (ties, reseeding); with no offsets it is memoised across fields.
+  const subMemo = new Map();
+
   /** Map<id, Float64Array[pool]>: each team's title probability in every pool (0 = all runs). */
   function probsAll(field, offsets) {
     const key = offsets ? null : field.join('\u0001');
     if (key != null && memo.has(key)) return memo.get(key);
     const seedOf = new Map(field.map((id, i) => [id, i]));
-    const out = new Map(ids.map(id => [id, new Float64Array(nPools)]));
     const off = id => (offsets ? offsets.get(id) ?? 0 : 0);
 
-    const round = (slots, r, weight) => {
+    /** Map<champion, Float64Array[pool]>: P(each team wins from round r on, from `slots`), per pool. */
+    const sub = (slots, r) => {
       if (r === roundWeeks.length) {
         const champ = slots.find(Boolean);
-        if (champ != null) { const o = out.get(champ); for (let q = 0; q < nPools; q++) o[q] += weight[q]; }
-        return;
+        return champ == null ? new Map() : new Map([[champ, new Float64Array(nPools).fill(1)]]);
       }
+      const subKey = offsets ? null : `${r}|${slots.map(id => (id == null ? '-' : `${id}:${seedOf.get(id)}`)).join(',')}`;
+      if (subKey != null && subMemo.has(subKey)) return subMemo.get(subKey);
       if (reseed && r > 0) {
         const alive = slots.filter(Boolean).sort((a, b) => seedOf.get(a) - seedOf.get(b));
         slots = [];
@@ -180,10 +185,10 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints, bat
       const cacheKey = offsets ? null : `${r}\u0001${games.map(g => `${g[0]}\u0002${g[1]}\u0002${g[3] ? 1 : 0}`).join('\u0001')}`;
       const dist = patterns(r, games, cacheKey);
       const P = 2 ** games.length;
+      const res = new Map();
       for (let bits = 0; bits < P; bits++) {
-        const w = new Float64Array(nPools);
         let any = false;
-        for (let q = 0; q < nPools; q++) { w[q] = weight[q] * dist[q * P + bits]; if (w[q]) any = true; }
+        for (let q = 0; q < nPools; q++) if (dist[q * P + bits]) { any = true; break; }
         if (!any) continue;
         const next = [];
         let g = 0;
@@ -191,10 +196,17 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints, bat
           const a = slots[i], b = slots[i + 1];
           if (a && b) { next.push((bits >> g) & 1 ? a : b); g++; } else next.push(a ?? b ?? null);
         }
-        round(next, r + 1, w);
+        for (const [champ, v] of sub(next, r + 1)) {
+          let acc = res.get(champ);
+          if (!acc) { acc = new Float64Array(nPools); res.set(champ, acc); }
+          for (let q = 0; q < nPools; q++) acc[q] += dist[q * P + bits] * v[q];
+        }
       }
+      if (subKey != null) subMemo.set(subKey, res);
+      return res;
     };
-    round(order.map(seed => (seed <= field.length ? field[seed - 1] : null)), 0, new Float64Array(nPools).fill(1));
+    const out = new Map(ids.map(id => [id, new Float64Array(nPools)]));
+    for (const [champ, v] of sub(order.map(seed => (seed <= field.length ? field[seed - 1] : null)), 0)) out.set(champ, v);
     if (key != null) memo.set(key, out);
     return out;
   }

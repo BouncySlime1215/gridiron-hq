@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Lineup from './Lineup';
-import { api, headshotUrl, useApi } from '../api';
+import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { playoffWeeksText } from '../copy-constants';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
 import PostDraftPlan from '../components/PostDraftPlan';
-import { Headshot } from '../components/PlayerRow';
 import { PageError, PageLoading } from '../components/PageState';
 import { sanitizedAlert } from '../lib/errorSanitize';
 import MedianGameNotice from '../components/MedianGameNotice';

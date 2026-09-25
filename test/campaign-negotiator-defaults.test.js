@@ -259,7 +259,12 @@ test('flag on: a served second package beats doing nothing on the confirm dice a
       const { res } = run(obj, {}, ND_ON);
       for (const pb of res.deck.flatMap(c => c.playbooks ?? [c.playbook]).filter(Boolean)) {
         const n = pb.negotiation;
-        if (n?.alt_package) assert.equal(n.alt_dropped, undefined);
+        if (n?.alt_package) {
+          assert.equal(n.alt_dropped, undefined);
+          // RULE-FUZZ (#392) reads this: the second package's own confirm-dice gain, above doing nothing.
+          assert.equal(n.alt_package.dice, 'confirm');
+          assert.ok(n.alt_package.expected > 0, `confirm-dice gain ${n.alt_package.expected}`);
+        }
         if (n?.alt_dropped) assert.ok(ALT_DROP_REASONS.includes(n.alt_dropped), n.alt_dropped);
       }
     }

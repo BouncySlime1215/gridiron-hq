@@ -156,7 +156,8 @@ export function negotiationFor({ who, give, get, ladder, alt, altDropped = null,
   if (sendWhen?.cool_off) levers.push('cool_off');
   return {
     levers, feeler: feelerText({ who, give, get }), expires_hours: OFFER_HOURS, withdraw_if: WITHDRAW_IF,
-    ...(alt ? { alt_package: { give: alt.give, get, his_pct: alt.his_pct } } : {}),
+    ...(alt ? { alt_package: { give: alt.give, get, his_pct: alt.his_pct,
+      ...(Number.isFinite(alt.confirm_expected) ? { dice: 'confirm', expected: alt.confirm_expected } : {}) } } : {}),
     ...(altDropped ? { alt_dropped: altDropped } : {}),
     ...(ladder?.anchor ? { anchor: ladder.anchor } : {}),
     ...(sendWhen?.cool_off ? { cool_off: true } : {}),

@@ -210,7 +210,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         const n = pb.negotiation;
         out.negotiation = ok({ levers: [...n.levers], feeler: n.feeler, expires_hours: n.expires_hours, withdraw_if: n.withdraw_if,
           ...(n.alt_package ? { alt_package: { give: ids(n.alt_package.give), get: ids(n.alt_package.get),
-            ...(fin(n.alt_package.his_pct) ? { his_pct: n.alt_package.his_pct } : {}) } } : {}),
+            ...(fin(n.alt_package.his_pct) ? { his_pct: n.alt_package.his_pct } : {}),
+            ...(n.alt_package.dice === 'confirm' && fin(n.alt_package.expected) ? { dice: 'confirm', expected: n.alt_package.expected } : {}) } } : {}),
           ...(n.anchor ? { anchor: { ...n.anchor } } : {}),
           ...(n.cool_off ? { cool_off: true } : {}), ...(n.alt_dropped ? { alt_dropped: n.alt_dropped } : {}) }, 'plan.template');
       }

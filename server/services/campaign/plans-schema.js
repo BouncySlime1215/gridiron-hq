@@ -150,7 +150,7 @@ const stepCounterpart = obj({
 const stepNegotiation = obj({
   levers: arr(oneOf(NEGOTIATION_LEVERS), { min: 1 }), feeler: str, expires_hours: int(1), withdraw_if: str
 }, {
-  alt_package: obj({ give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }, { his_pct: num }),
+  alt_package: obj({ give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }, { his_pct: num, dice: oneOf(['confirm']), expected: num }),
   anchor: obj({ lifted: bool, floor_pct: num, from_pct: num, to_pct: num, defensible: bool }),
   cool_off: bool, alt_dropped: oneOf(ALT_DROP_REASONS)
 });

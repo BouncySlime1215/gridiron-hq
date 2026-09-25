@@ -90,6 +90,31 @@ worth arguing about, not a hard gate.
 **Commits.** `<type>: <description>` — feat, fix, refactor, docs, test, chore,
 perf, ci. Attribution footers stay on; see section 3.
 
+## 2b. UI rules (any change under `client/`)
+
+The app is one design system and seven areas (docs/ui/DESIGN-SYSTEM.md, docs/ui/CONSOLIDATION-MAP.md).
+A client change that breaks these is refused at integration:
+
+- **Primitives only.** Card, Button, Chip, Stat, Avatar, Tabs, Table, Skeleton, EmptyState, Sheet
+  (`components/ui/DesignSystem.tsx`) and the tokens in `client/src/styles/tokens.css`. No stock
+  Tailwind blues/greys, ad-hoc radii or shadows, no second copy of a card that already exists.
+- **Seven areas, no new top-level pages.** New features live inside Today, Trades, My team, League,
+  Players, Draft or Settings. No nested app shell (one header, one tab row per area).
+- **No layout defects** at 375 / 768 / 1024 / 1440 / 1920 px, light and dark: no horizontal overflow,
+  no clipped text without an ellipsis, no fixed/sticky element over text or a button, no control
+  whose visible text is empty. Page height at 375 stays reasonable (fold long sections, "Show more").
+- **No dev text on screen.** No raw engine field names, file paths, script names, model names,
+  dollar budgets or internal ids. Every number has a label; a guess says it is a guess.
+- **One number, one producer.** A screen shows the served value from its single producer
+  (plans.json / the one service), never a locally recomputed copy.
+- **Nick's rules are shown, never bypassed.** Trade suggestions render only rule-filtered output
+  (never-give.js) and show the "N ideas hidden by your rules" count; nothing rule-breaking is drawn.
+- **Motion and speed.** Transform/opacity only, respect reduced motion, no long task > 50 ms on a
+  view switch; skeletons at final size (no layout jump).
+- **Privacy.** No league-mate names, chat text or credentials in committed fixtures or screenshots.
+
+PR bodies for client changes list before -> after screenshots (paths) and the scan result.
+
 ## 3. Deliberately not adopted
 
 From everything-claude-code, with the reason. Do not re-import these without

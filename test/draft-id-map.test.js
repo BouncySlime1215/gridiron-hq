@@ -15,7 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 
-const { draftCapital, draftSummary, draftIdMapEnabled, DRAFT_ID_MAP_ENV } =
+const { draftCapital, draftCapitalGuarded, draftSummary, draftIdMapEnabled, DRAFT_ID_MAP_ENV } =
   await import('../server/services/campaign/draft-capital.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const { buildPlansFile } = await import('../scripts/campaign/produce-plans.mjs');
@@ -153,6 +153,38 @@ test('no picks for this league-season: says so, not an empty ok', () => {
   assert.match(d.reason, /2026/);
 });
 
+// Review note 1 on #391: the adapter ran draftCapital unguarded, so with the flag on any SQL error
+// killed the whole league entry (served plans included) for a shadow read. The guarded read records it.
+function throwingDb() {
+  const db = makeDb();
+  seedDraft(db);
+  return { ...db, rows: () => { throw new Error('SQLITE_CORRUPT: database disk image is malformed'); } };
+}
+
+test('guarded: a SQL error becomes status "error" with the reason, never a throw and never an empty ok', () => {
+  const db = throwingDb();
+  assert.throws(() => draftCapital(db, { leagueId: LEAGUE, season: SEASON }), /SQLITE_CORRUPT/);
+  const d = draftCapitalGuarded(db, { leagueId: LEAGUE, season: SEASON, rosters: new Map() });
+  assert.equal(d.status, 'error');
+  assert.match(d.reason, /SQLITE_CORRUPT/);
+  assert.equal(d.by_player.size, 0);
+  assert.equal(draftSummary(d).status, 'error');
+});
+
+test('guarded: with no error it returns exactly what draftCapital returns', () => {
+  const db = makeDb();
+  const rosters = seedDraft(db);
+  assert.deepEqual(draftCapitalGuarded(db, { leagueId: LEAGUE, season: SEASON, rosters }),
+    draftCapital(db, { leagueId: LEAGUE, season: SEASON, rosters }));
+});
+
+test('the adapter reads draft capital through the guarded reader only', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../scripts/campaign/league-adapter.mjs', import.meta.url), 'utf8');
+  assert.match(src, /draft: draftCapitalGuarded\(svc\.db,/);
+  assert.doesNotMatch(src, /draftCapital\(/);
+});
+
 test('flag is off by default; only "1" turns it on', () => {
   assert.equal(DRAFT_ID_MAP_ENV, 'GRIDIRON_DRAFT_ID_MAP');
   assert.equal(draftIdMapEnabled({}), false);
@@ -189,4 +221,15 @@ test('producer: flag on -> only _run.inputs.draft_id_map is added; every served 
   assert.deepEqual(strip(on), strip(off), 'shadow: no served number moves');
   delete on._run.inputs.draft_id_map;
   assert.deepEqual(on._run, off._run);
+});
+
+test('producer: flag on with a draft read error -> league entry still served, error recorded in _run.inputs', async () => {
+  const off = (await produce(makeAdapter())).leagues[0];
+  const draft = draftCapitalGuarded(throwingDb(), { leagueId: LEAGUE, season: SEASON, rosters: new Map() });
+  const on = (await produce(Object.assign(makeAdapter(), { draft }))).leagues[0];
+  assert.equal(on.error ?? null, null);
+  assert.equal(on._run.inputs.draft_id_map.status, 'error');
+  assert.match(on._run.inputs.draft_id_map.reason, /SQLITE_CORRUPT/);
+  const strip = e => { const c = structuredClone(e); delete c._run; return c; };
+  assert.deepEqual(strip(on), strip(off), 'a failed shadow read moves no served number');
 });

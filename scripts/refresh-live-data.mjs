@@ -57,6 +57,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { warRoomFlag, warRoomPlansPath } from '../server/services/warroom-flag.js';
+import { reachFlag, REACH_TARGETS } from '../server/services/campaign/reach.js';
 
 // Before any server module is imported: the scheduler must never start in this process.
 process.env.SCHEDULER_DISABLED = '1';
@@ -91,6 +92,16 @@ export const FANTASY_LIVE_JOBS = [
   // whose rows it grades (nfl_model_growth's finalized weeks, nfl_weekly_learning's
   // pregame snapshots). 7-day maxAge; offThread, so its replays run in a worker.
   'start_sit_gate',
+  // DATA-FC (2026-09-24): FantasyCalc's market price per league format, plus the day's
+  // dynasty_value_history row. FC-SNAP gave it a scheduler timer, but only the scheduler
+  // ran it, so with SCHEDULER_DISABLED=1 the price every trade card is gated and ranked
+  // on went 5 days stale and the history table stayed empty. Daily by its own maxAge
+  // (FantasyCalc asks callers to fetch about once a day); one read-only GET of the public
+  // /values/current per format. Before served_numbers_weekly, whose trade cards price on it.
+  'fantasycalc_dynasty',
+  // The redraft half (player_metrics 'fc_value' / 'fc_trend30'): the League Hub, rankings
+  // and edge board read it, and only the manual sync button ran it (0 of 173 priced, 9/24).
+  'fantasycalc_values',
   // IDEA-001: the weekly served-number snapshot (title odds, title trades, trade
   // cards) into served_numbers. Nothing else runs it while SCHEDULER_DISABLED=1.
   // Idempotent per league per NFL week; offThread, so the simulations run in a worker.
@@ -241,8 +252,10 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
     return;
   }
   const only = warRoomLeagues(env);
+  // REACH-01: with GRIDIRON_REACH=1 (default off) the loop searches 8 targets (ONE-PLAN night 1), else the producer's 3.
+  const reach = reachFlag(env) !== 'off';
   const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs',
-    ...(only ? ['--leagues', only] : [])], { cwd: ROOT, env, log: files.log });
+    ...(only ? ['--leagues', only] : []), ...(reach ? ['--targets', String(REACH_TARGETS)] : [])], { cwd: ROOT, env, log: files.log });
   log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}${only ? `, leagues ${only}` : ''}); last: ${(last ?? 'none yet').slice(0, 160)}`);
 }
 

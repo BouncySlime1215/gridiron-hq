@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
-import type { Move, WarRoomView } from './types';
+import type { Move, ReplyKind, WarRoomView } from './types';
 import { REASONING_SLOTS, namer, teamLabel } from './types';
 import { deckReducer, initialDeck, SKIP_REASONS, type DeckLogEntry, type DeckState } from './deck';
 import { flushOutbox, openNegotiation, postWarRoomRequest, type Poster } from './requests';
@@ -10,7 +10,13 @@ import Negotiate from './Negotiate';
 import type { Negotiations, Thread, ThreadResponse } from './negotiateModel';
 import { HisScreenToggle } from './HisScreen';
 import NoMoveCard from './NoMoveCard';
+import NoMoveHero from './NoMoveHero';
 import SwipeDeck from './SwipeDeck';
+import HeroCard from './HeroCard';
+import { CopyBlock, Ladder, messageLabel } from './cardParts';
+
+/** WAR-ROOM-UI v2: the card on screen, for the page's Details disclosure (MoveDetails). */
+export interface CurrentMove { move: Move; index: number; onReply?: (reply: ReplyKind) => void; negotiating: boolean }
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck
@@ -24,7 +30,7 @@ import SwipeDeck from './SwipeDeck';
  * With negotiation mode on (`negotiation.enabled`), "I sent it" also opens a live
  * thread on the server and the card flips to it (Negotiate.tsx).
  */
-export default function NextMoveDeck({ view, big, initialState, onLog, post, negotiation, onAsk }: {
+export default function NextMoveDeck({ view, big, initialState, onLog, post, negotiation, onAsk, variant = 'classic', onCurrent, onAskCoach }: {
   view: WarRoomView;
   big: boolean;
   initialState?: DeckState;
@@ -33,7 +39,13 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
   negotiation?: Negotiations | null;
   /** Ask Coach (the no-move card's prompts). */
   onAsk?: (q: string) => void;
+  /** 'hero' (WAR-ROOM-UI v2): each card is a HeroCard; the rest of the move goes to onCurrent. */
+  variant?: 'classic' | 'hero';
+  onCurrent?: (current: CurrentMove | null) => void;
+  /** v2: the hero's "Ask Coach about this". */
+  onAskCoach?: () => void;
 }) {
+  const hero = variant === 'hero';
   const field = view.alternatives;
   const moves: Move[] = isOk(field) ? field.value : [];
   const n = namer(view.names);
@@ -44,6 +56,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
   const move = idx < total ? moves[idx] : null;
 
   useEffect(() => { onLog?.(deck.log); }, [deck.log, onLog]);
+
 
   // Negotiation mode: threads opened or changed here win over the ones the page loaded.
   const negotiating = negotiation?.enabled === true;
@@ -57,6 +70,18 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     setThreads(m => ({ ...m, [moveId]: t }));
     if (t?.closed_reason === 'undone') dispatch({ type: 'unsent', card: moveId });
   };
+
+  // v2: tell the page which move is on screen (and how to log his reply once it is picked).
+  const chosenNow = move != null && deck.chosen === idx;
+  // "Negotiating" for the details = a live thread replaced the message and the reply table.
+  const negotiatingNow = move != null && negotiation?.enabled === true && threadFor(move.move_id) != null;
+  useEffect(() => {
+    if (!onCurrent) return;
+    if (!move) { onCurrent(null); return; }
+    const id = move.move_id;
+    onCurrent({ move, index: idx, negotiating: negotiatingNow,
+      onReply: chosenNow ? reply => dispatch({ type: 'reply', card: id, reply, at: Date.now() }) : undefined });
+  }, [move, idx, chosenNow, negotiatingNow, onCurrent]);
 
   // Post each new request once, in order. A failed post is shown, never swallowed.
   const sent = useRef(initialState?.outbox.length ?? 0);
@@ -109,7 +134,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
   }
   if (!total) {
     // Audit defect 2: the reason, then the closest path and the all-in option, never a blank slot.
-    return <div className="wr-deck"><NoMoveCard view={view} onAsk={onAsk} /></div>;
+    return <div className="wr-deck">{hero ? <NoMoveHero view={view} onAsk={onAsk} /> : <NoMoveCard view={view} onAsk={onAsk} />}</div>;
   }
 
   const skipRow = deck.asking != null ? (
@@ -176,6 +201,14 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
       </div>
     );
     const dealLine = `Offer ${partner}: ${n.text(s.give)} for ${n.text(s.get)}`;
+
+    if (hero) {
+      return (
+        <HeroCard move={m} view={view} leagueId={leagueId} chosen={!thread && deck.chosen === i} isSent={isSent}
+          thread={thread ? <Negotiate thread={thread} onThread={onThread(m.move_id)} post={post} /> : null}
+          onPick={doIt} onMarkSent={markSent} onAskCoach={onAskCoach} />
+      );
+    }
 
     if (!big) {
       return (
@@ -253,7 +286,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     );
   };
 
-  const bar = big && move ? (
+  const bar = big && !hero && move ? (
     <>
       <span className="wr-tag wr-src">{move.rank === 1 ? 'Best plan' : `Plan ${move.rank}`}</span>
       <span className="wr-sp" />
@@ -264,7 +297,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
   return (
     <div className="wr-deck">
       <SwipeDeck cards={moves} index={idx} onNext={next} onOpen={doIt} onBack={back} canBack={deck.skipped.length > 0}
-        renderCard={card} overlay={skipRow} end={end} bar={bar} />
+        renderCard={card} overlay={skipRow} end={end} bar={bar} arrows={hero} />
       {saveNote}
     </div>
   );
@@ -281,58 +314,4 @@ export function nearMissView(view: WarRoomView, moves: Move[]): WarRoomView {
   if (!isOk(view.risk_modes)) return view;
   const rows = view.risk_modes.value.filter(r => !r.first_step || !moves.some(m => m.steps[0] && sameStep(r.first_step!, m.steps[0])));
   return { ...view, risk_modes: { ...view.risk_modes, value: rows } };
-}
-
-type Step = Move['steps'][number];
-const samePkg = (a: string[], b: string[]) => [...a].sort().join('|') === [...b].sort().join('|');
-/** CARD-CLARITY: the step's opening ask, when it is a different package from the planned step. */
-const openingAsk = (s: Step) => (isOk(s.opening) && !samePkg(s.opening.value.give, s.give) ? s.opening.value : null);
-/** The message is written from the opening ask; say so whenever that differs from the plan. */
-const messageLabel = (s: Step) => (openingAsk(s) ? 'Opening message (the opening ask, not the plan)' : 'Message');
-
-/**
- * CARD-CLARITY: the negotiation ladder, from the contract fields the step already carries:
- * Open with (step.opening, only when it differs from the plan), Plan (the step's give/get),
- * Walk away at (walk_away.max_give). One package per labelled rung, never an unlabelled third.
- */
-function Ladder({ s, text }: { s: Step; text: (ids: string[]) => string }) {
-  const open = openingAsk(s);
-  return (
-    <ol className="wr-ladder" aria-label="Negotiation ladder">
-      {open && (
-        <li data-rung="open"><span className="wr-k">Open with</span>
-          <span>{text(open.give)} for {text(open.get)}<span className="wr-hint"> Coach&apos;s opening ask, lower than the plan</span></span></li>
-      )}
-      <li data-rung="plan"><span className="wr-k">Plan</span><span>{text(s.give)} for {text(s.get)}</span></li>
-      <li data-rung="walk"><span className="wr-k">Walk away at</span>
-        <span title={isOk(s.walk_away) ? s.walk_away.value.text : undefined}>
-          <Val f={s.walk_away} fmt={v => `${text(v.max_give)} for ${text(s.get)}`} showReason /></span></li>
-    </ol>
-  );
-}
-
-/** The copyable message. The clipboard can be blocked over plain HTTP; then the text stays selectable. */
-function CopyBlock({ label, text, note }: { label: string; text: string; note?: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('no clipboard');
-      await navigator.clipboard.writeText(text);
-      setState('copied');
-      window.setTimeout(() => setState('idle'), 2000);
-    } catch { setState('failed'); }
-  };
-  return (
-    <div className="wr-msg">
-      <div className="wr-row">
-        <span className="wr-cap">{label}</span>
-        <span className="wr-sp" />
-        <button type="button" className="wr-btn wr-sm wr-primary" onClick={copy}>{state === 'copied' ? 'Copied' : 'Copy'}</button>
-      </div>
-      <p className="wr-msg-text">{text}</p>
-      {note && <div className="wr-hint">{note}</div>}
-      <div className="wr-hint">Coach never sends offers. Sending stays your tap in ESPN.</div>
-      {state === 'failed' && <div className="wr-hint wr-red" role="status">Copy was blocked here. The text above selects in one tap.</div>}
-    </div>
-  );
 }

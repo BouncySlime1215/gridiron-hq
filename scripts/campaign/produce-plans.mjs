@@ -16,6 +16,7 @@
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_WARROOM_RESCORE_CACHE  in/out  rescore cache (PRODUCER-FAST only; scripts/campaign/rescore-cache.mjs)
  *   GRIDIRON_COUNTERPART         flag     =1 turns on the ONE-COUNTERPART model (people/counterpart.js):
  *                                         targets, partner order and the reply prior adjusted by named
  *                                         features; unset follows the preview switch; =0 keeps it off
@@ -70,7 +71,7 @@
  * Pushes, the failed count and the summary line count only the leagues that ran.
  *
  * Usage:
- *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
+ *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3, or 8 with GRIDIRON_REACH on] [--no-finder] [--tick]
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -88,6 +89,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -191,8 +193,9 @@ function readPrevious(file) {
   }
 }
 
-function args(argv) {
-  const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false };
+/** The producer's command line. REACH-01: with GRIDIRON_REACH=1 the default search covers 8 targets, else 3 (default off). */
+export function producerArgs(argv, env = process.env) {
+  const out = { leagues: null, flipTop: 3, targets: reachFlag(env) !== 'off' ? REACH_TARGETS : 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--leagues') {
       const raw = argv[++i];
@@ -327,7 +330,7 @@ export async function buildPlansFile(leagues, {
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
       entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of: generated_at, previous: prev, changed, model,
-        brain: gate, number_health: brain ? brain.numberHealth(id) : null });
+        brain: gate, number_health: brain ? brain.numberHealth(id) : null, blue_chips: adapter.blueChips?.() ?? null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
@@ -342,6 +345,13 @@ export async function buildPlansFile(leagues, {
           counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
           // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
+          // GETS-FLOOR (on by default): the final-get floor, its score source, what it dropped, and a warning when =0.
+          ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
+          // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
+          ...(res.reach ? { reach: res.reach } : {}),
+          // CAP-1C: the depth-only 2-for-1 premium (screened, gated out by reason, confirm failures). Written only
+          // when a blue-chip board turned it on, so with no board the entry is byte-for-byte the incumbent's.
+          ...(res.no_overpay?.depth_premium?.board === 'on' ? { depth_premium: res.no_overpay.depth_premium } : {}),
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).
@@ -350,6 +360,8 @@ export async function buildPlansFile(leagues, {
           brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
             fell_back: gate.rule.fell_back, testing_tier_enabled: gate.rule.testing_tier_enabled,
             read_error: brain.read.error } : { status: 'not_read' },
+          // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
+          ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
@@ -371,6 +383,7 @@ export async function buildPlansFile(leagues, {
     entries.push(entry);
     log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}`
       : `ok, next ${entry._run.changed.next_key}, changed ${entry._run.changed.changed}`} (${Math.round((clock() - t0) / 1000)} s, ${entry._run?.rescores ?? 0} rescores, phases ms ${JSON.stringify(entry._run?.phases_ms ?? {})})`);
+    if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.drops_by_gate)}`);
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.
@@ -391,14 +404,15 @@ export function pushesOf(file) {
 
 async function main() {
   const t0 = Date.now();
-  const opts = args(process.argv);
+  const opts = producerArgs(process.argv);
   const env = process.env;
   const out = plansPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
   try {
-    const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
+    const { loadServices, buildAdapter, producerFastEnabled } = await import('./league-adapter.mjs');
+    const { readRescoreCache, writeRescoreCache, leagueCache } = await import('./rescore-cache.mjs');
     const svc = await loadServices();
     const allIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id);
     if (opts.leaguesBad) console.log(`[warroom] --leagues ${JSON.stringify(opts.leaguesBad)} is not a comma list of league ids; planning every league`);
@@ -415,6 +429,11 @@ async function main() {
       trigger = d.trigger;
     }
     const twoForOne = twoForOneFlag(env);
+    // integration-7: Nick's hard rules are on by default; switching one off by hand is logged loudly.
+    const { getsFloorFlag, GETS_FLOOR_OFF_WARNING } = await import('../../server/services/campaign/gets-floor.js');
+    const { tradeMemoryOn, TRADE_MEMORY_OFF_WARNING } = await import('../../server/services/campaign/trade-memory.js');
+    if (getsFloorFlag(env) === 'off') console.error(`[warroom] ${GETS_FLOOR_OFF_WARNING}`);
+    if (!tradeMemoryOn(env)) console.error(`[warroom] ${TRADE_MEMORY_OFF_WARNING}`);
     console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
     // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.
@@ -433,11 +452,19 @@ async function main() {
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
     const previous = readPrevious(out);
+    // PRODUCER-FAST: last run's rescores, reused only for a world with the same content hash.
+    const fast = producerFastEnabled(env);
+    const cacheFile = sibling(env, 'GRIDIRON_WARROOM_RESCORE_CACHE', 'rescore-cache.json');
+    const cacheIn = fast ? readRescoreCache(cacheFile) : null;
+    if (cacheIn && cacheIn.status !== 'ok' && cacheIn.status !== 'absent') console.warn(`[warroom] rescore cache ${cacheIn.status}`);
+    const caches = new Map();
     const leagues = leagueIds
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder });
+        const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
+        if (rescoreCache) caches.set(String(id), rescoreCache);
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache });
         let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
         let people = null;
         if (counterpartOn && !adapter.fail) {
@@ -490,6 +517,7 @@ async function main() {
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     reasoning.commit();
+    if (fast) writeRescoreCache(cacheFile, Object.fromEntries([...caches].map(([id, c]) => [id, c.next])));
     // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
     // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.
     const { writeHisScreens } = await import('../../server/services/campaign/his-screen.js');

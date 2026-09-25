@@ -12,7 +12,11 @@ export const NOT_CLEARED = 'did not clear the fresh-dice check';
  * not clear) and the all-in option from `catch_up`, each labelled as not cleared.
  * Reads only; picks the largest producer value by comparison, no arithmetic.
  */
-export default function NoMoveCard({ view, onAsk }: { view: WarRoomView; onAsk?: (q: string) => void }) {
+export default function NoMoveCard({ view, onAsk, modeLabel }: {
+  view: WarRoomView; onAsk?: (q: string) => void;
+  /** WAR-ROOM-UI v2: a friendlier risk-mode name (default: the served label). */
+  modeLabel?: (row: RiskModeRow) => string;
+}) {
   const n = namer(view.names);
   const reason = view.next_move?.reason ?? 'The planner found no move for this league.';
   const near = bestNearMiss(isOk(view.risk_modes) ? view.risk_modes.value : []);
@@ -33,7 +37,7 @@ export default function NoMoveCard({ view, onAsk }: { view: WarRoomView; onAsk?:
                 {step ? <>Offer {teamLabel(step.partner)}: {n.text(step.give)} for {n.text(step.get)}</> : <>No first step written for this path.</>}
               </div>
               <div className="wr-sub">
-                {near.label} mode{near.active ? ' (your mode)' : ''} · <Val f={near.expected} fmt={pts} /> expected
+                {modeLabel ? modeLabel(near) : near.label} mode{near.active ? ' (your mode)' : ''} · <Val f={near.expected} fmt={pts} /> expected
                 {' · '}<Val f={near.if_complete} fmt={pts} /> if it all lands
                 {' · '}finishes <Val f={near.p_complete} fmt={v => pct(v)} /> of the time
               </div>

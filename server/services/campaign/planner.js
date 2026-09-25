@@ -31,6 +31,7 @@ import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpay
 import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
+import { threeWayFlag, findCycles, threeWayBlock, bilateralClears } from './three-way.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
@@ -721,6 +722,17 @@ export function planLeague(adapter, settings) {
   const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null, { league: { id: L.id, me, season: L.season } });
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
+  // THREE-WAY CYCLES (flag GRIDIRON_THREE_WAY, shadow only; off writes nothing): when no single trade is
+  // served, pre-agreed A -> B -> C cycles for the same targets, every leg and the holding between legs
+  // under Nick's rules (three-way.js). Reported, never ranked into anything served.
+  const twFlag = threeWayFlag(env);
+  const threeWay = twFlag === 'off' ? null : threeWayBlock({ flag: twFlag,
+    bilateral: bilateralClears([best, ...deck]), ledgerMissing,
+    chainKeys: new Set(plans.map(p => p.steps.map(dealKey).join('>'))), bestExpected: best?.expected ?? null,
+    run: () => findCycles(S, S2, adapter, vals, { targets: wanted, maxOverpay, tolerances: objective.tolerances,
+      untouchables: objective.untouchables, sold: TM ? new Set([...TM.sold.keys()].map(String)) : new Set(),
+      soldOut: pid => !!TM?.excluded(pid), legOk: st => !TM || stepPasses(TM, st, tmFloor) }) });
+  if (threeWay) mark('three_way');
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
   const sanity = adapter.sanity ? adapter.sanity() : null;
   mark('finder_and_sanity');
@@ -729,6 +741,7 @@ export function planLeague(adapter, settings) {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
     gets_floor: floor.sink,
+    ...(threeWay ? { three_way: threeWay } : {}),
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,

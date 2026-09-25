@@ -356,6 +356,8 @@ export async function buildPlansFile(leagues, {
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
           // GETS-FLOOR (on by default): the final-get floor, its score source, what it dropped, and a warning when =0.
           ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
+          // THREE-WAY CYCLES (GRIDIRON_THREE_WAY=shadow only): pre-agreed A->B->C cycles, shadow, never served.
+          ...(res.three_way ? { three_way: res.three_way } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
           // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): budget, what it used, what bound, laterals, claims, modes' first steps.

@@ -463,7 +463,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     const pr = adapter.priceStep(st.team, st.get, st.give);
     // PYES-ONE: a baseline p carries no band, so its basis rides on the step (absent with the flag off).
     // LIVE-BLEND: p_gate (the baseline p the rules read) and probe (shadow tie-breaker) ride along too.
-    return { ...st, p: pr.p, band: pr.band ? { ...pr.band, basis: pr.basis ?? null } : null,
+    return { ...st, p: pr.p, band: pr.band ? { ...pr.band, basis: pr.band.basis ?? pr.basis ?? null } : null, // keep the ledger basis stepPYes put on the band (I sent it)
       ...stepPExtras(pr), state: S.applyTrade(state, me, st.team, st.give, st.get) };
   };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));

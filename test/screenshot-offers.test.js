@@ -17,7 +17,7 @@ process.env.SCHEDULER_DISABLED = '1';
 
 const { db, run, rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
-const { recordScreenshotOffer, settleScreenshotOffers, outcomesFor } = await import('../server/services/trade-outcomes.js');
+const { recordScreenshotOffer, settleScreenshotOffers, outcomesFor, settleOfferLoop } = await import('../server/services/trade-outcomes.js');
 const { decidedOffers, loadDecidedOffers } = await import('../server/services/eval/decided-offers.js');
 const { allowsScreenshotSource } = await import('../server/db/trade-outcomes-screenshot-source.js');
 const { planPreflightRepairs, applyPreflightRepairs, TRADE_OUTCOMES_SCREENSHOT_REPAIR } = await import('../server/db/preflight.js');
@@ -117,14 +117,40 @@ test('an offer ESPN already has (same teams, players, within 72 h) is a duplicat
   assert.equal(recordScreenshotOffer(shot('g-4', 9201, 9202, '2026-09-17T20:00:00Z')).state, 'recorded');
 });
 
-test('a finalize screen alone is a draft, not a sent offer; with an ESPN trace it settles', () => {
-  const draft = { ...shot('g-fin', 9701, 9702, '2026-09-18T09:00:00Z'), kind: 'finalize' };
-  assert.equal(recordScreenshotOffer(draft).state, 'unconfirmed_draft');
-  raw({ tx_id: 'a-fin', type: 'TRADE_ACCEPT', team_id: 2, related_tx_id: 'p-fin', proposed_at: '2026-09-18T20:00:00Z',
-    items_json: items(1, 2, 9701, 9702) });
+test('a finalize screen is a SENT offer (Nick, 9/25): recorded with sent_at = posted, then paired', () => {
+  const draft = { ...shot('g-fin', 9701, 9702, '2026-09-19T09:00:00Z'), kind: 'finalize', counterparty_team_id: 4 };
   const r = recordScreenshotOffer(draft);
   assert.equal(r.state, 'recorded');
-  assert.equal(outcomesFor(L, S).find(x => x.id === r.id).status, 'accepted');
+  let o = outcomesFor(L, S).find(x => x.id === r.id);
+  assert.deepEqual([o.status, o.sent_at], ['proposed', '2026-09-19T09:00:00Z']);
+  // the answer ESPN kept (its proposal row is gone, no items): same two teams, answered by the receiver, 11 h later
+  raw({ tx_id: 'a-fin', type: 'TRADE_ACCEPT', team_id: 4, related_tx_id: 'p-fin', proposed_at: '2026-09-19T20:00:00Z', items_json: null });
+  raw({ tx_id: 'v-fin', type: 'TRADE_VETO', status: 'EXECUTED', team_id: 3, related_tx_id: 'a-fin', proposed_at: '2026-09-20T20:00:00Z', items_json: null });
+  settleScreenshotOffers(L, S);
+  o = outcomesFor(L, S).find(x => x.id === r.id);
+  assert.deepEqual([o.status, o.matched_tx_id], ['accepted', 'p-fin']);
+  assert.match(o.settle_reason, /then vetoed \(still a yes\)/);
+});
+
+test('pairing: only the receiving team\'s answer, only within 72 h, each orphan once', () => {
+  raw({ tx_id: 'd-wrong', type: 'TRADE_DECLINE', team_id: 1, related_tx_id: 'p-wrong', proposed_at: '2026-09-19T12:00:00Z', items_json: null });
+  raw({ tx_id: 'd-late', type: 'TRADE_DECLINE', team_id: 2, related_tx_id: 'p-late2', proposed_at: '2026-09-23T12:00:00Z', items_json: null });
+  const r = recordScreenshotOffer(shot('g-pair', 9711, 9712, '2026-09-19T10:00:00Z'));
+  assert.equal(r.paired, null, 'the proposer\'s own decline, and one 98 h later, are not its answer');
+  // p-fin is already claimed by g-fin: a second screenshot of another deal cannot take it
+  const r2 = recordScreenshotOffer(shot('g-pair2', 9721, 9722, '2026-09-19T12:00:00Z'));
+  assert.notEqual(r2.matched_tx_id, 'p-fin');
+});
+
+test('an executed trade with 60% of the players settles accepted; silence past 7 days settles expired', () => {
+  raw({ tx_id: 'x-1', type: 'TRADE_ACCEPT', status: 'EXECUTED', execution_type: 'PROCESS', team_id: 2, related_tx_id: null,
+    proposed_at: '2026-09-04T10:00:00Z', items_json: JSON.stringify([{ fromTeamId: 1, toTeamId: 2, playerId: 9731 },
+      { fromTeamId: 2, toTeamId: 1, playerId: 9732 }, { fromTeamId: 2, toTeamId: 1, playerId: 9733 }]) });
+  const acc = recordScreenshotOffer({ ...shot('g-x', 9731, 9732, '2026-09-02T10:00:00Z'),
+    get: [{ playerId: 9732 }, { playerId: 9733 }, { playerId: 9734 }] });
+  assert.deepEqual([acc.status, acc.paired], ['accepted', 'executed']);
+  const exp = recordScreenshotOffer(shot('g-exp', 9741, 9742, '2026-09-03T10:00:00Z'));
+  assert.deepEqual([exp.status, exp.paired], ['expired', 'expired'], 'the collector looked past 7 days and saw no answer');
 });
 
 test('an app offer Nick marked sent is the same deal: app_duplicate', () => {
@@ -148,14 +174,22 @@ test('an ESPN orphan answer settles the screenshot row and lends it nothing twic
 });
 
 test('a pending screenshot row is settled later by an ESPN answer collected after it', () => {
-  const r = recordScreenshotOffer(shot('g-7', 9501, 9502, '2026-09-16T09:00:00Z'));
+  const r = recordScreenshotOffer(shot('g-7', 9501, 9502, '2026-09-20T09:00:00Z'));
   assert.equal(r.state, 'recorded');
-  raw({ tx_id: 'a-late', type: 'TRADE_ACCEPT', team_id: 2, related_tx_id: 'p-late', proposed_at: '2026-09-17T12:00:00Z',
+  raw({ tx_id: 'a-late', type: 'TRADE_ACCEPT', team_id: 2, related_tx_id: 'p-late', proposed_at: '2026-09-21T12:00:00Z',
     items_json: items(1, 2, 9501, 9502) });
   const s = settleScreenshotOffers(L, S);
   assert.ok(s.settled >= 1);
   assert.equal(outcomesFor(L, S).find(x => x.id === r.id).status, 'accepted');
   assert.equal(settleScreenshotOffers(L, S).settled, 0, 'idempotent');
+});
+
+test('the sent-offer settler never touches a screenshot row (it carries sent_at too)', () => {
+  const r = recordScreenshotOffer(shot('g-sent', 9751, 9752, '2026-09-22T10:00:00Z'));
+  const before = outcomesFor(L, S).find(x => x.id === r.id);
+  settleOfferLoop(L, S);
+  const after = outcomesFor(L, S).find(x => x.id === r.id);
+  assert.deepEqual([after.status, after.settle_reason], [before.status, before.settle_reason]);
 });
 
 test('the grader counts a decided screenshot offer once, and never beside its ESPN copy', () => {

@@ -4,8 +4,8 @@
  * trade_outcomes rows (source 'observed_screenshot') through the ledger's own writer,
  * server/services/trade-outcomes.js#recordScreenshotOffer. Nothing else writes them.
  *
- * A finalize screen (a draft before Send) is recorded only if ESPN has a trace of the deal; else it
- * is left 'unconfirmed_draft' and looked at again on the next run.
+ * A finalize or pending-offer screen counts as a SENT offer (sent_at = posted_at, Nick 9/25); its
+ * outcome is paired from ESPN (orphan answer, executed trade, or 'expired' after 7 days).
  *
  * Input: `screenshot_trades` in the local chat DB (scripts/chat/screenshot_offers.py): rows
  * with source 'ocr', kind offer|finalize|accepted|declined, needs_review = 0. Hypothetical
@@ -82,7 +82,7 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
   };
 
   const counts = { candidates: shots.length, recorded: 0, espn_duplicate: 0, espn_near_duplicate: 0, app_duplicate: 0, same_offer: 0,
-    already_recorded: 0, unconfirmed_draft: 0, refused: 0, ledger_not_widened: 0, with_fc_values: 0, by_league: {}, by_status: {} };
+    already_recorded: 0, refused: 0, paired_orphan_answer: 0, paired_executed_trade: 0, ledger_not_widened: 0, with_fc_values: 0, by_league: {}, by_status: {} };
   const touched = new Set();
   const writeBack = dryRun ? null : chat.prepare(
     `UPDATE screenshot_trades SET ledger_state = ?, ledger_id = ?, matched_tx_id = COALESCE(?, matched_tx_id) WHERE id = ?`);
@@ -102,6 +102,8 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
     }
     counts[res.state] = (counts[res.state] ?? 0) + 1;
     if (res.state === 'recorded') {
+      if (res.paired === 'orphan') counts.paired_orphan_answer++;
+      if (res.paired === 'executed') counts.paired_executed_trade++;
       const k = String(s.league_id);
       counts.by_league[k] = (counts.by_league[k] ?? 0) + 1;
       if ([...give, ...get].every(i => i.fc_value != null)) counts.with_fc_values++;
@@ -111,7 +113,7 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
     touched.add(`${s.league_id}:${s.season}`);
   }
   // Rows written on earlier runs are settled too, from ESPN rows collected since.
-  const settle = { settled: 0, duplicates: 0, pending: 0 };
+  const settle = { settled: 0, duplicates: 0, pending: 0, by_status: {} };
   if (!dryRun) {
     for (const r of rows(`SELECT DISTINCT league_id, season FROM trade_outcomes WHERE source = 'observed_screenshot'`)) {
       touched.add(`${r.league_id}:${r.season}`);
@@ -119,7 +121,8 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
     for (const k of touched) {
       const [lid, season] = k.split(':').map(Number);
       const r = ledger.settleScreenshotOffers(lid, season);
-      for (const f of Object.keys(settle)) settle[f] += r[f] ?? 0;
+      for (const f of ['settled', 'duplicates', 'pending']) settle[f] += r[f] ?? 0;
+      for (const [st, n] of Object.entries(r.by_status ?? {})) settle.by_status[st] = (settle.by_status[st] ?? 0) + n;
     }
   }
   // CHAT-TRADE-INTEREST: a league-mate's own finalize draft or analyzer screen says whom he would give

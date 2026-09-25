@@ -1,5 +1,5 @@
 import { PlayerPill, num } from './TradeCard';
-import { Card, Chip, Fold, Stat, type Tone } from './ui/DesignSystem';
+import { Card, Chip, Fold, Icon, Stat, type Tone } from './ui/DesignSystem';
 
 /**
  * Self-scouting report: where this roster is strong, where it breaks, and the
@@ -23,7 +23,7 @@ export default function TeamScout({ data: s, loading }: { data: any; loading?: b
   const maxLineup = Math.max(...s.league_lineups.map((l: any) => l.points));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* headline: the number, where it ranks, and where every team sits */}
       <Card>
         <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
@@ -31,7 +31,7 @@ export default function TeamScout({ data: s, loading }: { data: any; loading?: b
             value={<>{s.lineup.points}<span className="ml-1 text-sm font-normal text-slate-500">ppg</span></>}
             foot={<Chip tone={s.rank <= 3 ? 'good' : s.rank > s.of - 3 ? 'bad' : 'warn'}>{s.rank}{ord(s.rank)} of {s.of}</Chip>} />
         </div>
-        <div className="mt-5 space-y-2 ds-stagger">
+        <div className="mt-4 space-y-1.5 ds-stagger">
           {s.league_lineups.map((l: any) => (
             <div key={l.roster_id} className="grid grid-cols-[minmax(0,9rem)_1fr_3rem] items-center gap-3 text-xs">
               <span className={`truncate ${l.me ? 'font-semibold text-[var(--c-accent)]' : 'text-slate-500'}`} title={l.owner}>{l.owner}</span>
@@ -42,36 +42,39 @@ export default function TeamScout({ data: s, loading }: { data: any; loading?: b
         </div>
       </Card>
 
-      {/* position by position */}
+      {/* position by position: one row each, the players and depth open under it */}
       <section>
         <h3 className="ds-h mb-3">Position by position</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 ds-stagger">
+        <Card pad={false} className="ds-rows">
           {Object.entries(s.positions).map(([pos, v]: [string, any]) => (
-            <Card key={pos} lift className="!p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`text-sm font-bold pos-${pos}`}>{pos}</span>
+            <details key={pos} className="ds-xrow">
+              <summary>
+                <span className={`w-7 shrink-0 text-sm font-bold pos-${pos}`}>{pos}</span>
                 <Chip tone={STATUS_TONE[v.status] ?? 'neutral'}>{v.status}</Chip>
-                <span className="ml-auto text-[11px] text-slate-400 tabular-nums">{v.rank}{ord(v.rank)}/{v.of}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  <span className="ds-num">{v.ppg.toFixed(1)}</span>
+                  <span className="ds-note"> vs {v.league_avg.toFixed(1)} avg</span>
+                </span>
+                <span className="ds-note shrink-0 tabular-nums">{v.rank}{ord(v.rank)}/{v.of}</span>
+                <Icon name="down" size={16} className="ds-xrow-chev" />
+              </summary>
+              <div className="ds-xrow-b">
+                <div className="ds-bar !h-1.5">
+                  <i className={v.ratio >= 1.12 ? 'is-good' : v.ratio <= 0.88 ? 'is-bad' : undefined} style={{ width: `${Math.min(100, (v.ratio / 1.6) * 100)}%` }} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {v.starters.map((p: any) => <PlayerPill key={p.id} p={p} />)}
+                </div>
+                {v.depth.length > 0 && (
+                  <p className="ds-note mt-2">Bench: {v.depth.slice(0, 3).map((p: any) => p.name).join(', ')}</p>
+                )}
+                <p className="ds-note mt-1">
+                  Lose your best {pos}: <span className="font-semibold">−{v.injury_dropoff} ppg</span>
+                </p>
               </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="ds-stat-v !mt-0 !text-[26px]">{v.ppg.toFixed(1)}</span>
-                <span className="text-[12px] text-slate-400">vs {v.league_avg.toFixed(1)} avg</span>
-              </div>
-              <div className="ds-bar mt-2 !h-1.5">
-                <i className={v.ratio >= 1.12 ? 'is-good' : v.ratio <= 0.88 ? 'is-bad' : undefined} style={{ width: `${Math.min(100, (v.ratio / 1.6) * 100)}%` }} />
-              </div>
-              <div className="mt-3 space-y-1">
-                {v.starters.map((p: any) => <div key={p.id}><PlayerPill p={p} /></div>)}
-              </div>
-              {v.depth.length > 0 && (
-                <p className="ds-note mt-2">Bench: {v.depth.slice(0, 3).map((p: any) => p.name).join(', ')}</p>
-              )}
-              <p className="ds-note mt-1">
-                Lose your best {pos}: <span className="font-semibold text-slate-600">−{v.injury_dropoff} ppg</span>
-              </p>
-            </Card>
+            </details>
           ))}
-        </div>
+        </Card>
       </section>
 
       {/* what to do about it */}
@@ -80,7 +83,7 @@ export default function TeamScout({ data: s, loading }: { data: any; loading?: b
         {s.fixes.length > 0 ? (
           <Card pad={false} className="ds-rows">
             {s.fixes.map((f: any, i: number) => (
-              <div key={i} className="flex gap-3 p-4">
+              <div key={i} className="flex gap-3 px-4 py-3">
                 <span className="pt-0.5"><Chip tone={PRIORITY_TONE[f.priority] ?? 'neutral'}>{f.priority}</Chip></span>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-slate-800">{f.area}</div>

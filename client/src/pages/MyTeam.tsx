@@ -257,41 +257,8 @@ export default function MyTeam() {
           before={synced && lineupDiff && !lineupDiff.error ? <LineupDiffCard d={lineupDiff} platform={active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} /> : undefined}
           ceilingDetail={active ? () => <CeilingLineup leagueId={active.id} teamId={myTeamId} week={scout?.week ?? 1} /> : undefined}
           after={scout && !scout.error ? (
-            <Fold title="Field view and the engine's lineup" hint={`${scout.lineup.points} ppg · what the engine would start, drawn on the field`}>
+            <Fold title="Field view" hint={`${scout.lineup.points} ppg · the engine's starters drawn on the field; the calls above list them with their margins`}>
               <FormationView phase="offense" depth={formationSlots} accent="#0f766e" />
-              <div className="grid md:grid-cols-2 gap-4 mt-4">
-                <Card>
-                  <h3 className="ds-h mb-2">Starters</h3>
-                  <div className="space-y-1">
-                    {scout.lineup.slots.map((s: any, i: number) => (
-                      <div key={i} className="flex items-center gap-2.5 py-1">
-                        <span className="text-[var(--muted)] text-[10px] font-semibold w-10 shrink-0 uppercase tracking-wide">{s.slot}</span>
-                        {s.player ? (
-                          <>
-                            <Headshot src={headshotUrl(s.player)} pos={s.player.position} size={30} />
-                            <span className="text-sm font-medium text-[var(--ink)] truncate">{s.player.name}</span>
-                            <span className={`ml-auto text-[10px] font-semibold pos-${s.player.position}`}>{s.player.position}</span>
-                          </>
-                        ) : <span className="text-crit text-xs">— empty —</span>}
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-                <Card>
-                  <h3 className="ds-h mb-2">Bench</h3>
-                  <div className="space-y-1">
-                    {scout.lineup.bench.map((p: any) => (
-                      <div key={p.id} className="flex items-center gap-2.5 py-1">
-                        <Headshot src={headshotUrl(p)} pos={p.position} size={28} />
-                        <span className={`text-sm truncate ${p.available === false ? 'text-slate-400 line-through' : 'text-[var(--ink)]/85'}`}>{p.name}</span>
-                        {p.available === false && <span className="text-[9px] font-bold uppercase tracking-wide text-rose-600">Out for season</span>}
-                        <span className={`ml-auto text-[10px] font-semibold pos-${p.position}`}>{p.position}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {scout.lineup.bench.length === 0 && <p className="ds-note">No bench depth logged yet.</p>}
-                </Card>
-              </div>
             </Fold>
           ) : undefined} />
       )}

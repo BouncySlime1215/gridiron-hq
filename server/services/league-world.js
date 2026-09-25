@@ -24,6 +24,7 @@ import crypto from 'node:crypto';
 import { scoringFor } from './scoring.js';
 import { SENSE_CHECK_SIM_RUNS } from './trade-verify.js';
 import { tradeImpactWorld, rosBasisFlag, simStartWeek, worldPoolFor } from './season-sim.js';
+import { basis02Flag } from './sim-basis.js';
 import { tradeWeekContext } from './trade-engine.js';
 import { oneWorldFlag, oneWorldSeed, oneWorldPreviewFields, rangeFromPool } from './one-world.js';
 
@@ -45,7 +46,7 @@ function snapshotKey(lg) {
   const { season, week } = tradeWeekContext();
   return JSON.stringify({
     league: lg.id, fetched_at: lg.fetched_at ?? null, season, nfl_week: week,
-    from_week: simStartWeek(lg), scoring: scoringFor(lg), basis: rosBasisFlag().on ? 'ros' : 'last_season',
+    from_week: simStartWeek(lg), scoring: scoringFor(lg), basis: (rosBasisFlag().on ? 'ros' : 'last_season') + (basis02Flag().on ? '+basis02' : ''),
     runs: ONE_WORLD_RUNS
   });
 }

@@ -34,6 +34,7 @@ import { leagueCurrentWeek } from './league-week.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
+import { basis02Flag, applyBasis02, poolBasisFor } from './sim-basis.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
 import { rbTitleMode, conditionalTitle, meanInterval } from './rb-title.js';
 import { standingsCheckField } from './standings-reconcile.js';
@@ -394,7 +395,8 @@ function rosScale(roster, proj, flag) {
   };
 }
 
-const basisKey = (flag, asof = simAsofFlag()) => (asof.on ? 'ros_asof' : flag.on ? 'ros' : 'last_season');
+const basisKey = (flag, asof = simAsofFlag(), b02 = basis02Flag()) =>
+  (asof.on ? 'ros_asof' : flag.on ? 'ros' : 'last_season') + (b02.on ? '+basis02' : '');
 
 /* ------------------------------------------- SIM-CALIB: as-of projection level */
 
@@ -623,7 +625,7 @@ export function simulateSeason(lg, {
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
   basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag(),
-  horizonFlag = availHorizonFlag(), rbTitle = rbTitleMode() }) {
+  horizonFlag = availHorizonFlag(), rbTitle = rbTitleMode(), basis02 = basis02Flag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -661,8 +663,13 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     .sort((a, b) => (a.id > b.id) - (a.id < b.id));
   // RL-17-3: the finder's ros_ppg as each pool's mean (empty when the flag is off).
   // SIM-CALIB: with the as-of flag on, the level is the as-of rate instead.
-  const basis = asofScale(roster, proj, { season: SEASON, fromWeek, scoring, flag: asofFlag, basisFlag })
+  const basis0 = asofScale(roster, proj, { season: SEASON, fromWeek, scoring, flag: asofFlag, basisFlag })
     ?? rosScale(roster, proj, basisFlag);
+  // BASIS-02 (sim-basis.js): at the current week the level is the finder's ros_ppg,
+  // and a player with no last-season projection borrows a pool at his rate.
+  const basis = basis02.on
+    ? applyBasis02(basis0, roster, proj, { atCurrentWeek: fromWeek >= tradeWeekContext().week })
+    : basis0;
   // One draw from the caller's stream names this simulated world. Every random
   // number below is addressed by (world, player, week[, run]) off it, so under
   // one seed the same player gets the same football in every configuration.
@@ -681,7 +688,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     const entries = [];
     const activeChance = weeklyAvailability(SEASON, week);
     for (const p of roster) {
-      const pool = weekPool(p, week, { world, proj, scoring, scale: basis.scale.get(p.id), activeChance, nflSchedule });
+      const pool = weekPool(p, week, { world, proj, scoring, scale: basis.scale.get(p.id), activeChance, nflSchedule,
+        template: basis.template?.get(p.id) });
       entries.push(pool ? { p, ...pool } : { p, samples: null, meta: null });
     }
     const active = entries.filter(e => e.samples);
@@ -695,6 +703,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples),
         active.map(e => keyedSeed(world, 'copula', e.p.id, week))),
       ids: active.map(e => e.p.id), expected, kdst: kdstFlag.on ? kdst.byWeek.get(week) : null,
+      // Each simulated player's chance to play this week (sim-basis.js#simPlayerRates).
+      active: new Map(active.map(e => [e.p.id, e.meta.active_probability])),
       // The sorted pools themselves: a page's range.week is read off these (EA-07).
       pools: new Map(active.map(e => [e.p.id, e.samples]))
     });
@@ -720,8 +730,10 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
  * nothing). The only place a pool is drawn, so any caller that passes the same
  * inputs gets the same array the title odds index (EA-07).
  */
-function weekPool(p, week, { world, proj, scoring, scale, activeChance, nflSchedule }) {
-  const pr = proj.get(p.id);
+function weekPool(p, week, { world, proj, scoring, scale, activeChance, nflSchedule, template = null }) {
+  // BASIS-02: `template` is a borrowed projection for a player with none of his own.
+  const own = proj.get(p.id);
+  const pr = own ?? template;
   const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
   // On bye, or no NFL game that week, the player scores nothing.
   if (!pr || !nflWeek) return null;
@@ -742,7 +754,7 @@ function weekPool(p, week, { world, proj, scoring, scale, activeChance, nflSched
     meta: {
       id: p.id, position: p.position,
       team: p.team_abbr, opponent: nflWeek.opponent_abbr,
-      target_share: pr.volume?.target_share ?? null,
+      target_share: own ? pr.volume?.target_share ?? null : null,
       active_probability: activeProbability
     }
   };
@@ -760,9 +772,11 @@ function weekPool(p, week, { world, proj, scoring, scale, activeChance, nflSched
 export function worldPoolFor(p, week, { scoring, proj, world = null, activeChance = null } = {}) {
   if (!SCORED.has(p?.position)) return null;
   const ctx = tradeWeekContext();
+  const b = poolBasisFor(p, proj);
+  if (!b) return null;
   return weekPool(p, Number(week), {
     world: world ?? oneWorldSeed(ctx.season, ctx.week), proj, scoring,
-    scale: rosFactor(p.ros_ppg, proj.get(p.id)?.ppg),
+    scale: b.scale, template: b.template ? b.pr : null,
     activeChance: activeChance ?? weeklyAvailability(SEASON, Number(week)),
     nflSchedule: matchupModel().schedule
   })?.samples ?? null;

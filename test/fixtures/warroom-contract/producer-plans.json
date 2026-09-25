@@ -1272,7 +1272,7 @@
       "stop_label": "Switch to Balanced",
       "cost": {
        "status": "ok",
-       "value": -0.0017981587529821291,
+       "value": -0.0013970669630690713,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -1285,20 +1285,20 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.0017981587529821291,
+       "value": 0.0013970669630690713,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "verdict": "worth_it",
-      "because": "it raises the expected gain",
+      "verdict": "close",
+      "because": "the difference in expected gain is inside the simulation noise",
       "new_next_move_changes": false,
-      "gain_text": "If it lands: 30.4 pts of title odds against 17.1 pts of title odds; it lands 1% of the time against 59%."
+      "gain_text": "If it lands: 30.0 pts of title odds against 17.3 pts of title odds; it lands 1% of the time against 59%."
      },
      "mode:all_in": {
       "stop_label": "Switch to Fuck it, let's go",
       "cost": {
        "status": "ok",
-       "value": 0.07946827350172811,
+       "value": 0.08086606424706974,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -1311,14 +1311,14 @@
       },
       "net": {
        "status": "ok",
-       "value": -0.07946827350172811,
+       "value": -0.08086606424706974,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "verdict": "not_worth_it",
       "because": "it gives up expected gain",
       "new_next_move_changes": true,
-      "gain_text": "If it lands: 42.6 pts of title odds against 17.1 pts of title odds; it lands 3% of the time against 59%."
+      "gain_text": "If it lands: 42.6 pts of title odds against 17.3 pts of title odds; it lands 3% of the time against 59%."
      }
     },
     "source": "plan.path"
@@ -1656,56 +1656,7 @@
        "source": "clone.price",
        "unit": "market_value"
       },
-      "legs": {
-       "give_a": "2",
-       "get_b": "12",
-       "p1": {
-        "status": "ok",
-        "value": 0.39,
-        "source": "clone.accept",
-        "unit": "probability",
-        "guess": true
-       },
-       "p2": {
-        "status": "ok",
-        "value": 0.11249999999999998,
-        "source": "clone.accept",
-        "unit": "probability",
-        "guess": true
-       },
-       "p_both": {
-        "status": "ok",
-        "value": 0.04387499999999999,
-        "source": "clone.accept",
-        "unit": "probability",
-        "guess": true
-       },
-       "nick_after": {
-        "status": "ok",
-        "value": 0.08542821798957345,
-        "source": "sim.title",
-        "se": 0.003,
-        "clears_2se": true,
-        "unit": "title_odds"
-       }
-      },
-      "reasoning": {
-       "status": "ok",
-       "value": {
-        "case_for": "Team 3 and Team 2 price P21 (WR) differently: the spread is 12.4 pts of title odds.",
-        "his_side": "No chat read on either side.",
-        "devils_advocate": "The spread clears the noise; both legs still have to land.",
-        "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
-        "confidence": "Both legs land 4% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "Each leg is a separate offer; decline a counter that breaks the other leg.",
-        "cites": [
-         "spread",
-         "legs.p_both"
-        ],
-        "check_first": false
-       },
-       "source": "plan.template"
-      }
+      "legs": null
      },
      {
       "player": "22",
@@ -2042,7 +1993,7 @@
       "text": "Buy P22 from Team 3, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.027464309177434375,
+       "value": 0.02809031682960828,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2053,7 +2004,7 @@
       "text": "Buy P22 from Team 3, sell to Team 4.",
       "gain": {
        "status": "ok",
-       "value": 0.023328280728317073,
+       "value": 0.023609943969423786,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2064,7 +2015,7 @@
       "text": "Buy P32 from Team 4, sell to Team 3.",
       "gain": {
        "status": "ok",
-       "value": 0.018515248325609794,
+       "value": 0.01835388484734893,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2075,7 +2026,7 @@
       "text": "Buy P32 from Team 4, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.017133596255895132,
+       "value": 0.017040332255895137,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2086,7 +2037,7 @@
       "text": "Buy P31 from Team 4, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.0026517489199034154,
+       "value": 0.002622242359903416,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2619,13 +2570,13 @@
       "active": true,
       "expected": {
        "status": "ok",
-       "value": 0.10134795630851288,
+       "value": 0.1027343215259042,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.1707694501901682,
+       "value": 0.1731054501901682,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2669,13 +2620,13 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.10314611506149501,
+       "value": 0.10413138848897327,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.3035476685782523,
+       "value": 0.3000916685782523,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2719,13 +2670,13 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.02187968280678477,
+       "value": 0.021868257278834458,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.42627784408323977,
+       "value": 0.4264218440832398,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -2740,7 +2691,7 @@
        "partner": "2",
        "give": [
         "3",
-        "6"
+        "5"
        ],
        "get": [
         "11"
@@ -5901,7 +5852,7 @@
       "text": "Buy P22 from Team 3, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.027464309177434375,
+       "value": 0.026772415264390875,
        "source": "plan.path",
        "unit": "points_per_week"
       },
@@ -5912,7 +5863,7 @@
       "text": "Buy P23 from Team 3, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.007854545960893447,
+       "value": 0.007322384078540512,
        "source": "plan.path",
        "unit": "points_per_week"
       },
@@ -8517,7 +8468,7 @@
       "stop_label": "Switch to Safe",
       "cost": {
        "status": "ok",
-       "value": 0.05284985342143121,
+       "value": 0.00897088123121715,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -8530,20 +8481,20 @@
       },
       "net": {
        "status": "ok",
-       "value": -0.05284985342143121,
+       "value": -0.00897088123121715,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "verdict": "not_worth_it",
       "because": "it gives up expected gain",
       "new_next_move_changes": true,
-      "gain_text": "If it lands: 9.3 pts of title odds against 24.2 pts of title odds; it lands 57% of the time against 7%."
+      "gain_text": "If it lands: 9.1 pts of title odds against 11.6 pts of title odds; it lands 57% of the time against 53%."
      },
      "mode:all_in": {
       "stop_label": "Switch to Fuck it, let's go",
       "cost": {
        "status": "ok",
-       "value": 0.06930808572844671,
+       "value": 0.024425913538232626,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -8556,14 +8507,14 @@
       },
       "net": {
        "status": "ok",
-       "value": -0.06930808572844671,
+       "value": -0.024425913538232626,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "verdict": "not_worth_it",
       "because": "it gives up expected gain",
       "new_next_move_changes": true,
-      "gain_text": "If it lands: 40.9 pts of title odds against 24.2 pts of title odds; it lands 9% of the time against 7%."
+      "gain_text": "If it lands: 40.7 pts of title odds against 11.6 pts of title odds; it lands 9% of the time against 53%."
      }
     },
     "source": "plan.path"
@@ -9285,7 +9236,7 @@
       "text": "Buy P22 from Team 3, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.027464309177434375,
+       "value": 0.02785333587308654,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -9296,7 +9247,7 @@
       "text": "Buy P22 from Team 3, sell to Team 4.",
       "gain": {
        "status": "ok",
-       "value": 0.023328280728317073,
+       "value": 0.023449566103811135,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -9307,7 +9258,7 @@
       "text": "Buy P32 from Team 4, sell to Team 3.",
       "gain": {
        "status": "ok",
-       "value": 0.018515248325609794,
+       "value": 0.01831343962995762,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -9318,7 +9269,7 @@
       "text": "Buy P32 from Team 4, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.017133596255895132,
+       "value": 0.017076278255895132,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -9329,7 +9280,7 @@
       "text": "Buy P31 from Team 4, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.0026517489199034154,
+       "value": 0.003013348279903408,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -9759,13 +9710,13 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.053228242290398464,
+       "value": 0.05212928229039844,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.0933828812112254,
+       "value": 0.09145488121122536,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -9809,19 +9760,19 @@
       "active": true,
       "expected": {
        "status": "ok",
-       "value": 0.10607809571182968,
+       "value": 0.06110016352161559,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.2416156569634924,
+       "value": 0.11638126385069636,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "p_complete": {
        "status": "ok",
-       "value": 0.06676630434782609,
+       "value": 0.525,
        "source": "plan.path",
        "unit": "probability",
        "guess": true
@@ -9830,10 +9781,10 @@
        "partner": "3",
        "give": [
         "4",
-        "7"
+        "6"
        ],
        "get": [
-        "22"
+        "21"
        ]
       },
       "no_trade": {
@@ -9859,13 +9810,13 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.03677000998338296,
+       "value": 0.036674249983382964,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.4085556664820329,
+       "value": 0.40749166648203294,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -10610,9 +10561,60 @@
     "source": "plan.path"
    },
    "stop_tradeoffs": {
-    "status": "unknown",
-    "source": "plan.path",
-    "reason": "No stop or mode change could be priced this week."
+    "status": "ok",
+    "value": {
+     "mode:safe": {
+      "stop_label": "Switch to Safe",
+      "cost": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "extra_steps": 0,
+      "gain": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "verdict": "close",
+      "because": "the difference in expected gain is inside the simulation noise",
+      "new_next_move_changes": false
+     },
+     "mode:all_in": {
+      "stop_label": "Switch to Fuck it, let's go",
+      "cost": {
+       "status": "ok",
+       "value": -0.036996809983382964,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "extra_steps": 1,
+      "gain": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.036996809983382964,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "verdict": "worth_it",
+      "because": "it raises the expected gain",
+      "new_next_move_changes": true
+     }
+    },
+    "source": "plan.path"
    },
    "flip_map": {
     "status": "ok",
@@ -11331,7 +11333,7 @@
       "text": "Buy P22 from Team 3, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
-       "value": 0.027464309177434375,
+       "value": 0.027573766916564782,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -11342,7 +11344,7 @@
       "text": "Buy P22 from Team 3, sell to Team 4.",
       "gain": {
        "status": "ok",
-       "value": 0.023328280728317073,
+       "value": 0.0234286633370127,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -11353,7 +11355,7 @@
       "text": "Buy P32 from Team 4, sell to Team 3.",
       "gain": {
        "status": "ok",
-       "value": 0.018515248325609794,
+       "value": 0.019167547456044584,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -11364,7 +11366,7 @@
       "text": "Buy P32 from Team 4, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
-       "value": 0.017133596255895132,
+       "value": 0.017804828255895133,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -11375,7 +11377,7 @@
       "text": "Buy P31 from Team 4, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
-       "value": 0.0026517489199034154,
+       "value": 0.00338880619990341,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -11490,33 +11492,21 @@
       "label": "Safe",
       "active": false,
       "expected": {
-       "status": "ok",
-       "value": 0.006684580560367098,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "title_odds"
+       "reason": "No plan fits this mode."
       },
       "if_complete": {
-       "status": "ok",
-       "value": 0.06450505007460522,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "title_odds"
+       "reason": "No plan fits this mode."
       },
       "p_complete": {
-       "status": "ok",
-       "value": 0.014624999999999996,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "probability",
-       "guess": true
+       "reason": "No plan fits this mode."
       },
-      "first_step": {
-       "partner": "4",
-       "give": [
-        "5"
-       ],
-       "get": [
-        "33"
-       ]
-      },
+      "first_step": null,
       "no_trade": {
        "expected": {
         "status": "ok",
@@ -11577,13 +11567,13 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.03677000998338296,
+       "value": 0.036996809983382964,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.4085556664820329,
+       "value": 0.4110756664820329,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -11598,7 +11588,7 @@
        "partner": "2",
        "give": [
         "4",
-        "6",
+        "5",
         "7"
        ],
        "get": [
@@ -13855,7 +13845,7 @@
       "stop_label": "Switch to Safe",
       "cost": {
        "status": "ok",
-       "value": 0.06372650866903153,
+       "value": 0.0694712492293986,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -13868,20 +13858,19 @@
       },
       "net": {
        "status": "ok",
-       "value": -0.06372650866903153,
+       "value": -0.0694712492293986,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "verdict": "not_worth_it",
       "because": "it gives up expected gain",
-      "new_next_move_changes": true,
-      "gain_text": "If it lands: 6.5 pts of title odds against 24.1 pts of title odds; it lands 1% of the time against 7%."
+      "new_next_move_changes": true
      },
      "mode:all_in": {
       "stop_label": "Switch to Fuck it, let's go",
       "cost": {
        "status": "ok",
-       "value": 0.033725319246015656,
+       "value": 0.032557959246015636,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -13894,14 +13883,14 @@
       },
       "net": {
        "status": "ok",
-       "value": -0.033725319246015656,
+       "value": -0.032557959246015636,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "verdict": "not_worth_it",
       "because": "it gives up expected gain",
       "new_next_move_changes": true,
-      "gain_text": "If it lands: 40.8 pts of title odds against 24.1 pts of title odds; it lands 9% of the time against 7%."
+      "gain_text": "If it lands: 41.0 pts of title odds against 24.0 pts of title odds; it lands 9% of the time against 7%."
      }
     },
     "source": "plan.path"
@@ -14424,7 +14413,7 @@
       "text": "Buy P32 from Team 4, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.017133596255895132,
+       "value": 0.01771629225589513,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -14435,7 +14424,7 @@
       "text": "Buy P31 from Team 4, sell to Team 2.",
       "gain": {
        "status": "ok",
-       "value": 0.0026517489199034154,
+       "value": 0.0026384548399034117,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -14861,33 +14850,21 @@
       "label": "Safe",
       "active": false,
       "expected": {
-       "status": "ok",
-       "value": 0.006684580560367098,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "title_odds"
+       "reason": "No plan fits this mode."
       },
       "if_complete": {
-       "status": "ok",
-       "value": 0.06450505007460522,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "title_odds"
+       "reason": "No plan fits this mode."
       },
       "p_complete": {
-       "status": "ok",
-       "value": 0.014624999999999996,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "probability",
-       "guess": true
+       "reason": "No plan fits this mode."
       },
-      "first_step": {
-       "partner": "4",
-       "give": [
-        "5"
-       ],
-       "get": [
-        "33"
-       ]
-      },
+      "first_step": null,
       "no_trade": {
        "expected": {
         "status": "ok",
@@ -14911,13 +14888,13 @@
       "active": true,
       "expected": {
        "status": "ok",
-       "value": 0.07041108922939862,
+       "value": 0.0694712492293986,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.24087379285488952,
+       "value": 0.23952979285488946,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -14961,13 +14938,13 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.036685769983382965,
+       "value": 0.03691328998338296,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.40761966648203296,
+       "value": 0.4101476664820329,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -15361,7 +15338,7 @@
       "injury": 0
      }
     },
-    "candidates_scored": 54,
+    "candidates_scored": 51,
     "rescores": 218,
     "runtime_ms": 0,
     "phases_ms": {
@@ -15405,7 +15382,7 @@
       },
       "targets": [],
       "dropped_by_reason": {
-       "candidates": 54,
+       "candidates": 51,
        "search": {
         "no_overpay": 0,
         "out_of_reach": 0
@@ -15414,7 +15391,7 @@
         "safe": {
          "kept": 13,
          "tolerance": {
-          "max_assets": 30,
+          "max_assets": 27,
           "max_offers_per_manager_week": 6,
           "max_give_per_step": 0,
           "max_downside_per_step": 0,
@@ -15428,7 +15405,7 @@
         "balanced": {
          "kept": 38,
          "tolerance": {
-          "max_assets": 14,
+          "max_assets": 11,
           "max_offers_per_manager_week": 0,
           "max_give_per_step": 2,
           "max_downside_per_step": 0,
@@ -15453,7 +15430,7 @@
           "core_starter": 0,
           "untouchable": 0
          },
-         "p_complete_floor": 22,
+         "p_complete_floor": 19,
          "not_objective_target": 0,
          "confirm": null
         }
@@ -15480,11 +15457,12 @@
      }
     },
     "dropped_by_reason": {
-     "trade_memory": 33
+     "trade_memory": 36
     },
     "trade_memory": {
      "status": "on",
-     "window_days": 28,
+     "window_days": null,
+     "window": "season",
      "buyback_fall": 0.1,
      "trades": 2,
      "unmapped": 0,
@@ -15540,7 +15518,7 @@
      },
      "dropped": {
       "sold_recently": 27,
-      "reversal": 6,
+      "reversal": 9,
       "below_his_floor": 0,
       "wrong_currency": 0
      },
@@ -15554,7 +15532,7 @@
       "ladder_rows": 5
      },
      "refused_targets": [],
-     "dropped_total": 33
+     "dropped_total": 36
     },
     "shrink": {
      "status": "shadow",

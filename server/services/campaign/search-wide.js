@@ -13,17 +13,22 @@
  *                (depth for depth) is kept only when the path ends at the floor: everything
  *                Nick acquires and still holds at the end passes it. Unscored fails closed.
  *                The tier is LADDER-01's (ladder.js#tierOfPlayer); this module keeps no copy.
- *   claims       a path of 1 or 2 trades may end with one free-agent claim (partner
- *                FREE_AGENT): add a pool free agent, drop Nick's same-position depth piece,
- *                only when the free agent's ros_ppg beats the dropped piece's.
+ *   claims       FLIP-CLAIMS (Nick 2026-09-25): a free-agent claim (partner FREE_AGENT) is a step
+ *                ONLY as a flip piece. The claim is step 1 and a later trade step in the same
+ *                path gives the claimed player away, so Nick never ends a path holding a claim.
+ *                The drop is never protected (claimDropOk) and is the lowest-value bench piece
+ *                (pickDrop); the claim step and the flip step each pass the overpay cap; the
+ *                path must beat doing nothing on the confirm dice with the stranded branch (claim
+ *                done, flip declined) in the price. claimRule is the one check (planner.js).
  *
  * Flag GRIDIRON_SEARCH_WIDE: '1' on; anything else off. The preview switch does NOT turn it on:
  * it moves served numbers (more paths ranked), so it stays off until measured on league 4.
  * Nick's hard rules sit outside this module and apply to every path it adds.
  */
 import { floorRead, heldAtEnd } from './gets-floor.js';
-import { NEVER_DEPTH } from './search.js';
+import { NEVER_DEPTH, nickOverpays } from './search.js';
 import { PINNED_NEVER_GET } from './never-give.js';
+import { pathOutcomes } from './paths.js';
 
 export const SEARCH_WIDE_ENV = 'GRIDIRON_SEARCH_WIDE';
 export const SEARCH_WIDE_CANDIDATES_ENV = 'GRIDIRON_SEARCH_WIDE_CANDIDATES';
@@ -79,7 +84,7 @@ export function wideBudget(env = process.env) {
 /** A fresh sink for one league's wide search. */
 export function newWideSink(budget = WIDE_DEFAULTS) {
   return { flag: 'on', budget: { ...budget }, used: { extras: 0, rescores: 0 }, budget_hit: null,
-    enumerated: 0, laterals: { seen: 0, dropped: 0 }, claims: { pool: 0, built: 0, scored: 0, kept: 0 } };
+    enumerated: 0, laterals: { seen: 0, dropped: 0 }, claims: { pool: 0, built: 0, scored: 0, kept: 0, dropped_by_reason: Object.fromEntries(CLAIM_DROP_REASONS.map(k => [k, 0])) } };
 }
 
 export const isClaim = st => st?.claim === true;
@@ -101,8 +106,24 @@ export function lateralOk(steps, tierOk) {
 }
 
 /**
- * Which of Nick's players a claim may drop: scored below the floor (depth), never untouchable,
- * never one of NEVER_DEPTH (160 / 80 / 277). No score source, or no score, is never droppable.
+ * Why a claim path is dropped. The first five are claimRule's (the one rule check below); the rest are
+ * the planner's other gates as they fall on claim paths (FC value, GETS-FLOOR, trade memory, the active
+ * mode's tolerances, the confirm dice: `claim_stranded` = does not beat doing nothing with the stranded
+ * branch priced in, `confirm_failed` = no confirm dice at all) and the confirm pass's cap
+ * (`not_confirmed`: more claim paths than it re-prices).
+ */
+export const CLAIM_DROP_REASONS = Object.freeze(['claim_not_flipped', 'protected_drop', 'claim_overpay', 'claim_sold',
+  'no_fc_value', 'floor', 'trade_memory', 'mode_tolerance', 'claim_stranded', 'confirm_failed', 'not_confirmed']);
+/** Claim paths re-priced on the confirm dice per league, best planning expected first. */
+export const CLAIM_CONFIRM_MAX = 24;
+/** Claimed players tried per target, and chips kept per claim before the finish (the search's own cap). */
+export const CLAIM_FLIPS_PER = 4;
+
+/**
+ * Which of Nick's players a claim may drop (Nick 2026-09-25: never a protected player): scored below
+ * the floor (so never a Blue chip, never unscored: fails closed), never untouchable (his notes and
+ * the objectives file, passed in), never one of NEVER_DEPTH (160 / 80 / 277). No score source, or no
+ * score, is never droppable.
  */
 export function makeDropOk({ scoreOf, floor, untouchable = new Set() }) {
   const u = new Set([...untouchable].map(String));
@@ -114,36 +135,76 @@ export function makeDropOk({ scoreOf, floor, untouchable = new Set() }) {
 }
 
 /**
- * The claim pool: the adapter's free agents that its world simulates (adapter.claimUniverse),
- * never a pinned never-get or an untouchable. No universe, no pool (fails closed).
+ * The claim pool: the adapter's free agents that its world simulates (adapter.claimUniverse), never a
+ * pinned never-get, an untouchable, or a player Nick sold this season (`sold`: whole season, no
+ * price-fall exception). No universe, no pool (fails closed).
  */
-export function claimPoolOf(adapter, untouchable = new Set()) {
+export function claimPoolOf(adapter, untouchable = new Set(), sold = new Set()) {
   const uni = adapter.claimUniverse;
   if (!(uni instanceof Set) || !uni.size) return [];
-  const blocked = new Set([...PINNED_NEVER_GET, ...[...untouchable].map(String)]);
+  const blocked = new Set([...PINNED_NEVER_GET, ...[...untouchable].map(String), ...[...sold].map(String)]);
   return (adapter.freeAgents ?? []).filter(f => uni.has(String(f.id)) && !blocked.has(String(f.id))
     && Number.isFinite(f.ros_ppg) && f.position);
 }
 
+const priced = v => v != null && Number.isFinite(Number(v)) && Number(v) >= 0;
+
 /**
- * The best claim on a roster: the (free agent, drop) pair of the same position with the largest
- * ros_ppg edge, where the drop passes dropOk, was not acquired on the path, and the free agent
- * beats it. roster: Nick's ids at that point; pool: [{ id, position, ros_ppg }]. Or null.
+ * The player Nick releases to claim `add`: among his roster at that point, one dropOk passes, not
+ * acquired on the path and not `add`, with a FantasyCalc value no more than the claimed player's
+ * (past the cap: the claim step counts the drop as what Nick gives for him). Bench before starters,
+ * then the lowest value, then the id (deterministic). valueOf(id) -> FC value or null. Or null.
  */
-export function bestClaim({ roster, pool, playerOf, dropOk, acquired = new Set() }) {
-  const held = new Set(roster.map(String));
-  let best = null;
-  for (const fa of pool) {
-    if (held.has(String(fa.id))) continue;
-    for (const id of roster) {
-      const p = playerOf(id);
-      if (!p || p.position !== fa.position || acquired.has(String(id)) || !dropOk(id)) continue;
-      const edge = fa.ros_ppg - (Number(p.ros_ppg) || 0);
-      if (!(edge > 0)) continue;
-      if (!best || edge > best.edge) best = { drop: id, add: fa.id, edge };
-    }
+export function pickDrop({ roster, add, dropOk, valueOf, starters = new Set(), acquired = new Set(), maxOverpay = 0 }) {
+  const addV = valueOf(add);
+  if (!priced(addV)) return null;
+  const onField = new Set([...starters].map(String));
+  const ok = roster.filter(id => String(id) !== String(add) && !acquired.has(String(id)) && dropOk(id)
+    && priced(valueOf(id)) && !nickOverpays(Number(valueOf(id)), Number(addV), maxOverpay));
+  ok.sort((x, y) => (onField.has(String(x)) - onField.has(String(y))) || (valueOf(x) - valueOf(y)) || String(x).localeCompare(String(y)));
+  return ok[0] ?? null;
+}
+
+/**
+ * FLIP-CLAIMS, the one rule check on a path with a claim (null = passes, else the reason):
+ *   claim_not_flipped  a claimed player is not given away by a later step (he would be held at the end)
+ *   protected_drop     the drop fails dropOk (160 / 80 / 277, an untouchable, a Blue chip, unscored)
+ *   claim_sold         the claimed player is a pinned never-get or was sold this season (`sold`)
+ *   no_fc_value        the drop or the claimed player has no FantasyCalc value (fails closed)
+ *   claim_overpay      the drop is worth more than the claimed player past the cap (the claim step; the
+ *                      flip step's own cap is the search's, on every trade step)
+ * A path with no claim passes.
+ */
+export function claimRule(steps, { dropOk, valueOf, maxOverpay = 0, sold = new Set() }) {
+  const soldS = new Set([...PINNED_NEVER_GET, ...[...sold].map(String)]);
+  for (const [i, st] of steps.entries()) {
+    if (!isClaim(st)) continue;
+    const add = st.get.map(String), drop = st.give.map(String);
+    if (!add.every(id => steps.slice(i + 1).some(s => !isClaim(s) && s.give.map(String).includes(id)))) return 'claim_not_flipped';
+    if (!drop.length || !drop.every(id => dropOk(id))) return 'protected_drop';
+    if (add.some(id => soldS.has(id))) return 'claim_sold';
+    const dv = drop.map(valueOf), av = add.map(valueOf);
+    if (![...dv, ...av].every(priced)) return 'no_fc_value';
+    if (nickOverpays(dv.reduce((s, v) => s + Number(v), 0), av.reduce((s, v) => s + Number(v), 0), maxOverpay)) return 'claim_overpay';
   }
-  return best;
+  return null;
+}
+
+/**
+ * The stranded branch of a claim path (Nick 2026-09-25): the claim went through and the flip leg did
+ * not, so Nick holds the claimed free agent and has lost the drop. prob: the chance of ending there;
+ * delta: its probability-weighted change (per the steps' own dice, so on the confirm dice once
+ * re-priced). null when the path has no claim.
+ */
+export function strandedBranch(steps) {
+  const i = steps.findIndex(isClaim);
+  if (i < 0) return null;
+  const add = steps[i].get.map(String);
+  const j = steps.findIndex((s, k) => k > i && s.give.map(String).some(id => add.includes(id)));
+  const last = j < 0 ? steps.length - 1 : j - 1;
+  const outs = pathOutcomes(steps).filter(o => o.stop_after >= i && o.stop_after <= last);
+  const prob = outs.reduce((s, o) => s + o.prob, 0);
+  return { prob, delta: prob > 0 ? outs.reduce((s, o) => s + o.prob * o.delta, 0) / prob : null };
 }
 
 /** Distinct first steps by risk mode's confirmed best, and whether they differ (the plan's MODES check). */

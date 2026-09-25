@@ -20,12 +20,3 @@ test('the send window names Eastern time, never UTC', () => {
   assert.match(w.why, /around 7 AM ET \(88 actions\)/);
   assert.doesNotMatch(w.why, /UTC/);
 });
-
-test('the People Board budget says when the week is over the limit', async () => {
-  const { loadWarRoom } = await import('./helpers/warroom-tsx.mjs');
-  const wr = await loadWarRoom();
-  const { budgetText } = await wr.mod('PeopleBoard');
-  assert.equal(budgetText({ used: 5, limit: 2 }), '5 offers this week, over your 2-a-week limit');
-  assert.equal(budgetText({ used: 1, limit: 2 }), '1 of 2 offers this week');
-  assert.equal(budgetText({ used: 2, limit: null }), '2 offers this week (no weekly limit set)');
-});

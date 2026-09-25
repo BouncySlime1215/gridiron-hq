@@ -1,6 +1,7 @@
 /**
  * PEOPLE-BOARD: the War Room's right rail (WAR-ROOM-UI.md v3, "RIGHT, THE PEOPLE BOARD").
- * server/services/war-room-view.js#buildPeopleBoard / peopleInputs + client PeopleBoard.tsx.
+ * server/services/war-room-view.js#buildPeopleBoard / peopleInputs. The client PeopleBoard.tsx retired
+ * with the War Room shell (Trades cleanup part 2); People is Trades -> People (ManagerCard) now.
  *
  *  - one tile per league-mate (Nick's own roster left out), served whole in `view.people`:
  *    a join by roster id of reads only, each from its ONE producer (FIELD-REGISTRY.md):
@@ -10,7 +11,6 @@
  *  - Nick's notes override the models: can't reach him = never a partner, sorted last; not
  *    a buyer = goes last (before him); hard negotiator flagged;
  *  - a slot whose producer has no row is typed unknown with its reason, never 0;
- *  - tapping a tile focuses the Next move deck on the plan's moves with him;
  *  - behind peopleBoardFlag (GRIDIRON_WARROOM_PEOPLE_ENABLED, on under preview mode, never
  *    without the War Room); off leaves the view and the grid exactly as they were;
  *  - one reader: no War Room file parses a profile or opens the chat DB.
@@ -22,9 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { loadWarRoom, textOf, WARROOM_DIR } from './helpers/warroom-tsx.mjs';
+import { WARROOM_DIR } from './helpers/warroom-tsx.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -35,10 +33,6 @@ const { buildWarRoomView, buildPeopleBoard, peopleInputs, cachedPeopleInputs, __
 const { peopleBoardFlag, PEOPLE_BOARD_ENV, WARROOM_ENV, WARROOM_PLANS_ENV } = await import('../server/services/warroom-flag.js');
 const { PREVIEW_ENV, PREVIEW_PREFIX } = await import('../server/services/preview-mode.js');
 
-const wr = await loadWarRoom();
-test.after(() => wr.cleanup());
-const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
-const { default: PeopleBoard, focusView, DeckFocusBar } = await wr.mod('PeopleBoard');
 
 async function withEnv(vars, fn) {
   const prev = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]));
@@ -108,7 +102,6 @@ function inputs(over = {}) {
   };
 }
 const byTeam = f => Object.fromEntries(f.value.map(t => [t.team, t]));
-const markup = el => renderToStaticMarkup(el);
 
 /* ---------------------------------------------------------------- flag */
 
@@ -311,27 +304,6 @@ test('the served view carries people only with the flag on; preview prefixes its
     });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
-
-/* -------------------------------------------------------------- render */
-
-const served = () => ({ ...view(), people_board: { enabled: true, preview: false }, people: buildPeopleBoard(view(), inputs()) });
-
-test("board render: every slot, P(responds) as a percent, Nick's word on the face, unknowns never 0", () => {
-  const html = textOf(markup(React.createElement(PeopleBoard, { view: served(), big: true, focus: null, onFocus() {} })));
-  for (const s of ['Team 7', '53% respond', '1 of 1 offers this week', 'in-market for Player 101', 'follows through',
-    'never a partner', 'goes last', 'hard negotiator', "Nick: can't reach him", 'Last contact', 'not computed yet',
-    '2 moves with him in the plan']) assert.ok(html.includes(s), `${s} in: ${html}`);
-  assert.doesNotMatch(html, /\b0 of 1\b(?! offers)|NaN|undefined/);
-  const html1 = markup(React.createElement(PeopleBoard, { view: served(), big: true, focus: '4', onFocus() {} }));
-  assert.match(html1, /data-team="4" data-standing="never" aria-pressed="true"/);
-  assert.match(html1, /class="wr-person wr-person-grey" data-team="12"/);
-  const missing = textOf(markup(React.createElement(PeopleBoard, { view: view(), big: false, focus: null, onFocus() {} })));
-  assert.match(missing, /has not loaded/);
-});
-
-/* ------------------------------------------------------------- the grid */
-
-const renderRoom = v => markup(React.createElement(WarRoom, { view: v, leagues: [{ id: 1, name: 'L1' }], activeId: 1, onLeague() {}, onExit() {} }));
 
 /* ------------------------------------------------------------ one reader */
 

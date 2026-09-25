@@ -559,8 +559,11 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // SEARCH-WIDE: the waiver-claim record a claim's P(yes) is priced on (search-wide.js#claimProbability).
     ...(claimIds.length ? { waiverRecord: waiverRecord(svc, { leagueId, season }) } : {}),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
-    // O1 radar (GRIDIRON_OPP_RADAR; null when off): events + net validated opportunity change for this NFL week.
-    opportunityOf: id => svc.radar?.opportunityOf(id, { season: Number(season), week: Number(week) }) ?? null,
+    // O1 radar: events + net validated opportunity change for this NFL week. Present only while
+    // GRIDIRON_OPP_RADAR=1; otherwise opportunityRadar 'off', which why-now.js prints as "O1 radar off".
+    ...(svc.radar?.radarFlag().on
+      ? { opportunityOf: id => svc.radar.opportunityOf(id, { season: Number(season), week: Number(week) }) }
+      : { opportunityRadar: 'off' }),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the
     // board on, his blue chips (80+). vals.tradable excludes this set: never a give, walk-away or flip leg.

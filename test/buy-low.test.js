@@ -219,3 +219,36 @@ test('served positions: only QB/RB/WR (backtest passed); a flagged TE is listed 
   assert.deepEqual(out.summary.others_top.map(r => [r.player, r.position, r.served]), [['22', 'TE', false]]);
   assert.equal(annotateEntryTargets({ targets: { status: 'ok', value: [{ player: '22' }] } }, reads).targets.value[0].buy_low, undefined);
 });
+
+/* ---------------------------------------------------------------- RULE-FUZZ, flag on */
+
+test('RULE-FUZZ with BUY-LOW on: random buy-low reads never add a rule violation, a target, or a floor break', async () => {
+  const { planLeague } = await import('../server/services/campaign/planner.js');
+  const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
+  const { makeFuzzLeague, rng } = await import('./fixtures/rule-fuzz-league.mjs');
+  const { ruleViolations } = await import('./fixtures/nick-rules.mjs');
+  const seeds = Array.from({ length: Number(process.env.BUY_LOW_FUZZ_N ?? 40) }, (_, i) => 9100 + i);
+  let flaggedTargets = 0, moved = 0;
+  for (const seed of seeds) {
+    for (const mode of ['safe', 'balanced', 'all_in']) {
+      const a = makeFuzzLeague(seed);
+      const res = planLeague(a, { objective: normaliseObjective({ risk_mode: mode }), env: {} });
+      const r = rng(seed * 7 + 1);
+      const pos = ['QB', 'RB', 'WR', 'TE'];
+      a.buyLow = ids => ({ reads: new Map(ids.map(id => [String(id), r() < 0.5
+        ? flagged(1 + r() * 8, r() < 0.5 ? 'detected' : 'confirmed', pos[Math.floor(r() * 4)]) : plain])), sources: {} });
+      // Force ties so the tie-breaker has something to do.
+      const tied = { ...res, suggestions: res.suggestions.map(s => ({ ...s, rank_score: Math.round(s.rank_score * 10) / 10 })) };
+      const out = buyLowForRun(tied, a);
+      assert.deepEqual(ruleViolations(a, out.res), ruleViolations(a, tied), `seed ${seed} ${mode}`);
+      assert.deepEqual(out.res.suggestions.map(s => String(s.player)).sort(), tied.suggestions.map(s => String(s.player)).sort());
+      for (let i = 1; i < out.res.suggestions.length; i++) {
+        assert.ok(out.res.suggestions[i - 1].rank_score >= out.res.suggestions[i].rank_score, `seed ${seed} ${mode}: rank order broken`);
+      }
+      assert.deepEqual(out.res.best, tied.best);
+      flaggedTargets += out.summary.targets_flagged.length;
+      moved += out.summary.tie_break_moved;
+    }
+  }
+  assert.ok(flaggedTargets > 0 && moved > 0, 'the fuzz exercised the tie-breaker');
+});

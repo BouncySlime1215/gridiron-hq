@@ -29,13 +29,21 @@ import { identityRows } from '../manager-identity.js';
 import { checkClaim, readPlansFile, leagueEntry, coachBriefFlag, BRIEF_PREVIEW_REASON, TARGET_LEAGUE } from './brief.js';
 import { previewFields } from '../preview-mode.js';
 import { warRoomPlansPath } from '../warroom-flag.js';
+import { safeToSend, broken, saidLately } from './preset-claims.js';
+import { readStatements } from './brief-inputs.js';
+import { db } from '../../db/index.js';
 
-export const STARTER_INTENTS = Object.freeze(['next_move', 'why_nothing', 'all_in', 'message_first', 'next_alternative']);
+export const STARTER_INTENTS = Object.freeze(['next_move', 'why_nothing', 'all_in', 'message_first', 'next_alternative',
+  'safe_to_send', 'said_lately', 'broken']);
 
-/** What Coach can answer with no model key, in the dock's words. */
+/** What Coach can answer with no model key, in the dock's and the drawer's words. */
 export const STARTER_QUESTIONS = Object.freeze([
-  "What's my next move and why?", 'Why is nothing clearing?', 'Show me the all-in plan', 'Who should I message first?'
+  "What's my next move and why?", 'Is it safe to send?', 'Why is nothing clearing?', 'Who should I work this week?',
+  'What did league-mates say lately?', "What's broken right now?", 'Show me the all-in plan'
 ]);
+
+/** How far back "lately" reaches for league-mates' statements: the pulse's own two-week window (brain-tools pulse_read). */
+export const SAID_LATELY_DAYS = 14;
 
 const INTENT_RULES = [
   // COACH-PARTNER: "i don't like that, what else u got", "next one", "something else".
@@ -44,10 +52,17 @@ const INTENT_RULES = [
     /\bnext (one|option|idea|alternative|card)\b/, /\b(another|other|different) (one|option|idea|trade|move|deal)s?\b/,
     /\b(don'?t|do not) like (that|it|this)( one)?\b/, /\bgot anything else\b/, /\bshow me another\b/
   ]],
+  // COACH-PRESETS (#390): the War Room drawer's fixed questions (CoachDrawer.tsx FIXED_QUESTIONS).
+  ['safe_to_send', [/\b(is it|is this|is that|it'?s) (safe|ok|okay|smart) to send\b/, /\bsafe to (send|offer)\b/, /\bshould i (send|offer) (it|this|that)\b/]],
+  ['said_lately', [
+    /\bwhat (did|have|has)\b.*\b(league[- ]?mates|managers|people|guys|everyone|the league|the chat)\b.*\b(say|said|saying|talk\w*)\b/,
+    /\b(league[- ]?mates|managers|the chat)\b.*\b(say|said|saying|talk\w*)\b.*\b(lately|recently|this week|today)\b/
+  ]],
+  ['broken', [/\bwhat'?s broken\b/, /\bwhat is broken\b/, /\banything broken\b/, /\bis (the brain|it|anything) (working|broken)\b/]],
   ['all_in', [/\ball[- ]?in\b/, /\bfuck it\b/, /\bgo(ing)? for broke\b/, /\baggressive (plan|mode|route|path)\b/, /\b(max(imum)?|most) risk\b/]],
   ['message_first', [
     /\b(message|contact|reach out|text|dm|talk to|ping|approach|hit up|trade with)\b.*\bfirst\b/,
-    /\bwho\b.*\b(should|do|can) i\b.*\b(message|contact|reach out|text|dm|talk to|ping|approach|hit up|trade with)\b/,
+    /\bwho\b.*\b(should|do|can) i\b.*\b(message|contact|reach out|text|dm|talk to|ping|approach|hit up|trade with|work)\b/,
     /\b(which|what) (manager|team|partner|owner)s?\b.*\b(message|contact|reach out|talk to|approach|trade with)\b/
   ]],
   ['why_nothing', [
@@ -70,9 +85,19 @@ export function starterIntent(question) {
   return null;
 }
 
-/** Draft claims for one intent (exported for the mutation test). */
-export function starterClaims(intent, { entry, ledger }) {
+/** Draft claims for one intent (exported for the mutation test). `said` is the statements read for said_lately. */
+export function starterClaims(intent, { entry, ledger, said = null }) {
+  if (intent === 'safe_to_send') return safeToSend(entry, ledger);
+  if (intent === 'broken') return broken(entry, ledger);
+  if (intent === 'said_lately') return saidLately(said ?? readSaidLately(entry.league), ledger);
   return answerClaimsFor(intent, { entry, ledger });
+}
+
+/** League-mates' labelled statements over the last SAID_LATELY_DAYS, from PULSE-01's reader. */
+export function readSaidLately(leagueId, { database = db, now = new Date() } = {}) {
+  const until = now.toISOString();
+  const since = new Date(now.getTime() - SAID_LATELY_DAYS * 864e5).toISOString();
+  return readStatements(database, { leagueId, since, until });
 }
 
 /** Ground every draft claim; what fails is dropped with its violations. */
@@ -99,7 +124,10 @@ const ACTIONS = {
     ['warroom_plug_in', { type: 'plug_in', field: 'destination.title_now', view: 'number' }]],
   why_nothing: [['warroom_view', { type: 'explain', panel: 'next_move' }]],
   all_in: [['warroom_view', { type: 'focus_panel', panel: 'destination' }]],
-  message_first: [['warroom_view', { type: 'focus_panel', panel: 'next_move' }]]
+  message_first: [['warroom_view', { type: 'focus_panel', panel: 'next_move' }]],
+  safe_to_send: [['warroom_view', { type: 'focus_panel', panel: 'next_move' }]],
+  broken: [['warroom_view', { type: 'focus_panel', panel: 'brain_check' }]],
+  said_lately: []
 };
 export const starterActions = intent => ACTIONS[intent] ?? [];
 

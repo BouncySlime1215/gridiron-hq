@@ -146,7 +146,7 @@ export const MAX_STATEMENT_LINES = 6;
 const times = w => `${w.toFixed(1)}x`;
 
 /** What league-mates said in the window: PULSE-01's labelled statements, credible first, then newest. */
-function statements(s, ledger) {
+export function statements(s, ledger) {
   const section = 'statements';
   if (s.status !== 'ok') return notRead(s, ledger, { section, tool: 'pulse_read', what: 'Statements' });
   if (!s.rows.length) {
@@ -247,7 +247,7 @@ function injuries(s, ledger) {
 
 /* ---------------------------------------------------------------- brain */
 
-function brain(entry, ledger) {
+export function brain(entry, ledger) {
   const section = 'brain';
   const out = [];
   const br = entry.brain_report;
@@ -380,7 +380,7 @@ function footer(entry, ledger) {
  * One trade step as a sentence fragment ("Team 3 P4 (WR) + P6 (RB) for P21 (WR)")
  * with the cites that ground it: the partner cell, and each player's id and name.
  */
-function deal(ledger, entry, step, tool) {
+export function deal(ledger, entry, step, tool) {
   const names = entry.names ?? {};
   const players = [...(step.give ?? []).map(pid => ({ pid: String(pid), name: names[pid] ?? `player ${pid}`, side: 'give' })),
     ...(step.get ?? []).map(pid => ({ pid: String(pid), name: names[pid] ?? `player ${pid}`, side: 'get' }))];
@@ -518,7 +518,7 @@ function messageFirst(entry, ledger, section) {
     return [{ section, text: `Partners not read: ${reason}`, cites: [c(0, 'reason')] }];
   }
   const all = pa.value.map(p => ({ team: String(p.team), p_responds: typeof p.p_responds === 'number' ? p.p_responds : null,
-    basis: p.basis ?? null, edge: val(p.edge) ?? null, blocked: p.blocked === true, checked_out: p.checked_out === true }));
+    basis: p.basis ?? null, edge: val(p.edge) ?? null, edge_unit: ok(p.edge) ? (p.edge.unit ?? null) : null, blocked: p.blocked === true, checked_out: p.checked_out === true }));
   const reachable = x => !x.blocked && !x.checked_out && !(x.p_responds === 0);
   const pool = all.filter(reachable);
   const ranked = [...pool.filter(x => ACTIVE_POOL.test(x.basis ?? '')), ...pool.filter(x => !ACTIVE_POOL.test(x.basis ?? ''))];
@@ -530,11 +530,14 @@ function messageFirst(entry, ledger, section) {
   } else {
     const c = record(ledger, 'plan_partners', ranked);
     const first = ranked[0];
+    // The edge is said in title-odds points only when the plan priced it in title odds (#390 review 2).
+    const edge = first.edge_unit === 'title_odds' ? first.edge : null;
+    const why = basisPhrase(first.basis);
     const bits = [first.p_responds != null ? `${pct(first.p_responds)} chance he responds` : null,
-      first.edge ? `the plan's edge with him is ${pts(first.edge)}` : null].filter(Boolean);
+      edge ? `the plan's edge with him is ${pts(edge)} of title odds` : null].filter(Boolean);
     out.push({ section, cites: [c(0, 'team'), ...(first.p_responds != null ? [c(0, 'p_responds')] : []),
-      ...(first.basis ? [c(0, 'basis')] : []), ...(first.edge ? [c(0, 'edge')] : [])],
-    text: `Message Team ${first.team} first${bits.length ? `: ${bits.join(', ')}` : ''}${first.basis ? `; basis: ${first.basis}` : ''}.` });
+      ...(why ? [c(0, 'basis')] : []), ...(edge ? [c(0, 'edge'), c(0, 'edge_unit')] : [])],
+    text: `Message Team ${first.team} first${bits.length ? `: ${bits.join(', ')}` : ''}${why ? `, ${why}` : ''}.` });
     const next = ranked.slice(1, 3);
     if (next.length) {
       out.push({ section, cites: next.map((_, i) => c(i + 1, 'team')), text: `Then ${next.map(x => `Team ${x.team}`).join(', then ')}.` });
@@ -546,9 +549,9 @@ function messageFirst(entry, ledger, section) {
     out.push({ section, text: `The next move's offer goes to Team ${step.partner}.`, cites: [n(0, 'partner')] });
   }
   if (skipped.length) {
-    const s = record(ledger, 'plan_partners_skipped', skipped.map(x => ({ team: x.team, why: x.basis ?? (x.blocked ? 'blocked' : 'checked out') })));
+    const s = record(ledger, 'plan_partners_skipped', skipped.map(x => ({ team: x.team, why: basisPhrase(x.basis) ?? (x.blocked ? 'blocked' : 'checked out') })));
     out.push({ section, cites: skipped.flatMap((_, i) => [s(i, 'team'), s(i, 'why')]),
-      text: `Skipped: ${skipped.map(x => `Team ${x.team} (${x.basis ?? (x.blocked ? 'blocked' : 'checked out')})`).join(', ')}.` });
+      text: `Skipped: ${skipped.map(x => `Team ${x.team} (${basisPhrase(x.basis) ?? (x.blocked ? 'blocked' : 'checked out')})`).join(', ')}.` });
   }
   return out;
 }

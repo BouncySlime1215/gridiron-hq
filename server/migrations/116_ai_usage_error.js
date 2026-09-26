@@ -1,4 +1,4 @@
-export const name = '115_ai_usage_error';
+export const name = '116_ai_usage_error';
 /**
  * COACH-V2 (2026-09-26): a failed AI call leaves a trace. `ai_usage.error` is null for a
  * paid call and a short code for one the API refused before any work was done

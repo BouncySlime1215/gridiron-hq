@@ -7,7 +7,7 @@
  *     --out <dir> --label after [--root <repo checkout to import Coach from>] [--limit N] [--intents DO,WHY]
  *
  * Needs GRIDIRON_DB_PATH (a COPY of the app DB: this writes threads, audits and ai_usage)
- * and GRIDIRON_WARROOM_PLANS. Each question gets a fresh thread (its own user id), so no
+ * and the War Room plans path (server/services/warroom-flag.js). Each question gets a fresh thread (its own user id), so no
  * focus carries between questions. SPENDS REAL MONEY: about $0.02-0.06 a question plus
  * ~$0.001 of grading. Writes <out>/judge-<label>.json (per question) and prints a summary:
  *

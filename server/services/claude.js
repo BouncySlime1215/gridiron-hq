@@ -101,7 +101,7 @@ export function recordUsage(feature, model, usage) {
 /** The API's refusal when the account has no credit left. */
 export const CREDIT_ERROR = /credit balance is too low/i;
 
-/** One refused call, at 0 cost, with its error code (migration 115); skipped on a database without the column. */
+/** One refused call, at 0 cost, with its error code (migration 116); skipped on a database without the column. */
 export function recordFailure(feature, model, error) {
   const hasError = rows('PRAGMA table_info(ai_usage)').some(c => c.name === 'error');
   if (!hasError) { console.warn(`[ai] ${feature} on ${model} failed (${error}); ai_usage has no error column, so it is not logged`); return; }

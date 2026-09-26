@@ -83,6 +83,11 @@ mock.module('../server/services/season-sim.js', {
     simulateSeason: () => { simulateCalls++; return structuredClone(SIM); },
   },
 });
+// ONE-NUMBER-FIX: GET /simulate serves the league world's title odds (league-world.js).
+const realWorld = await import('../server/services/league-world.js');
+mock.module('../server/services/league-world.js', {
+  namedExports: { ...realWorld, oneWorldTitleOdds: () => structuredClone(SIM) },
+});
 const realTitle = await import('../server/services/title-odds-trades.js');
 mock.module('../server/services/title-odds-trades.js', {
   namedExports: { ...realTitle, titleOddsTrades: () => structuredClone(TITLE_TRADES) },

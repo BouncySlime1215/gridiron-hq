@@ -48,7 +48,7 @@ function labelsFor(entry, move, step) {
 }
 
 const SLOT_LEAD = [
-  ['case_for', 'Why'], ['his_side', 'His side'], ['devils_advocate', 'The risk'], ['news_check', 'News'], ['confidence', 'How sure']
+  ['case_for', 'Why'], ['his_side', 'Their side'], ['devils_advocate', 'The risk'], ['news_check', 'News'], ['confidence', 'How sure']
 ];
 
 /** "why?": the focused move's reasoning slots, each held to the move's numbers (strict). */
@@ -93,7 +93,7 @@ export function ifNoClaims(entry, ledger, focus = {}) {
     const after = ok(no.odds_after) && no.odds_after.unit === 'title_odds' ? no.odds_after.value : null;
     const c = record(ledger, 'plan_reply_decline', [{ do: plain(entry, no.do), odds_after: after }]);
     out.push({ section, cites: [c(0, 'do'), ...(after != null ? [c(0, 'odds_after')] : [])],
-      text: `If he says no: ${plain(entry, no.do)}${after != null ? ` Title odds are then ${pct(after)}.` : ''}` });
+      text: `If they say no: ${plain(entry, no.do)}${after != null ? ` Title odds are then ${pct(after)}.` : ''}` });
     const backup = no.move_id != null && String(no.move_id) !== String(move.move_id) ? moveById(entry, no.move_id) : null;
     if (backup) {
       const [line] = moveClaims(entry, ledger, section, backup, { k: 0 });
@@ -106,7 +106,7 @@ export function ifNoClaims(entry, ledger, focus = {}) {
     const row = { do: plain(entry, counter.do), accept_if: plain(entry, rules.accept_if), counter_with: plain(entry, rules.counter_with),
       walk_away_if: plain(entry, rules.walk_away_if) };
     const c = record(ledger, 'plan_reply_counter', [row]);
-    out.push({ section, cites: [c(0, 'do')], text: `If he counters: ${row.do}` });
+    out.push({ section, cites: [c(0, 'do')], text: `If they counter: ${row.do}` });
     const parts = [['accept_if', 'take it if'], ['counter_with', 'counter with'], ['walk_away_if', 'walk away if']]
       .filter(([key]) => row[key]);
     if (parts.length) {
@@ -119,7 +119,7 @@ export function ifNoClaims(entry, ledger, focus = {}) {
     const row = { do: plain(entry, quiet.do), when: plain(entry, quiet.when), message: typeof quiet.message === 'string' ? quiet.message : null };
     const c = record(ledger, 'plan_reply_silence', [row]);
     out.push({ section, cites: [c(0, 'do'), ...(row.when ? [c(0, 'when')] : [])],
-      text: `If he goes quiet${row.when ? ` (${row.when})` : ''}: ${row.do}` });
+      text: `If they go quiet${row.when ? ` (${row.when})` : ''}: ${row.do}` });
     if (row.message) out.push({ section, cites: [c(0, 'message')], text: `Nudge to copy and send yourself: "${row.message}"` });
   }
   const walk = val(step.walk_away);
@@ -158,12 +158,12 @@ function noMove(entry, ledger, section) {
 /* ------------------------------------------------------------------ chips */
 
 export const CHIP = Object.freeze({
-  why: 'Why this trade?', if_no: 'What if he says no?', other: 'Any other option?', safe: 'Is it safe to send?',
+  why: 'Why this trade?', if_no: 'What if they say no?', other: 'Any other option?', safe: 'Is it safe to send?',
   next: "What's my next move and why?", work: 'Who should I work this week?', nothing: 'Why is nothing clearing?',
   other_one: 'Go back to the other one'
 });
 
-/** A partner chip names him the way resolvePartner reads it back: manager name, else "team N". */
+/** A partner chip names them the way resolvePartner reads it back: manager name, else "team N". */
 function partnerChip(entry, roster) {
   const t = val(entry?.teams)?.[String(roster)] ?? {};
   const who = typeof t.manager === 'string' && t.manager.trim() ? t.manager.trim().split(/\s+/)[0] : `team ${roster}`;

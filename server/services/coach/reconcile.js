@@ -24,7 +24,7 @@ import { BASIS_WORDS as JEV_BASIS_WORDS } from './jev-lane.js';
 export const RECONCILE_MODELS = Object.freeze({ normal: 'claude-sonnet-5', trade_differ: 'claude-opus-5-5' });
 const TRADE = /\b(trades?|offers?|deals?|packages?|swap|flip|send|accept|counter)\b/i;
 const STANCE_WORDS = Object.freeze({ go: 'go', wait: 'wait', avoid: 'avoid' });
-const BASIS_WORDS = Object.freeze({ title_gain: 'the title-odds gain', price: 'the price', willingness: 'whether he will deal',
+const BASIS_WORDS = Object.freeze({ title_gain: 'the title-odds gain', price: 'the price', willingness: 'whether they will deal',
   roster_fit: 'roster fit', risk: 'risk', timing: 'timing' });
 
 /** Both lanes in the one vocabulary; the verdict. */
@@ -38,10 +38,10 @@ export function laneVerdict(shape, take) {
 /** The disagreement said without a model, from the two stances (the fallback, and the SAME_BUT line). */
 export function disagreementLine(verdict, a, b) {
   if (verdict === 'differ') {
-    return `Numbers say ${STANCE_WORDS[a.stance]}; Jev reads ${STANCE_WORDS[b.stance]} because of ${JEV_BASIS_WORDS[b.basis] ?? BASIS_WORDS[b.basis] ?? 'his read'} (chat read, ungraded).`;
+    return `Numbers say ${STANCE_WORDS[a.stance]}; Jev reads ${STANCE_WORDS[b.stance]} because of ${JEV_BASIS_WORDS[b.basis] ?? BASIS_WORDS[b.basis] ?? 'their read'} (from chat, unverified).`;
   }
   if (verdict === 'same_but') {
-    return `Same call, different reasons: the numbers rest on ${BASIS_WORDS[a.basis] ?? 'the plan'}, Jev on ${JEV_BASIS_WORDS[b.basis] ?? BASIS_WORDS[b.basis] ?? 'his read'}.`;
+    return `Same call, different reasons: the numbers rest on ${BASIS_WORDS[a.basis] ?? 'the plan'}, Jev on ${JEV_BASIS_WORDS[b.basis] ?? BASIS_WORDS[b.basis] ?? 'their read'}.`;
   }
   return null;
 }
@@ -55,9 +55,9 @@ const RECONCILE_SCHEMA = Object.freeze({
 const RECONCILE_SYSTEM = `You write Coach's one answer to Nick from two lanes that read the same question.
 
 CLAUDE (numbers): grounded in the plan and the app's data; its lines carry cites.
-JEV (people): a people and chat evaluator reading Claude's lane and stored chat signals; its lines are ungraded chat reads.
+JEV (people): a people and chat evaluator reading Claude's lane and stored chat signals; its lines are unverified reads from chat.
 
-The deal comes from the numbers: recommend only a move or player the numbers lane cited, never a trade of your own, never anything sent for Nick. Jev may change the ORDER (what to do first) and the PITCH (how to ask), not the deal. A line resting on Jev says it is a chat read.
+The deal comes from the numbers: recommend only a move or player the numbers lane cited, never a trade of your own, never anything sent for Nick. Jev may change the ORDER (what to do first) and the PITCH (how to ask), not the deal. A line resting on Jev ends with "(from chat, unverified)". Refer to any league-mate as they, them or their, never he, him or his.
 
 Every line keeps the cites of the lane lines it comes from, copied exactly. Never write a number that is not in the lines you were given.
 
@@ -128,7 +128,7 @@ export function cardFor({ focus = {}, laneOne, take, jevClaims = [], verdict, ti
     key: `${itemType}:${itemId}`, item_type: itemType, item_id: itemId, title, subtitle: null, partner: focus.partner ?? null, players: [],
     numbers: shape?.stance && shape.stance !== 'none' ? { stance: shape.stance, basis: shape.basis_key ?? undefined, why: firstWhy, cites: [] }
       : { skipped: 'no stance this turn' },
-    people: take?.stance ? { stance: take.stance, basis: take.basis, why: jevClaims[0]?.text ?? null, label: 'chat read (ungraded)', cites: [] }
+    people: take?.stance ? { stance: take.stance, basis: take.basis, why: jevClaims[0]?.text ?? null, label: 'from chat, unverified', cites: [] }
       : { skipped: 'no chat read this turn' },
     verdict, read_at: null, history: []
   };

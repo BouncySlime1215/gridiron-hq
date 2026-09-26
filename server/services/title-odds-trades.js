@@ -50,8 +50,10 @@ export function titleOddsTrades(leagueId, {
   if (!lg?.payload) return { error: 'league not synced yet' };
   // EA-07: with the one world on, every deal here is priced on the snapshot's world
   // (its runs, its seed), so each deal's "before" is the twin's title odds.
+  // ONE-NUMBER-FIX: always the snapshot's world, so the Title tab's "before" is the twin's title
+  // odds whatever the one-world flag says (the flag still labels a preview answer).
   const oneWorld = oneWorldFlag();
-  const shared = oneWorld.on ? leagueWorld(lg) : null;
+  const shared = leagueWorld(lg);
   if (shared?.fail) return shared.fail;
   if (shared) runs = ONE_WORLD_RUNS;
 

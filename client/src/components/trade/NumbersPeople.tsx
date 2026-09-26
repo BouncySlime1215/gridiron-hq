@@ -16,12 +16,12 @@ import { BudgetLink } from '../settings/spendLinks';
 interface NPView {
   enabled: boolean; status: 'ok' | 'empty' | 'off'; refreshing?: boolean; read_at?: string; week?: number | null; stale?: boolean;
   notice?: { kind: 'budget' | 'failed'; text: string; at: string } | null;
-  summary?: { agree: number; differ: number; same_but: number; no_people_read: number } | null;
+  summary?: { agree: number; differ: number; same_but: number; no_people_read: number; both_go: number; split: number; both_wait: number; both_avoid: number } | null;
   items: NPItem[]; scoreboard?: NPScoreboard | null; run?: { status: string };
 }
 
 const POLL_MS = 8000;
-/** Cards shown before "Show all" (differences come first, so they are never folded away). */
+/** Cards shown before "Show all": the list is best first (server order.js), so the fold keeps the best. */
 const FIRST = 4;
 const timeText = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '');
 
@@ -83,7 +83,7 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
   if (!view.enabled) return <EmptyState title="Numbers & People is off" description="Claude's and Jev's reads are turned off on this server." />;
 
   const s = view.summary;
-  const shown = Math.max(FIRST, view.items.filter(i => i.verdict === 'differ').length);
+  const shown = FIRST;
   const refreshButton = (
     <Button icon="refresh" onClick={refresh} disabled={busy} title={busy ? 'Claude and Jev are reading the plan' : 'Ask Claude and Jev again now'}>
       {busy ? 'Reading…' : 'Refresh'}
@@ -96,10 +96,11 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             {s
-              ? <h2 className="text-base font-semibold" data-testid="np-summary">Agree on {s.agree} · Differ on {s.differ} · Same call, different reasons on {s.same_but}</h2>
+              ? <h2 className="text-base font-semibold" data-testid="np-summary">Both say go on {s.both_go} · Split on {s.split} · Both say avoid on {s.both_avoid}</h2>
               : <h2 className="text-base font-semibold">No reads yet</h2>}
             <p className="ds-note">
               {view.read_at ? `Read ${timeText(view.read_at)}${view.week ? ` · week ${view.week}` : ''}` : 'Claude and Jev read the plan\'s key moves, targets and league-mates.'}
+              {s?.both_wait ? ` · ${s.both_wait} both say wait` : ''}
               {s?.no_people_read ? ` · ${s.no_people_read} with no chat read` : ''}
             </p>
             <p className="ds-note">Claude reads the plan's numbers. Jev takes Claude's read and weighs what the chat says about each league-mate (ungraded).</p>
@@ -118,7 +119,7 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
       )}
 
       {!!view.items.length && (
-        <Section title="Right now" description="Where the lanes differ comes first.">
+        <Section title="Right now" description="Best first: both say go at the top, both say avoid at the bottom.">
           <div className="grid gap-3 lg:grid-cols-2">
             {view.items.slice(0, all ? undefined : shown).map(item => <NumbersPeopleCard key={item.key} item={item} variant="full" headshots={headshots} onAsk={ask} />)}
           </div>

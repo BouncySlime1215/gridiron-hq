@@ -35,7 +35,7 @@ import { LlmBudgetError } from '../llm-budget.js';
 import { readForFocus } from '../numbers-people/view.js';
 import { routeQuestion, ruleIntent } from './router.js';
 import { explainTerm, chatReply } from './explain.js';
-import { shapeDeterministic, stripDevText } from './answer-shape.js';
+import { shapeDeterministic, stripDevText, neutralAnswer, neutralLine, neutralLanes, neutralCard } from './answer-shape.js';
 
 /** Models per message (COACH-CHAT model routing). All three are priced in llm-budget.js. */
 export const CHAT_MODELS = Object.freeze({
@@ -223,7 +223,8 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
       const modelBound = hasModel && lanesOn() && !routeIntent(asked) && !starter
         && !(await partnerAnswer({ question: asked, leagueId }));
       result = modelBound
-        ? await answerWithLanes({ question: asked, askArgs: routed, focus, leagueId, threadId: thread.id })
+        ? await answerWithLanes({ question: asked, askArgs: routed, focus, leagueId, threadId: thread.id,
+          partnerLabel: entry && focus.partner != null ? teamOf(entry, focus.partner) : null })
         : await askCoach(routed);
       if (route) { result.route = route; result.cost_usd = (result.cost_usd ?? 0) + route.cost_usd; }
     } catch (e) {
@@ -244,8 +245,13 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   // CLAUDE.md 2b, whatever path answered: no table, column or snake_case name reaches the drawer.
   const clean = stripDevText(result.answer);
   if (clean.dropped.length) { result.answer = clean.answer; result.dev_text_dropped = clean.dropped.length; }
+  // A league-mate is "they", never he/him/his, and a chat read is "(from chat, unverified)", in every shown line.
+  const neutralized = neutralAnswer(result.answer);
+  result.answer = neutralized.answer;
+  if (neutralized.dropped) result.pronoun_dropped = neutralized.dropped;
+  if (result.lanes) result.lanes = neutralLanes(result.lanes);
   const intent = result.intent ?? result.verification?.intent ?? null;
-  const followups = followupsFor(intent, nextFocus, entry);
+  const followups = followupsFor(intent, nextFocus, entry).map(neutralLine).filter(Boolean);
   let proposals = proposalsFor(intent, nextFocus, entry);
   // COACH-V2 [5] RULES-CHECK: every move line and card against Nick's rules, in code; each drop logged with its rule.
   const rules = entry ? coachRules(leagueId) : null;
@@ -267,7 +273,7 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   }
   const replyText = [...result.answer.claims.map(c => c.text), ...result.answer.refusals].join(' ');
   // COACH-V2 unit 4: this turn's live Claude + Jev card when both lanes ran, else the stored read of the item in focus.
-  const numbersPeople = result.lanes?.card ?? numbersPeopleFor({ leagueId, focus: nextFocus, entry });
+  const numbersPeople = neutralCard(result.lanes?.card ?? numbersPeopleFor({ leagueId, focus: nextFocus, entry }));
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
     followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}),
     ...(result.answer.shape ? { shape: result.answer.shape } : {}), ...(result.route ? { route: result.route.intent } : {}),

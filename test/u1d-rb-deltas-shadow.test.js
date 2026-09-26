@@ -39,13 +39,26 @@ test('shadow table: one row per served step, own-gain sign agreement and the 2-S
   assert.equal(rows[1].sign_agree, false);
   assert.equal(rows[1].rb_own, -0.0002);
   assert.equal(rows[0].within_2se, true);
+  assert.ok(rows.every(r => r.served === true));
   const s = rbShadowSummary(rows);
-  assert.deepEqual(s, { rows: 2, sign_flips: 1, within_2se_share: 1, passes: false });
+  // Plain's 0.0045 +/- 0.0013 clears 2 SE, so this flip counts where plain clears too.
+  assert.equal(rows[1].plain_clears_2se, true);
+  assert.deepEqual(s, { rows: 2, sign_flips: 1, within_2se_share: 1, sign_flips_where_plain_clears: 1, passes: false,
+    all: { rows: 2, sign_flips: 1, within_2se_share: 1, sign_flips_where_plain_clears: 1, passes: false } });
   assert.equal(rbShadowSummary([rows[0]]).passes, true);
+  // A priced-but-not-served path is logged as served: false and only counts toward `all`.
+  const other = { target: '9', steps: [step(0.001, 0.0003, -0.001, 0.0009)] };
+  const more = rbShadowRows({ ...res, confirm_checked: [plan, other] });
+  assert.equal(more.length, 3, 'the served path is not logged twice');
+  assert.equal(more[2].served, false);
+  const s2 = rbShadowSummary(more);
+  assert.equal(s2.sign_flips, 1);
+  assert.equal(s2.all.sign_flips, 2);
 });
 
 test('shadow table: steps without both estimators log nothing (flag off, or a points objective card)', () => {
   const plan = { target: '2', steps: [{ team: '2', give: [1], get: [2], p: 0.5, delta: 0.01 }] };
   assert.deepEqual(rbShadowRows({ league: 4, week: 4, deck: [{ plan }] }), []);
-  assert.deepEqual(rbShadowSummary([]), { rows: 0, sign_flips: 0, within_2se_share: null, passes: false });
+  assert.deepEqual(rbShadowSummary([]), { rows: 0, sign_flips: 0, within_2se_share: null, sign_flips_where_plain_clears: 0, passes: false,
+    all: { rows: 0, sign_flips: 0, within_2se_share: null, sign_flips_where_plain_clears: 0, passes: false } });
 });

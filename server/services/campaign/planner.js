@@ -428,6 +428,8 @@ export function planLeague(adapter, settings) {
   const S2 = W2 && !W2.fail ? makeScorer(W2, adapter) : null;
   // REACH-01: the objective mode's confirm counts (null when the confirm world failed).
   let confirmCounts = null;
+  // RB-DELTAS shadow: the active mode's confirm-priced paths (rb-shadow.js logs their steps as served: false).
+  let confirmChecked = [];
   // integration-7: one confirm pass for every mode (NO-TRADE-SHRINK) that keeps CAP-1C's premium re-check
   // (a premium step must raise lineup points and title odds on the fresh dice too; no fresh dice, no premium card).
   // One plan re-priced on the confirm dice under a mode (S2 required).
@@ -483,6 +485,8 @@ export function planLeague(adapter, settings) {
     }
     const priced = regretRescore(top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active)), mode, tolM, ctxM);
     const kept = priced.filter(beatsNoTrade);
+    // RB-DELTAS shadow: every path the active mode priced on the confirm dice (served or not), for the table.
+    if (active) confirmChecked = priced;
     if (active) {
       const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
       const regret = priced.filter(p => p.confirm.verdict !== 'failed' && p.step_regret != null).length;
@@ -800,6 +804,8 @@ export function planLeague(adapter, settings) {
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
+    confirm_checked: confirmChecked.filter(p => p.steps.some(st => st.title_pair)).map(p => ({ target: p.target ?? null,
+      steps: p.steps.map(st => ({ team: st.team, give: st.give, get: st.get, delta: st.delta, title_pair: st.title_pair ?? null })) })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,

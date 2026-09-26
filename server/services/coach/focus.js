@@ -33,10 +33,14 @@ const IF_NO = [
   /^(?:and |but )?(?:what )?if not\b/, /\bwhat if (?:it|that) (?:fails|falls through|doesn'?t work)\b/,
   /\bplan b\b/, /\bwhat'?s the backup\b/, /\bif (?:there'?s|i get) no (?:reply|answer)\b/
 ];
+/**
+ * "why?" about the thing in focus: a bare why, or why + a pronoun / "this trade". A why about
+ * something else ("why are my title odds so low?") is a real question for the model (COACH-V2 router).
+ */
 const WHY = [
-  /^(?:but |ok |okay |so )?why\b(?! is nothing| nothing| are none| no trade)/, /\bhow come\b/, /\bexplain (?:it|that|this|why)\b/,
-  /\bwhat'?s the (?:reasoning|case|logic|catch|risk)\b/, /\bwhy (?:him|her|them|that|this|it|that one|this one|that trade)\b/,
-  /\bconvince me\b/, /\bwhat'?s the downside\b/
+  /^(?:(?:but|ok|okay|so) )*why\??$/, /^(?:(?:but|ok|okay|so) )*how come\??$/, /\bexplain (?:it|that|this)\??$/,
+  /^(?:(?:but|ok|okay|so) )*why (?:him|her|them|that|this|it|that one|this one|that trade|this trade|that deal|this deal|this move|that move|not)\??$/,
+  /\bwhat'?s the (?:reasoning|case|logic|catch|risk)\??$/, /^convince me\??$/, /\bwhat'?s the downside\??$/
 ];
 const OTHER_ONE = /\bthe other (?:one|trade|deal|move|card|offer)\b/;
 const SWITCH = /\b(?:what|how) about\b|\binstead\b|^(?:and|or|try) |\brather\b|\bswitch to\b/;

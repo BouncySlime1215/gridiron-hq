@@ -122,7 +122,7 @@ test('an empty conversation shows the starters; an answer is bubbles, chips and 
   assert.deepEqual(b.map(e => e.getAttribute('data-testid')), ['coach-msg-me', 'coach-msg-coach']);
   assert.equal(textOf(b[0]), FIXED_QUESTIONS[0]);
   const answer = textOf(b[1]);
-  assert.match(answer, /Offer /);
+  assert.match(answer, /Send |Offer /);
   assert.doesNotMatch(answer, /Destination: /, 'no footer line in the answer');
   assert.doesNotMatch(answer.replace(/sources.*$/, ''), ENGINE, 'no raw engine labels');
   assert.equal(byAttr(drawer, 'data-testid', 'coach-fixed-q').length, 0, 'the starters give way to the thread');

@@ -43,6 +43,34 @@ export function api(p, opts) {
   return call(p, opts);
 }`);
 
+  // Files outside components/warroom that a War Room file imports, compiled once each into __ext/.
+  const SRC = path.join(REPO, 'client', 'src');
+  const externals = new Map();
+  const external = base => {
+    const file = [`${base}.tsx`, `${base}.ts`, path.join(base, 'index.tsx'), path.join(base, 'index.ts')].find(f => fs.existsSync(f));
+    if (!file) throw new Error(`warroom-tsx: cannot resolve ${path.relative(SRC, base)}`);
+    for (const [dir, rel] of [[WARROOM_DIR, 'warroom'], [UI_DIR, 'ui']]) {
+      if (file.startsWith(dir + path.sep)) return pathToFileURL(path.join(temp, rel, path.relative(dir, file).replace(/\.tsx?$/, '.mjs'))).href;
+    }
+    if (externals.has(file)) return externals.get(file);
+    const out = path.join('__ext', path.relative(SRC, file).replace(/\.tsx?$/, '.mjs'));
+    const url = pathToFileURL(path.join(temp, out)).href;
+    externals.set(file, url);
+    let { outputText } = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+      fileName: path.basename(file),
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, isolatedModules: true },
+    });
+    outputText = outputText
+      .replace(/^import ['"][^'"]+\.css['"];?\s*$/gm, '')
+      .replace(/from ['"]react\/jsx-runtime['"]/g, `from '${runtimeUrl}'`)
+      .replace(/from ['"]react['"]/g, `from '${reactUrl}'`)
+      .replace(/from ['"](?:\.\.?\/)+api['"]/g, `from '${apiUrl}'`)
+      .replace(/from ['"](\.{1,2}\/[\w/.-]+)['"]/g, (_, spec) => `from '${external(path.resolve(path.dirname(file), spec))}'`);
+    fs.mkdirSync(path.dirname(path.join(temp, out)), { recursive: true });
+    fs.writeFileSync(path.join(temp, out), outputText);
+    return url;
+  };
+
   const compile = (dir, rel) => {
     fs.mkdirSync(path.join(temp, rel), { recursive: true });
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -58,8 +86,12 @@ export function api(p, opts) {
         .replace(/from ['"]react\/jsx-runtime['"]/g, `from '${runtimeUrl}'`)
         .replace(/from ['"]react['"]/g, `from '${reactUrl}'`)
         .replace(/from ['"](?:\.\.\/)+api['"]/g, `from '${apiUrl}'`)
-        .replace(/from ['"](\.{1,2}\/[\w/-]+)['"]/g, (_, spec) =>
-          `from '${spec}${fs.existsSync(path.join(dir, spec)) && fs.statSync(path.join(dir, spec)).isDirectory() ? '/index' : ''}.mjs'`);
+        .replace(/from ['"](\.{1,2}\/[\w/.-]+)['"]/g, (_, spec) => {
+          // A shared component outside the War Room and ui folders (NumbersPeopleCard): compiled on demand.
+          const to = path.resolve(dir, spec);
+          if (!to.startsWith(WARROOM_DIR + path.sep) && !to.startsWith(UI_DIR + path.sep)) return `from '${external(to)}'`;
+          return `from '${spec}${fs.existsSync(path.join(dir, spec)) && fs.statSync(path.join(dir, spec)).isDirectory() ? '/index' : ''}.mjs'`;
+        });
       write(path.join(rel, ent.name.replace(/\.tsx?$/, '.mjs')), outputText);
     }
   };

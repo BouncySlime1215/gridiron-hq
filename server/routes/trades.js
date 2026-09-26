@@ -1382,9 +1382,8 @@ Respond with ONLY JSON:
         try {
           const started = Date.now();
           // EA-07: on the snapshot's world (its runs), the same "before" as the twin.
-          const impact = oneWorldFlag().on
-            ? tradeImpact(lg, { ...simArgs, runs: ONE_WORLD_RUNS, world: leagueWorld(lg) })
-            : tradeImpact(lg, { ...simArgs, runs });
+          // ONE-NUMBER-FIX: always the snapshot's world, the twin's "before" (one producer).
+          const impact = tradeImpact(lg, { ...simArgs, runs: ONE_WORLD_RUNS, world: leagueWorld(lg) });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);

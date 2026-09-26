@@ -84,6 +84,19 @@ credential, and never `GRIDIRON_CODE_SHA` or a path. A seventh B4 case: switches
 refused with the right switch named, reproduced once it is set, and a secret-shaped or path-valued
 variable never lands in a pin.
 
+## Addendum A2 (main moved under this branch: #512 ONE-NUMBER-FIX, merged 2026-09-26)
+
+#512 made `GET /simulate` and `POST /trade-impact` always serve the league world (`league-world.js`), so
+the unseeded per-request `simulateSeason` path this unit was going to seed no longer exists on `main`.
+What changes, and nothing else: the route title odds' pinned seed is the world id they were drawn on
+(`one_world.world_id`), a sent `?seed` is ignored by the route and is not recorded; the keyed
+`titleOddsSeed` now applies only to the weekly snapshot's title odds, the last unseeded served draw.
+B1's "unseeded `/simulate` keeps `seed=` empty" clause is replaced by: the weekly snapshot's title odds
+keep `seed=` empty with the flag off, and ALL five route surfaces' served rows (title odds included,
+now deterministic) are identical flag off vs on. B5 becomes: route title odds record the world id,
+stable across requests, `?seed=5` not recorded as what ran; weekly title odds record the keyed seed
+with the flag on. No bar was loosened; B3 still re-runs `?seed=5` and requires it reproduced.
+
 ## RED
 
 `test/serve-pin.test.js` committed first (`f8322018`); run on the RED commit:
@@ -100,19 +113,19 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/services/serve-pin.
 ```
 node --experimental-test-module-mocks --test test/serve-pin.test.js
 # B6: 2 MB payload hashed in 6.94 ms
-# tests 20
-# pass 20
+# tests 21
+# pass 21
 # fail 0
 ```
 
 | Bar | Result |
 | --- | --- |
-| B1 flag off inert | pass: 0 pins; served rows for the four deterministic surfaces identical flag off vs on; unseeded `/simulate` keeps `seed=` empty; preview alone does not switch it on |
+| B1 flag off inert | pass: 0 pins; served rows for all five route surfaces identical flag off vs on; weekly title odds keep `seed=` empty with the flag off (A2); preview alone does not switch it on |
 | B2 every response pinned | pass: 5/5 surfaces + the weekly snapshot (3 surfaces, title odds on the recorded seed) |
 | B3 reproduce exactly | pass: 5/5 re-runs (title odds unseeded and `?seed=5`, trade impact, title trades, finder), every number equal |
 | B4 drift refused or flagged | pass: 7/7 (snapshot, code, tampered value, no pin, unknown code, War Room, switches), 0 reported `reproduced` |
-| B5 seeds recorded | pass: keyed seed recorded, stable across two requests with equal numbers, `?seed=5` recorded as 5 |
-| B6 cheap | pass: 10 reads of one sync = 1 hash, a new sync = 1 more; 2 MB payload 6.8-6.9 ms |
+| B5 seeds recorded (A2) | pass: route title odds record the world id, stable across two requests with equal numbers, the ignored `?seed=5` not recorded; weekly title odds record the keyed seed |
+| B6 cheap | pass: 10 reads of one sync = 1 hash, a new sync = 1 more; 2 MB payload 6.8-7.5 ms |
 | B7 no silent failure | pass: no git and no env -> pin written with `code.sha = null` + reason, command answers `code_unknown`; a failed pin insert rolls back the batch's numbers, throws, and re-queues |
 | B8 the command | pass: unknown id exit 2 `not_found`; War Room exit 2 "needs a producer run"; `--latest --surface` picks the newest; `--help` exit 0 |
 

@@ -36,6 +36,10 @@ const BASIS: Record<string, string> = {
   title_gain: 'odds gain', price: 'price', willingness: 'will they deal', roster_fit: 'roster fit', risk: 'risk', timing: 'timing'
 };
 
+/** A chat read is "from chat, unverified" (reads stored under the old wording are shown in the new). */
+const OLD_LABEL = /^chat read \(ungraded\)$/i;
+const peopleLabel = (label?: string) => (!label || OLD_LABEL.test(label) ? 'from chat, unverified' : label);
+
 const whyOf = (read: LaneRead, people?: boolean) => (read.skipped
   ? (people ? `No people read: ${read.skipped}.` : 'No read this run.')
   : read.why ?? (read.why_withheld ? 'Reason withheld: it did not pass the app\'s checks.' : ''));
@@ -62,7 +66,7 @@ function Lane({ read, people }: { read: LaneRead; people?: boolean }) {
         {read.stance && <Chip tone={STANCE[read.stance].tone}>{STANCE[read.stance].label}</Chip>}
         {read.basis && BASIS[read.basis] && <span className="ds-note">on {BASIS[read.basis]}</span>}
       </div>
-      {people && <div className="ds-note mb-1">{read.label ?? 'chat read (ungraded)'}</div>}
+      {people && <div className="ds-note mb-1">{peopleLabel(read.label)}</div>}
       <p className={read.skipped ? 'ds-note' : 'text-sm'}>{whyOf(read, people)}</p>
       <Cites read={read} />
     </div>
@@ -94,7 +98,7 @@ function Compact({ item }: { item: NPItem }) {
         {open && (
           <div className="mt-2 space-y-2" data-testid="np-compact-detail">
             <div><div className="ds-note">Claude · numbers{item.numbers.basis && BASIS[item.numbers.basis] ? ` · on ${BASIS[item.numbers.basis]}` : ''}</div><Cites read={item.numbers} /></div>
-            <div><div className="ds-note">Jev · people · {item.people.label ?? 'chat read (ungraded)'}{item.people.basis && BASIS[item.people.basis] ? ` · on ${BASIS[item.people.basis]}` : ''}</div><Cites read={item.people} /></div>
+            <div><div className="ds-note">Jev · people · {peopleLabel(item.people.label)}{item.people.basis && BASIS[item.people.basis] ? ` · on ${BASIS[item.people.basis]}` : ''}</div><Cites read={item.people} /></div>
           </div>
         )}
         <div className="mt-1 flex justify-end">

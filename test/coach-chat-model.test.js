@@ -134,8 +134,8 @@ test('a chat turn carries the conversation, is routed, answers in the shaped for
   setAnthropicClientForTesting(client);
   const second = await chatTurn({ userId: 9801, leagueId: 4, question: 'is he in a good mood?', hasModel: true,
     context: { surface: 'war_room', league: 4 } });
-  assert.deepEqual(second.answer.refusals, ['Coach does not read his mood.']);
-  assert.equal(second.answer.shape.verdict.text, 'Coach does not read his mood.');
+  assert.deepEqual(second.answer.refusals, ['Coach does not read their mood.'], 'a league-mate is "they" after the post-pass');
+  assert.equal(second.answer.shape.verdict.text, 'Coach does not read their mood.');
   assert.equal(second.route.intent, 'ABOUT');
   assert.equal(second.route.by, 'model');
   assert.equal(client.sent[0].model, 'claude-haiku-4-5-20251001', 'the router is the cheap model');
@@ -183,4 +183,55 @@ test('an account out of credits: a plain answer with chips, and the failure logg
   assert.ok(out.thread.followups.length >= 2);
   const r = rows(`SELECT feature, cost_usd, error FROM ai_usage ORDER BY id DESC LIMIT 1`)[0];
   assert.deepEqual({ ...r }, { feature: 'coach:route', cost_usd: 0, error: 'credit' });
+});
+
+/* ------------------------------------- league-mates are "they" (unit 5) */
+
+const GENDERED_WORD = /\b(he|his|him|himself|he's|he'll|he'd)\b/i;
+
+test('league-mates are "they": the model says "he", Nick sees "they" in the answer and chips; the prompts ask for they/them', async () => {
+  const { CHIP, followupsFor } = await import('../server/services/coach/followups.js');
+  const { neutralAnswer, neutralLine, NEUTRAL_VERDICT } = await import('../server/services/coach/answer-shape.js');
+  const { SHAPE_PROMPT } = await import('../server/services/coach/answer-shape.js');
+  const heSays = shaped("Ask him what his roster needs; he will likely say no.", {
+    refusals: ["Ask him what his roster needs; he will likely say no.", "Coach cannot see whether he's shopping his bench.", 'Nothing stored says what he rarely accepts.'] });
+  const client = scripted(routed('ABOUT'), heSays);
+  setAnthropicClientForTesting(client);
+  const out = await chatTurn({ userId: 9801, leagueId: 4, question: 'will he take it?', hasModel: true, context: { surface: 'war_room', league: 4 } });
+  const shown = [out.answer.shape?.verdict?.text, ...(out.answer.shape?.why ?? []).map(w => w.text), ...(out.answer.shape?.risks ?? []).map(r => r.text),
+    ...out.answer.claims.map(c => c.text), ...out.answer.refusals, ...(out.thread?.followups ?? [])].filter(Boolean);
+  assert.ok(shown.length >= 3, 'the answer has lines to scan');
+  for (const t of shown) assert.doesNotMatch(t, GENDERED_WORD, t);
+  assert.equal(out.answer.shape.verdict.text, 'Ask them what their roster needs; they will likely say no.');
+  // Every chip the drawer can offer, for every intent and focus.
+  for (const chip of Object.values(CHIP)) assert.doesNotMatch(chip, GENDERED_WORD, chip);
+  for (const intent of ['why', 'if_no', 'safe_to_send', 'other_one', 'why_nothing', 'next']) {
+    for (const focus of [{}, { partner: '2' }, { move_id: 'L4-x', partner: '2' }, { move_id: 'L4-x', prev_move_id: 'L4-y' }]) {
+      for (const chip of followupsFor(intent, focus)) assert.doesNotMatch(chip, GENDERED_WORD, `${intent}: ${chip}`);
+    }
+  }
+  // A line the guard cannot swap is dropped, never shown; a verdict falls back to a plain one.
+  assert.equal(neutralLine('He, of all managers, sells late.'), null);
+  const { answer: held, dropped } = neutralAnswer({ claims: [{ text: 'He, of all managers, sells late.', cites: [] }], refusals: [],
+    shape: { verdict: { text: 'He, of all managers, sells late.', cites: [] }, why: [], risks: [] } });
+  assert.deepEqual([held.claims.length, dropped], [0, 2]);
+  assert.equal(held.shape.verdict.text, NEUTRAL_VERDICT);
+  // The lane 1 prompt and the answer format ask for they/them.
+  const system = JSON.stringify(client.sent.at(-1).system);
+  assert.match(system, /they, them or their, never he, him or his/);
+  assert.match(SHAPE_PROMPT, /they, them or their, never he, him or his/);
+});
+
+test('"(chat read, ungraded)" reads "(from chat, unverified)" wherever it is shown', async () => {
+  const { neutralLine } = await import('../server/services/coach/answer-shape.js');
+  const { PEOPLE_LABEL, JEV_LABEL } = await import('../server/services/coach/lanes.js');
+  const { jevLines } = await import('../server/services/coach/jev-lane.js');
+  assert.equal(PEOPLE_LABEL, 'from chat, unverified');
+  assert.equal(JEV_LABEL, 'Jev, from chat, unverified');
+  assert.equal(neutralLine('Jev: wait, mainly on price (chat read, ungraded).'), 'Jev: wait, mainly on price (from chat, unverified).');
+  for (const l of jevLines({ stance: 'wait', basis: 'price', p_accept: 0.31, claude_call_right: 0.35 }, k => `r1#0.${k}`)) {
+    const t = typeof l === 'string' ? l : l.text;
+    assert.doesNotMatch(t, /ungraded|chat read/i, t);
+    assert.doesNotMatch(t, GENDERED_WORD, t);
+  }
 });

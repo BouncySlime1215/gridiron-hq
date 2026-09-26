@@ -60,6 +60,16 @@ mock.module('../server/services/season-sim.js', {
     },
   },
 });
+// ONE-NUMBER-FIX (#512): GET /simulate serves the league world's title odds, drawn on the world id.
+const WORLD_ID = 4242;
+const realWorld = await import('../server/services/league-world.js');
+mock.module('../server/services/league-world.js', {
+  namedExports: {
+    ...realWorld,
+    oneWorldTitleOdds: lg => withRandomSeed(WORLD_ID + Number(lg.id), () => ({ runs: 1200, weeks: 14, from_week: 4,
+      teams: simTeams(), one_world: { world_id: WORLD_ID, season: 2026, nfl_week: 4 } })),
+  },
+});
 const realTitle = await import('../server/services/title-odds-trades.js');
 mock.module('../server/services/title-odds-trades.js', {
   namedExports: {
@@ -172,10 +182,8 @@ test('B1: flag off writes no pin, leaves served rows as main serves them, and pr
   assert.equal(pinRows().length, 0, 'no pins with the flag off');
   const off = servedRows();
   assert.ok(off.length > 0);
-  assert.ok(off.filter(r => r.surface === 'title_odds').every(r => /seed=;/.test(r.model_version)),
-    'unseeded /simulate still runs unseeded with the flag off');
-  // Deterministic surfaces serve the same rows with the flag on (the pin adds rows elsewhere, changes none here).
-  const stable = rs => rs.filter(r => ['trade_impact', 'title_trades', 'trade_find', 'war_room'].includes(r.surface));
+  // Every route surface serves the same rows with the flag on (the pin adds rows elsewhere, changes none here).
+  const stable = rs => rs;
   reset();
   process.env.GRIDIRON_SERVE_PIN = '1';
   await serveAll();
@@ -317,18 +325,32 @@ test('B4: no drift case reports reproduced (summary)', () => {
 });
 
 // ------------------------------------------------------------------ B5
-test('B5: unseeded title odds run on a keyed, recorded seed; an explicit seed is recorded as given', async () => {
+// Amended after main #512 (addendum A2): /simulate serves the league world, so its seed is the world id.
+test('B5 (A2): title odds record the world id they were drawn on; a sent ?seed is ignored and not recorded', async () => {
   process.env.GRIDIRON_SERVE_PIN = '1';
   const a = await call('GET', '/api/model/71/simulate?runs=250');
   const b = await call('GET', '/api/model/71/simulate?runs=250');
   const c = await call('GET', '/api/model/71/simulate?runs=250&seed=5');
   serveLog.flushServed();
   const seedOf = id => row('SELECT seed FROM served_pins WHERE request_id = ?', id).seed;
-  const want = pin.titleOddsSeed(leagueRow(71), { runs: 250, fromWeek: null });
-  assert.equal(seedOf(a.requestId), want);
-  assert.equal(seedOf(b.requestId), want, 'same sync, same seed');
+  assert.equal(seedOf(a.requestId), WORLD_ID);
+  assert.equal(seedOf(b.requestId), WORLD_ID, 'same world, same seed');
   assert.deepEqual(a.body.teams, b.body.teams, 'same numbers');
-  assert.equal(seedOf(c.requestId), 5);
+  assert.equal(seedOf(c.requestId), WORLD_ID, 'the ignored ?seed is not what ran');
+});
+
+test('B5 (A2): the weekly snapshot\'s title odds stay unseeded with the flag off and run on the keyed seed with it on', async () => {
+  const off = await serveLog.snapshotServedNumbers();
+  assert.equal(off.leagues.find(l => l.league_id === 71).state, 'snapshotted');
+  assert.ok(rows(`SELECT model_version FROM served_numbers WHERE surface = 'title_odds' AND trigger = 'weekly'`)
+    .every(r => /seed=;/.test(r.model_version)), 'flag off: unchanged');
+  assert.equal(pinRows().length, 0);
+  reset();
+  process.env.GRIDIRON_SERVE_PIN = '1';
+  const on = await serveLog.snapshotServedNumbers();
+  const id = on.leagues.find(l => l.league_id === 71).request_id;
+  const odds = row(`SELECT seed FROM served_pins WHERE request_id = ? AND surface = 'title_odds'`, id);
+  assert.equal(odds.seed, pin.titleOddsSeed(leagueRow(71), { runs: 2000, fromWeek: null }));
 });
 
 // ------------------------------------------------------------------ B6

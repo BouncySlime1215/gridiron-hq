@@ -28,8 +28,8 @@ const norm = q => String(q ?? '').toLowerCase().replace(/[’‘]/g, "'").replac
 
 const WHO = "(?:he|she|they|him|them|[a-z]+)";
 const IF_NO = [
-  new RegExp(`\\b(?:what|and|but) if ${WHO} (?:says? no|declines?|rejects?|passes|turns? (?:it|this|that)? ?down|doesn'?t (?:accept|reply|answer|respond|bite)|won'?t|counters?|ignores? (?:it|me)|goes quiet|ghosts?)\\b`),
-  /\bif (?:he|she|they) (?:says? no|declines?|rejects?|counters?|goes quiet)\b/,
+  new RegExp(`\\b(?:what|and|but) if ${WHO} (?:says? no|declines?|rejects?|passes|turns? (?:it|this|that)? ?down|doesn'?t (?:accept|reply|answer|respond|bite)|won'?t|counters?|ignores? (?:it|me)|go(?:es)? quiet|ghosts?)\\b`),
+  /\bif (?:he|she|they) (?:says? no|declines?|rejects?|counters?|go(?:es)? quiet)\b/,
   /^(?:and |but )?(?:what )?if not\b/, /\bwhat if (?:it|that) (?:fails|falls through|doesn'?t work)\b/,
   /\bplan b\b/, /\bwhat'?s the backup\b/, /\bif (?:there'?s|i get) no (?:reply|answer)\b/
 ];

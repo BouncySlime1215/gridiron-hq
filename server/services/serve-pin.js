@@ -16,10 +16,12 @@
  *             flag such as the one world or RB-TITLE changes what the same code serves
  *
  * Behind GRIDIRON_SERVE_PIN=1 (own flag; preview mode does not switch it on).
- * With the flag on, an unseeded title-odds request runs on `titleOddsSeed`, keyed
- * to the league sync the way season-sim.js#tradeImpactSeed already keys trade
- * cards: the same distribution, but a draw that can be re-run. That is the only
- * served behaviour the flag changes. serve-repro.js reads the pins back.
+ * The routes' title odds and trade cards are drawn on the league world, whose id
+ * (the NFL week's seed) is the pinned seed. The weekly snapshot's title odds were
+ * the last unseeded served draw: with the flag on they run on `titleOddsSeed`,
+ * keyed to the league sync the way season-sim.js#tradeImpactSeed keys trade cards
+ * (the same distribution, a draw that can be re-run). That is the only served
+ * behaviour the flag changes. serve-repro.js reads the pins back.
  *
  * The snapshot covers the league payload only; projections and fit stores are
  * not fingerprinted, so their drift shows up as a `mismatch` at reproduce time.
@@ -143,7 +145,7 @@ export function flagDiff(served = {}, now = {}) {
 }
 
 // ------------------------------------------------------------------ seed
-/** The seed an unseeded title-odds request runs on with the flag on: one per league sync and settings. */
+/** The seed the weekly snapshot's title odds run on with the flag on: one per league sync and settings. */
 export function titleOddsSeed(lg, { runs, fromWeek = null } = {}) {
   return keyedSeed('title-odds', lg.id, lg.fetched_at ?? '', runs ?? '', fromWeek ?? '');
 }

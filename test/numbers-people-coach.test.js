@@ -44,7 +44,7 @@ test('an answer about an item with a read: the shared card, compact, expandable'
   assert.equal(one(card, 'data-testid', 'np-compact-detail'), null, 'details folded by default');
   click(button(card, 'Details'));
   await waitFor(() => one(card, 'data-testid', 'np-compact-detail'), 2000, 'details open');
-  assert.match(textOf(one(card, 'data-testid', 'np-compact-detail')), /Claude · numbers.*\+11\.6 pts.*Jev · people · chat read \(ungraded\).*20%/);
+  assert.match(textOf(one(card, 'data-testid', 'np-compact-detail')), /Claude · numbers.*\+11\.6 pts.*Jev · people · from chat, unverified.*20%/);
   ui.unmount();
 });
 

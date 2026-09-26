@@ -69,7 +69,7 @@ test('AGREE merges with no model call; the card is the NPItem the one NumbersPeo
   assert.equal(r.answer, l.laneOne);
   const card = cardFor({ focus: { move_id: 'L4-x', partner: '2' }, laneOne: l.laneOne, take: l.take, jevClaims: l.jevClaims, verdict: r.verdict });
   for (const k of ['key', 'item_type', 'item_id', 'title', 'players', 'numbers', 'people', 'verdict', 'history']) assert.ok(k in card, k);
-  assert.deepEqual([card.key, card.numbers.stance, card.numbers.basis, card.people.stance, card.people.label], ['move:L4-x', 'go', 'title_gain', 'go', 'chat read (ungraded)']);
+  assert.deepEqual([card.key, card.numbers.stance, card.numbers.basis, card.people.stance, card.people.label], ['move:L4-x', 'go', 'title_gain', 'go', 'from chat, unverified']);
 });
 
 test('DIFFER: one reconcile call; on a trade question it is the strong model', async () => {
@@ -94,7 +94,7 @@ test('DIFFER without the one-sentence disagreement is corrected; a second miss f
   r = await reconcile({ question: 'q', ...l, call: s.call });
   assert.equal(r.reconciled, 'fell_back');
   assert.equal(r.answer, l.laneOne, 'lane 1 stands');
-  assert.equal(r.disagreement, 'Numbers say go; Jev reads wait because of price (chat read, ungraded).');
+  assert.equal(r.disagreement, 'Numbers say go; Jev reads wait because of price (from chat, unverified).');
 });
 
 test('an unsupported number in the reconciled answer is corrected or never shown', async () => {
@@ -116,6 +116,23 @@ test('SAME_BUT reconciles too, and its fallback line says "same call, different 
   assert.equal(r.reconciled, 'fell_back');
   assert.equal(r.disagreement, disagreementLine('same_but', { stance: 'go', basis: 'title_gain' }, { stance: 'go', basis: 'price' }));
   assert.match(r.disagreement, /^Same call, different reasons/);
+});
+
+test('league-mates are "they" in every sentence reconcile builds, and the prompt asks for it', async () => {
+  const GENDERED_WORD = /\b(he|his|him|himself|he's)\b/i;
+  const stances = ['go', 'wait', 'avoid'];
+  for (const a of stances) for (const b of stances) for (const ab of BASES) for (const bb of [...BASES, 'unknown']) {
+    for (const v of ['differ', 'same_but']) {
+      const line = disagreementLine(v, { stance: a, basis: ab }, { stance: b, basis: bb });
+      assert.doesNotMatch(line, GENDERED_WORD, line);
+      assert.doesNotMatch(line, /ungraded|chat read/i, line);
+    }
+  }
+  const l = lanes();
+  const s = scripted(reply(good()));
+  await reconcile({ question: 'q', ...l, call: s.call });
+  assert.match(s.sent[0].system, /they, them or their, never he, him or his/);
+  assert.match(s.sent[0].system, /\(from chat, unverified\)/);
 });
 
 test('pass bars over a 24-case scenario set: DIFFER named 100%, shown answers verified 100% after one correction or the fallback', async () => {

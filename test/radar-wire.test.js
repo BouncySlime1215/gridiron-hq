@@ -130,6 +130,15 @@ test('3b. no O1 radar on this build is printed, not hidden', () => {
   assert.match(w.text, /O1 radar not on this build/);
 });
 
+test('3b2. with #377 merged and GRIDIRON_OPP_RADAR off, the label says "O1 radar off", not a silent no-signal', () => {
+  const entry = { league: 4, flip_map: { status: 'ok', value: [{ player: '101', buy_from: 2, sell_to: 3 }] } };
+  const adapter = { opportunityRadar: 'off', fcHistoryDays: () => 10, newsAlive: () => true, newsOf: () => [] };
+  W.applyWhyNow(entry, adapter, { as_of: AS_OF });
+  const w = entry.flip_map.value[0].why_now;
+  assert.equal(w.sources.radar, 'off');
+  assert.match(w.text, /O1 radar off\./);
+});
+
 test('3c. fc_trend30 with < 7 days of value history is a watch label, never act', () => {
   const trend = { value: 5000, trend30: 1000 };
   const young = W.whyNowOf({ radar: 'off', trend, historyDays: 1, news: [], newsAlive: true });

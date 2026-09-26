@@ -41,6 +41,7 @@ import { previewUnconfirmed } from '../preview-mode.js';
 import { warRoomPlansPath } from '../warroom-flag.js';
 import { recentPulse } from '../people/pulse.js';
 import { validateLeague, SCHEMA_VERSION, SECTIONS } from '../campaign/plans-schema.js';
+import { outOfDateReason } from '../campaign/plan-age.js';
 import { db } from '../../db/index.js';
 import { openChatDb } from '../manager-signals.js';
 import { identityMap } from '../manager-identity.js';
@@ -259,6 +260,9 @@ function loadLeaguePlan(leagueId) {
       `${check.errors.length} path(s): ${first}`, head) };
   }
   if (entry.error) return { rows: failedRow(`the producer failed for league ${leagueId}: ${entry.error}`, head) };
+  // PLANS-EXPIRE (integration-10a): a kept plan the War Room hides as out of date is not read here either.
+  const stale = outOfDateReason(entry, doc.leagues);
+  if (stale) return { rows: unknownRow(stale, head) };
   return { entry, doc, head };
 }
 

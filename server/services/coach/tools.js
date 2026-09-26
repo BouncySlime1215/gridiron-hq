@@ -35,6 +35,7 @@ import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } f
 // RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
 import { row as dbRow, rows as dbRows } from '../../db/index.js';
 import { draftNamesBlocked } from '../campaign/never-give.js';
+import { negotiatorSafetyOn, filterText } from '../campaign/negotiator-safety.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -373,6 +374,14 @@ export function runCoachTool(name, input, { ledger } = {}) {
       return { entry: null, dropped_by_rule: 1, blocked_ids: blocked,
         summary: { refused: "That draft names a player Nick's hard rules keep out of any trade, so it was not put in the message box.",
           dropped_by_rule: 1, blocked_ids: blocked } };
+    }
+    // NEGOTIATOR-SAFETY (b): a free-text draft has no deal to check a package against, so the names are the
+    // rule gate's above and the filter adds its pressure-phrase check (fake scarcity, ultimatums).
+    const pressure = action.type === 'draft_message' && negotiatorSafetyOn() ? filterText(action.text, { blocked: new Set() }).hits.filter(h => h.reason === 'pressure') : [];
+    if (pressure.length) {
+      return { entry: null, dropped_by_rule: 1, filtered: ['pressure'],
+        summary: { refused: 'That draft uses a pressure line (fake scarcity or an ultimatum), so it was not put in the message box. Rewrite it plainly.',
+          dropped_by_rule: 1, filtered: ['pressure'] } };
     }
     return { entry: null, action,
       summary: { action, note: PLAN_CHANGING.includes(action.type)

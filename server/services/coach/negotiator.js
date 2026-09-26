@@ -59,6 +59,8 @@ import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_thread
 import { row, rows } from '../../db/index.js';
 // RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
 import { ruleGate } from '../campaign/never-give.js';
+// NEGOTIATOR-SAFETY: no verdict on an unpriced counter; every draft through the message filter.
+import { negotiatorSafetyOn, counterGate, filterText, blockedIds } from '../campaign/negotiator-safety.js';
 import { previewUnconfirmed } from '../preview-mode.js';
 import { validateAction } from '../warroom-actions/schema.js';
 import { planRead, plansPath } from './brain-tools.js';
@@ -641,7 +643,32 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
     const checked = validateAction({ type: 'draft_message', text, tone: 'neutral' });
     return checked.ok ? [checked.action] : [];
   };
+  const safety = negotiatorSafetyOn();
+  // What a draft may name: the step, its walk-away and the counter Coach proposes; Nick's roster from the engine.
+  let safetyCtx = { counter: null, priced: null };
   const finish = (recommendation, draft, reprice = []) => {
+    if (safety && draft) {
+      let eng = null;
+      try { eng = sources.engine(id); } catch { eng = null; /* no engine: Nick's roster is read from the step alone */ }
+      const rosters = eng?.rosters ?? null;
+      const me = rosters ? String(eng.league?.me) : null;
+      const mine = rosters ? (rosters.get(me) ?? rosters.get(Number(me)) ?? []).map(String) : [...step.give, ...maxGiveIds];
+      const cw = safetyCtx.counter;
+      const allowedGive = [...step.give, ...maxGiveIds, ...(cw?.give ?? [])];
+      const f = filterText(draft, { names, blocked: blockedIds(ruleGate({ row, rows }, { leagueId: id }).rules), mine,
+        allowedGive, allowed: [...allowedGive, ...step.get, ...(cw?.get ?? [])], priced: safetyCtx.priced });
+      if (!f.ok) {
+        droppedByRule = 1;
+        const worse = f.reasons.includes('worse_than_plan');
+        refusals.push(`Coach held its draft back: the message filter rejected it (${f.reasons.join(', ').replace(/_/g, ' ')}), ${worse
+          ? 'so the recommendation above is replaced: walk, your backup plan is worth more' : 'so there is no draft; reword it by hand or ask again'}.`);
+        const { counter_with: _c, ...rest } = recommendation;
+        recommendation = { ...rest, do: worse ? 'walk' : 'wait',
+          because: worse ? 'the counter Coach would send is priced below your backup, so the backup is worth more'
+            : 'the drafted message failed the message filter', filtered: f.reasons };
+        draft = null;
+      }
+    }
     const actions = draftAction(draft);
     if (draft && !actions.length) refusals.push('The draft names a number, so it is shown here but not put in the message box (numbers come only from the engine).');
     if (draft) {
@@ -726,6 +753,9 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   const ruleWalk = (decision === 'take' && !gate.ok(pkg.give, pkg.get)) || (decision === 'counter' && !gate.ok(ours.give, ours.get));
   if (ruleWalk) { decision = 'walk'; droppedByRule = 1; }
   const ourPrice = decision === 'counter' ? addPrice('counter_with', ours) : null;
+  // NEGOTIATOR-SAFETY (a): take and counter-with only on the engine's re-price of the package named.
+  const held = safety ? counterGate({ decision, hisPrice, ourPrice }).held : null;
+  if (decision === 'counter' && safety) safetyCtx = { counter: ours, priced: ourPrice && backupAfter != null ? { after: ourPrice.title_after, floor: backupAfter } : null };
 
   // The packages as read (Nick's paste, parsed; ids and names only), then the engine's
   // prices as their own entry (arrays stay out: a cite lands on a scalar).
@@ -754,13 +784,20 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
         cites: [backupCite, wc(0, 'title_after')].filter(Boolean) });
     }
   } else {
-    refusals.push(`His counter is not re-priced: the engine is ${engine ? 'unable to price this package' : `not loaded for this league on this server${engineWhy.get(id) ? ` (${engineWhy.get(id)})` : ''}`}, so Coach judges it on the plan's walk-away alone and states no title-odds change for it.`);
+    refusals.push(`His counter is not re-priced: the engine is ${engine ? 'unable to price this package' : `not loaded for this league on this server${engineWhy.get(id) ? ` (${engineWhy.get(id)})` : ''}`}, so ${safety ? 'Coach only checks it against the plan\'s walk-away line' : 'Coach judges it on the plan\'s walk-away alone'} and states no title-odds change for it.`);
   }
 
   const ruleCite = citeOf(book, `${R}value_counter_rules_${decision === 'walk' ? 'walk_away_if' : decision === 'take' ? 'accept_if' : 'counter_with'}`);
   let draft;
   const recommendation = { do: decision };
-  if (decision === 'walk' && ruleWalk) {
+  if (held) {
+    recommendation.do = 'wait';
+    recommendation.because = held === 'his_counter_unpriced' ? 'his counter is not re-priced by the engine yet' : 'the counter Coach would send is not re-priced by the engine yet';
+    recommendation.held = held;
+    refusals.push(`Coach makes no call on this counter until the engine re-prices ${held === 'his_counter_unpriced' ? 'his package' : 'the counter it would send'}. Ask again in a moment.`);
+    walkLine();
+    draft = null;
+  } else if (decision === 'walk' && ruleWalk) {
     recommendation.because = "the package breaks one of Nick's hard rules";
     claims.push({ text: "Recommendation: walk. That package breaks one of Nick's hard rules, so Coach will not take it or counter with it.",
       cites: [...pkgCites(0, pkg)].filter(Boolean) });

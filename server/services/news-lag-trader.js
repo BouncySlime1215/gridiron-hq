@@ -104,6 +104,59 @@ function priorDiscount(playerName, before) {
     .find(x => normalizePlayerName(x.player_name) === wanted) ?? null;
 }
 
+/** A depth-chart player's app id: by ESPN id, else by normalised name when exactly one player matches; else null. */
+function appIdOf(p) {
+  if (p?.espn_id != null) {
+    const hit = row('SELECT id FROM players WHERE espn_id = ?', p.espn_id);
+    if (hit) return String(hit.id);
+  }
+  if (!p?.name) return null;
+  const wanted = normalizePlayerName(p.name);
+  const same = rows("SELECT id, name FROM players WHERE COALESCE(phase, '') <> 'historical' AND name LIKE ?", `%${String(p.name).split(' ').pop()}%`)
+    .filter(x => normalizePlayerName(x.name) === wanted);
+  return same.length === 1 ? String(same[0].id) : null;
+}
+
+/**
+ * RULES-EVERYWHERE for News edge: every idea passes never-give.js's rule gate (the same ruleGate the
+ * finder and proposals use) before it is returned, and the route says how many it dropped.
+ * A news idea is one player, not a package, so each kind is checked on the rules that apply to it:
+ *   buy_beneficiary, buy_low  a trade get: the full verdict (never get, sold this season, blue chip
+ *                             floor, priced) - a get with nothing given can never be an overpay
+ *   hold_or_sell              a trade give with no get yet: never give (a one-sided sell has no
+ *                             package to price, so overpay does not apply)
+ *   claim_waiver              a waiver add (a lineup add, not a trade get; coordinator #468): never get
+ *                             and sold this season (no buy-backs), never the 83+ blue-chip floor
+ *   already_held, no_edge     nothing to do: not gated
+ * An idea whose player has no app id cannot be checked, so it is dropped (fails closed).
+ */
+const NEWS_RULES = {
+  buy_beneficiary: { side: 'get', reasons: null },
+  buy_low: { side: 'get', reasons: null },
+  hold_or_sell: { side: 'give', reasons: new Set(['never_give', 'rules_unreadable']) },
+  claim_waiver: { side: 'get', reasons: new Set(['never_get', 'sold_this_season', 'rules_unreadable']) },
+};
+export function gateNewsEdge(result, gate) {
+  if (!result || !Array.isArray(result.opportunities)) return result;
+  if (!gate || gate.applies === false || !gate.forNick) return { ...result, dropped_by_rule: 0 };
+  const why = {};
+  const kept = [];
+  for (const o of result.opportunities) {
+    const rule = NEWS_RULES[o.action?.kind];
+    if (!rule) { kept.push(o); continue; }
+    const id = o.action.target_id;
+    let reasons;
+    if (id == null) reasons = ['unmapped_player'];
+    else {
+      const v = gate.check(rule.side === 'get' ? { give: [], get: [id], premium: null } : { give: [id], get: [], premium: null });
+      reasons = rule.reasons ? v.reasons.filter(r => rule.reasons.has(r)) : v.reasons;
+    }
+    if (!reasons.length) kept.push(o);
+    else for (const r of reasons) why[r] = (why[r] ?? 0) + 1;
+  }
+  return { ...result, opportunities: kept, dropped_by_rule: result.opportunities.length - kept.length, dropped_why: why };
+}
+
 /**
  * Recent typed signals turned into concrete league actions.
  *
@@ -152,6 +205,7 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
 
     // The headline player. Usually NOT the trade — his price has already moved.
     const subject = {
+      id: s.player_id != null ? String(s.player_id) : null,
       name: s.player_name, team: s.team, status: s.status,
       unavailable_probability: s.unavailable_probability,
       owned_by: held ? held.team.owner : 'free agent',
@@ -166,7 +220,8 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
         const benMine = benOwned && me && benOwned.team.roster_id === me.roster_id;
         action = {
           kind: !benOwned ? 'claim_waiver' : benMine ? 'already_held' : 'buy_beneficiary',
-          target: ben.name, target_position: ben.position,
+          target: ben.name, target_id: benOwned?.player?.id != null ? String(benOwned.player.id) : appIdOf(ben),
+          target_position: ben.position,
           target_owned_by: benOwned ? benOwned.team.owner : 'free agent',
           target_value: valueOf(ben.name),
           why: !benOwned
@@ -176,7 +231,7 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
               : `${ben.name} inherits the ${ben.slot} snaps and is on ${benOwned.team.owner}'s roster, still priced as a backup.`
         };
       } else if (mine) {
-        action = { kind: 'hold_or_sell', target: s.player_name,
+        action = { kind: 'hold_or_sell', target: s.player_name, target_id: subject.id,
           why: 'No clear inheritor on the depth chart, so there is no beneficiary to buy. This is a hold-or-sell call on the player himself.' };
       }
     } else if (positive && held && !mine) {
@@ -195,7 +250,7 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
       // before the rest of the league notices. No prior injury, no trade.
       const discount = priorDiscount(s.player_name, s.published_at);
       if (discount) {
-        action = { kind: 'buy_low', target: s.player_name,
+        action = { kind: 'buy_low', target: s.player_name, target_id: subject.id,
           target_owned_by: held.team.owner, target_value: held.player.value,
           discounted_by: discount.status, discounted_at: discount.published_at,
           discount_age_days: r2((new Date(s.published_at).getTime()
@@ -205,13 +260,13 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
       } else {
         // Worth saying out loud rather than dropping silently, because "why
         // isn't this player here" is the obvious next question.
-        action = { kind: 'no_edge', target: s.player_name,
+        action = { kind: 'no_edge', target: s.player_name, target_id: subject.id,
           target_owned_by: held.team.owner, target_value: held.player.value,
           why: 'Good news, but he was never marked down — no prior injury tag to recover from, ' +
             'so there is no discount to exploit. His owner is not selling cheap.' };
       }
     } else if (positive && !held) {
-      action = { kind: 'claim_waiver', target: s.player_name,
+      action = { kind: 'claim_waiver', target: s.player_name, target_id: subject.id,
         target_owned_by: 'free agent',
         why: 'Positive availability news on an unrostered player.' };
     }

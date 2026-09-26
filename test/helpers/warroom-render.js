@@ -120,6 +120,16 @@ class Element extends Node {
   scrollTo() {}
   scrollIntoView() {}
   getBoundingClientRect() { return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }; }
+  /** Attribute selectors only (`[name="value"]`, `[name]`), enough for the design system's Tabs. */
+  querySelectorAll(sel) {
+    const m = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(String(sel).trim());
+    if (!m) throw new Error(`test DOM: querySelectorAll supports [attr] and [attr="value"] only, not ${sel}`);
+    const out = [];
+    const walk = n => { for (const c of n.childNodes) if (c.nodeType === 1) { if (m[2] === undefined ? c.hasAttribute(m[1]) : c.getAttribute(m[1]) === m[2]) out.push(c); walk(c); } };
+    walk(this);
+    return out;
+  }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null; }
 }
 // React feature-detects `on<event> in document` (isEventSupported); a browser has these.
 for (const proto of [Element.prototype]) for (const e of ['oninput', 'onchange', 'onclick', 'onsubmit', 'onkeydown']) proto[e] = undefined;

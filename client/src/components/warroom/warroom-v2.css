@@ -608,3 +608,5 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
   .trade-sides-compact { grid-template-columns: minmax(0, 1fr); }
   .trade-sides-compact .wr-hero-arrow { transform: rotate(90deg); margin: 0 auto; }
 }
+/* SPEND-UI cross-links: the brief's spend line and a spend anomaly on Watching open Settings -> AI & developer. */
+.wr-v2 .wr-brief-spend, .wr-v2 .wr-watch-link { color: var(--c-accent); text-decoration: underline; text-underline-offset: 2px; }

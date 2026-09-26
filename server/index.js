@@ -199,7 +199,8 @@ app.use((err, req, res, next) => {
   // because this handler ignored it, turning "forbidden" into "internal error".
   const status = Number.isInteger(err.status) ? err.status : 500;
   if (status >= 500) console.error(err);
-  res.status(status).json({ error: err.message });
+  // SPEND-UI: a budget-used error names its budget, so the message can link to that row in Settings.
+  res.status(status).json({ error: err.message, ...(err.code === 'LLM_BUDGET_EXHAUSTED' && err.feature ? { budget_key: err.feature } : {}) });
 });
 
 /**

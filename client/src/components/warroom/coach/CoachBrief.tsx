@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../api';
+import { AppLink, AI_SETTINGS } from '../../settings/spendLinks';
 
 /**
  * COACH-BRIEF-UI: the morning brief (or the weekly check-in) at the top of the Coach
@@ -121,7 +122,8 @@ function ClaimLine({ claim, heading, ledger, open, onCite, compact }: {
     <li className={`wr-brief-claim${unknown ? ' wr-brief-unknown' : ''}`} data-testid="coach-brief-claim"
       data-unknown={unknown ? 'true' : 'false'} data-section={claim.section ?? ''}>
       {heading && <span className="wr-brief-h">{heading}</span>}
-      <span>{claim.text}</span>
+      {/* SPEND-UI: the spend line links to Settings -> AI & developer. */}
+      {claim.section === 'spend' ? <AppLink href={AI_SETTINGS} className="wr-brief-spend" testid="coach-brief-spend">{claim.text}</AppLink> : <span>{claim.text}</span>}
       {compact && <SourcesToggle cites={claim.cites} ledger={ledger} testid="coach-brief-sources" />}
       {!compact && claim.cites.map((cite, i) => (
         <button key={cite} type="button" className={`wr-cite${open === cite ? ' wr-on' : ''}`} data-cite={cite}

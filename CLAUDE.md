@@ -105,6 +105,11 @@ A client change that breaks these is refused at integration:
   whose visible text is empty. Page height at 375 stays reasonable (fold long sections, "Show more").
 - **No dev text on screen.** No raw engine field names, file paths, script names, model names,
   dollar budgets or internal ids. Every number has a label; a guess says it is a guess.
+  **Written exception (SPEND-UI):** Settings > AI & developer (its API spend, Daily budgets and API
+  key sections, and the links into them: the brief's spend line, a spend anomaly on Today > Watching,
+  a budget-reached message) may show dollars and model display names (Haiku 4.5, Sonnet 5, Opus 5.5).
+  It still never shows raw model ids, feature keys or the key itself; the words come from
+  `server/services/ai-spend-display.js`.
 - **One number, one producer.** A screen shows the served value from its single producer
   (plans.json / the one service), never a locally recomputed copy.
 - **Nick's rules are shown, never bypassed.** Trade suggestions render only rule-filtered output

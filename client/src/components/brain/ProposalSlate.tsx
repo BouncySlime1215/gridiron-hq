@@ -5,6 +5,7 @@ import CopyLine from './CopyLine';
 import { asText } from './types';
 import type { Proposal, ProposalsResponse, RejectedProposal } from './types';
 import RulesHidden from '../trade/RulesHidden';
+import { BudgetLink } from '../settings/spendLinks';
 
 /**
  * The AI-written slate: proposals in a form that can be pasted into a group chat.
@@ -222,6 +223,9 @@ function NoProposals({ result }: { result: ProposalsResponse }) {
           <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Reason </span>
           {result.reason}
         </p>
+      )}
+      {result.budget_key && (
+        <p className="mt-1 text-sm" data-testid="proposal-budget-link"><BudgetLink budgetKey={result.budget_key}>Change the trade proposals budget</BudgetLink></p>
       )}
       {refused && !askedTheModel && (
         <p className="mt-1 text-xs leading-5 text-slate-500">

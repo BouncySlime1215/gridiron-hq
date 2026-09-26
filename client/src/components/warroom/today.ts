@@ -6,7 +6,7 @@
  * Sources: open negotiation threads and their countdown phase (the negotiations read),
  * the number audit's broken / warn checks (`number_health`), the brain report's blocks
  * (`brain_report.blocks`), the next move's send-when when it says to wait, and the
- * trade-deadline line of `catch_up`. Injuries are not in the plans contract, so they are
+ * trade-deadline line of `catch_up`, and a spend anomaly (SPEND-UI) when the server flags one. Injuries are not in the plans contract, so they are
  * not listed here.
  */
 import type { WarRoomView } from './types';
@@ -15,19 +15,22 @@ import type { Negotiations } from './negotiateModel';
 import { isOk } from './format';
 
 export type WatchTone = 'red' | 'amber' | 'grey';
-export interface WatchItem { id: string; tone: WatchTone; text: string; detail?: string }
+export interface WatchItem { id: string; tone: WatchTone; text: string; detail?: string; href?: string }
+/** SPEND-UI: the served anomaly line (ai-spend-display.js), shown as one Watching row that opens Settings -> AI & developer. */
+export interface SpendAnomaly { line: string; tone: 'amber' | 'red' }
 export const WATCH_MAX = 5;
 
 const RANK: Record<WatchTone, number> = { red: 0, amber: 1, grey: 2 };
 
-export function watchItems(view: WarRoomView, negotiations?: Negotiations | null): WatchItem[] {
+export function watchItems(view: WarRoomView, negotiations?: Negotiations | null, spendAnomaly?: SpendAnomaly | null): WatchItem[] {
   const out: WatchItem[] = [];
+  if (spendAnomaly) out.push({ id: 'ai-spend', tone: spendAnomaly.tone, text: spendAnomaly.line, detail: 'Open AI spend in Settings', href: '/settings?view=dev' });
   for (const t of negotiations?.enabled ? negotiations.threads ?? [] : []) {
     if (t.status !== 'open') continue;
     const who = teamLabel(t.partner);
     const phase = t.countdown?.phase;
-    if (phase === 'move_on') out.push({ id: `thread-${t.id}`, tone: 'red', text: `Move on from ${who}`, detail: 'No reply past his slow time.' });
-    else if (phase === 'follow_up') out.push({ id: `thread-${t.id}`, tone: 'amber', text: `Follow up with ${who}`, detail: 'Past his usual reply time.' });
+    if (phase === 'move_on') out.push({ id: `thread-${t.id}`, tone: 'red', text: `Move on from ${who}`, detail: 'No reply past their slow time.' });
+    else if (phase === 'follow_up') out.push({ id: `thread-${t.id}`, tone: 'amber', text: `Follow up with ${who}`, detail: 'Past their usual reply time.' });
     else out.push({ id: `thread-${t.id}`, tone: 'grey', text: `Waiting on ${who}`, detail: t.countdown?.follow_up_at ? `Follow up after ${new Date(t.countdown.follow_up_at).toLocaleString()}.` : undefined });
   }
   const health = isOk(view.number_health) ? view.number_health.value : null;

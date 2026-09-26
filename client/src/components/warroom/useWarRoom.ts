@@ -3,6 +3,7 @@ import { useApi } from '../../api';
 import type { WarRoomView } from './types';
 import type { Negotiations } from './negotiateModel';
 import type { HisScreenData } from './HisScreen';
+import type { SpendAnomaly } from './today';
 
 /**
  * The only fetch for the War Room (WAR-ROOM-UI.md 2.1). When the engine view lands
@@ -19,6 +20,12 @@ export function useAjState(leagueId: number | null) {
 }
 
 /** Negotiation mode's read: this league's open threads (NEGOTIATE-UI). */
+/** SPEND-UI: today's spend anomaly, as the server words it (ai-spend-display.js), for one Today > Watching row. */
+export function useSpendAnomaly(): SpendAnomaly | null {
+  const { data } = useApi<{ spend?: { anomaly?: SpendAnomaly | null } }>('/dev/spend');
+  return data?.spend?.anomaly ?? null;
+}
+
 export function useNegotiations(leagueId: number | null) {
   return useApi<Negotiations>(leagueId ? `/warroom/${leagueId}/negotiations` : null);
 }

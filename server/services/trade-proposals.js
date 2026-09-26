@@ -670,7 +670,7 @@ export async function proposalsFor(leagueId, { ideas = [], universe = [], call, 
     // overloaded API recovers. None of that is a fact about this slate, and a
     // transient failure must not leave this league with an empty Trade Lab.
     return none(`the model call was refused: ${error?.message ?? String(error)}`,
-      { refused: true, problem: 'call_failed' });
+      { refused: true, problem: 'call_failed', ...(error?.code === 'LLM_BUDGET_EXHAUSTED' && error.feature ? { budget_key: error.feature } : {}) });
   }
 
   const read = readModelResponse(raw);

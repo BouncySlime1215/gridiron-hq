@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../ui/DesignSystem';
 import { stageText, STILL_WORKING, STILL_WORKING_MS, type Stage } from './coachStream';
 import Icon from '../icons';
 import NumbersPeopleCard from '../../trade/NumbersPeopleCard';
+import { BudgetLink } from '../../settings/spendLinks';
 
 /**
  * WAR-ROOM-UI v2 + COACH-CHAT: Coach as a right-side drawer, closed by default,
@@ -142,7 +143,9 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
               {coach.error} <button type="button" className="wr-link" onClick={coach.clearError}>Dismiss</button>
             </div>
           )}
-          {aiBanner(spend) && <p className="wr-ai-banner" role="status" data-testid="coach-ai-banner">{aiBanner(spend)}</p>}
+          {aiBanner(spend) && <p className="wr-ai-banner" role="status" data-testid="coach-ai-banner">{aiBanner(spend)}
+            {/* SPEND-UI: a budget reached links to Coach's row in Settings -> AI & developer. */}
+            {spend?.model_on && <> <BudgetLink budgetKey="coach" /></>}</p>}
           {empty && (
             <EmptyState icon="coach" title="Ask Coach about your plan" description="Tap a question, or type your own below. Answers from your plan cost nothing." />
           )}

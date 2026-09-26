@@ -77,7 +77,7 @@ test('a real call on a DB copy appends one line; the app ingests it once by call
   assert.equal(ingestShared({ file: path.join(temp, 'none.jsonl'), env: {} }).status, 'no_file');
 });
 
-test('New York days, today by model / feature / source, total budget, anomaly, credit errors', () => {
+test('New York days, today by model / feature / source, total budget, anomaly, credit errors', async () => {
   run('DELETE FROM ai_usage');
   const now = new Date('2026-09-26T16:00:00Z'); // noon in New York, 9/26
   const put = (at, feature, model, cost, source = 'app', error = null) => run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens,
@@ -107,7 +107,9 @@ test('New York days, today by model / feature / source, total budget, anomaly, c
   assert.equal(s.anomaly.anomaly, true);
   assert.deepEqual(s.anomaly.top_driver, { feature: 'coach:chat', cost_usd: 0.3, share: 0.5 });
   assert.deepEqual(s.credit_errors, { today: 1, period: 1 });
-  assert.equal(s.total_budget.budget_usd, 1.5, 'coach $1.00 + trade proposals $0.50');
+  const { DEFAULT_DAILY_BUDGETS_USD } = await import('../server/services/llm-budget.js');
+  const expectedTotal = Object.values(DEFAULT_DAILY_BUDGETS_USD).reduce((a, b) => a + b, 0);
+  assert.equal(s.total_budget.budget_usd, +expectedTotal.toFixed(4), 'the sum of every default daily budget (coach, trade proposals, Numbers & People)');
   assert.equal(s.total_budget.spent_usd, 0.35, 'app and offline calls on budgeted features; test calls do not count');
   assert.equal(s.day_totals.length, 30);
   assert.equal(s.day_totals.find(d => d.date === '2026-09-20').cost, 0.1);

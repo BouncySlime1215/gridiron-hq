@@ -48,6 +48,7 @@ import { startSitWeekPoints } from './lineup-brain.js';
 import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
 import { leagueWorld, worldRange, worldStamp } from './league-world.js';
 import { leagueLineupWeekRange } from './lineup-week-range.js';
+import { settledWeekPoints } from './settled-points.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -70,6 +71,8 @@ const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
  * script, tests of lineupMoments) keeps the old current_week_ppg basis.
  */
 function weekPpg(p) {
+  // A finished game is its actual score (settled-points.js), whatever the projection says.
+  if (Number.isFinite(p.settled_points)) return p.settled_points;
   // PROJ-ESPN: an unknown served week (stale ESPN capture) ranks as 0, never on a fallback.
   if (p.week_projection?.status === 'unknown') return 0;
   return p.week_points ?? p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
@@ -280,9 +283,16 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
     const range = worldRange(lg, p, wk);
     return range ? { week_sd: range.sd } : {};
   };
-  const price = players => players.map(p => ({
-    ...p, week_points: startSitWeekPoints(p, ctx.season, ctx.week).week_points ?? 0, ...worldSd(p)
-  }));
+  // A player whose game this week is final is his actual score with no spread: the same
+  // producer (settled-points.js) the served weekly range reads, so the P(win) projection and
+  // the range agree on a Thursday starter (ONE-NUMBER-FIX follow-up). Before, his week
+  // projection was gone and the posture counted him 0.
+  const settled = settledWeekPoints(lg, wk, { now });
+  const price = players => players.map(p => {
+    const actual = settled.get(Number(p.id));
+    if (actual != null) return { ...p, week_points: actual, settled_points: actual, week_sd: 0 };
+    return { ...p, week_points: startSitWeekPoints(p, ctx.season, ctx.week).week_points ?? 0, ...worldSd(p) };
+  });
   const mine = price(rosterAssets(payload, assets, rosterId));
   if (!mine.length) return { error: 'could not price your roster' };
 
@@ -329,7 +339,7 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
       note: 'No opponent found for this week, so there is no posture to take. Start the highest projection.',
       my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
       weekly_range: weeklyRange,
-      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
+      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p), ...(p.settled_points != null ? { settled: true } : {}) })),
     };
   }
 
@@ -347,7 +357,7 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
       my_projection: +mineMoments.mean.toFixed(1), opponent_projection: +oppMoments.mean.toFixed(1),
       my_priced: starters.filter(p => weekPpg(p) > 0).length,
       opponent_priced: (oppLineup?.slots ?? []).map(s2 => s2.player).filter(p => p && weekPpg(p) > 0).length,
-      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
+      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p), ...(p.settled_points != null ? { settled: true } : {}) })),
     };
   }
 
@@ -428,7 +438,7 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
     edge: +edge.toFixed(1),
     win_probability: +(basePwin * 100).toFixed(1),
     stance,
-    lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
+    lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p), ...(p.settled_points != null ? { settled: true } : {}) })),
     swaps: swaps.slice(0, 5),
     swaps_rejected_as_artifacts: artifactsRejected,
     // Where both SDs come from. There used to be a per-side "coverage" figure here

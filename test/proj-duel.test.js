@@ -132,3 +132,24 @@ test('residuals: every graded player-week stored with the usage line; the "what 
   const d = await projDuel(LG, { season: S, week: W, now: new Date('2026-09-25T00:00:00Z') });
   assert.match(d.rows.find(x => x.name === 'Duel Starter').happened, /^14 carries vs 17 expected/);
 });
+
+test('the fallback reason when nothing pushes toward the gap (a top player the model tops out on)', async () => {
+  const { driversText, featureLabel } = await import('../server/services/proj-duel/explain.js');
+  const contribs = [{ feature: 'lag1_snap_pct', contribution: 3.66, value: 0.83 }, { feature: 'prev_season_ppg', contribution: 2.93, value: 21.58 },
+    { feature: 'std_ppr', contribution: 1.12, value: 28.45 }, { feature: 'week', contribution: 0.2, value: 3 }];
+  assert.equal(driversText({ ours: 17.5, espn: 25.3, contribs, position: 'RB' }),
+    'Ours lower even though 83% of snaps last game and last season 21.6 a game: the model tops out below ESPN for top players.');
+  assert.equal(featureLabel('trail3_carries'), '3-week carries');
+  assert.equal(featureLabel('opp_allowed_pos_trail', 'RB'), 'opponent vs RB lately');
+});
+
+test('the breakdown: every driver, usage expected vs actual, team implied vs scored, recent weeks', async () => {
+  const { playerBreakdown } = await import('../server/services/proj-duel/index.js');
+  const b = playerBreakdown({ season: S, week: W, playerId: 8801, now: new Date('2026-09-25T00:00:00Z') });
+  assert.deepEqual([b.espn, b.ours, b.actual, b.closer], [14.2, 9.1, 0, 'ours']);
+  assert.ok(b.drivers.length >= 4 && b.drivers[0].label === '3-week carries', 'every stored driver, biggest first');
+  assert.deepEqual(b.usage.find(u => u.label === 'Carries'), { label: 'Carries', expected: 17, actual: 14, unit: '' });
+  assert.deepEqual([b.team_implied, b.team_scored], [24, 13]);
+  assert.deepEqual(b.history.map(h => h.week), [3], 'no earlier week with both numbers in this fixture');
+  assert.equal(playerBreakdown({ season: S, week: W, playerId: 8805 }), null, 'no shadow forecast: no breakdown');
+});

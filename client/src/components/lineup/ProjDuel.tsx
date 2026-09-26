@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useApi } from '../../api';
-import { Button, Card, Chip, EmptyState, ErrorState, Skeleton, Stat } from '../ui/DesignSystem';
+import { Avatar, Button, Card, Chip, EmptyState, ErrorState, Skeleton, Stat, type Tone } from '../ui/DesignSystem';
+import { useHeadshotMap } from '../warroom/useWarRoom';
+import ProjDuelSheet from './ProjDuelSheet';
 
 /**
  * My team -> ESPN vs our model (PROJ-DUEL). ESPN's weekly projection beside our shadow model's, the
@@ -9,7 +11,7 @@ import { Button, Card, Chip, EmptyState, ErrorState, Skeleton, Stat } from '../u
  * computed here. Our model is in testing: none of your other numbers read it.
  */
 interface DuelRow {
-  player_id: string; name: string; position: string | null; espn: number | null; ours: number | null; gap: number | null;
+  player_id: string; name: string; position: string | null; team?: string | null; espn: number | null; ours: number | null; gap: number | null;
   starter: boolean; target: boolean; actual: number | null; closer: 'ours' | 'espn' | 'tie' | null;
   why: string | null; happened: string | null;
 }
@@ -21,10 +23,14 @@ interface Duel {
 const FIRST = 25;
 const sign = (x: number | null) => (x == null ? '' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
 const pts = (x: number | null) => (x == null ? '—' : x.toFixed(1));
+/** The gap's colour: neutral near 0, stronger as it grows (design-system tones). */
+const gapTone = (g: number | null): Tone => { const a = Math.abs(g ?? 0); return a < 1.5 ? 'neutral' : a < 3.5 ? 'accent' : a < 6 ? 'warn' : 'bad'; };
 
 export default function ProjDuel({ leagueId }: { leagueId: number }) {
   const [week, setWeek] = useState<number | null>(null);
   const [all, setAll] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
+  const headshots = useHeadshotMap();
   const res = useApi<Duel>(`/proj-duel/${leagueId}${week != null ? `?week=${week}` : ''}`);
   const d = res.data;
   if (res.loading && !d) return <div className="space-y-3" aria-busy="true"><Skeleton className="h-[120px] w-full !rounded-[var(--r-card)]" /><Skeleton className="h-[320px] w-full !rounded-[var(--r-card)]" /></div>;
@@ -66,25 +72,30 @@ export default function ProjDuel({ leagueId }: { leagueId: number }) {
             <p className="ds-note mb-2">Your starters and your plan's targets first, then the biggest disagreements.</p>
             <ul className="divide-y divide-[var(--c-line)]" data-testid="proj-duel-rows">
               {rows.map(r => (
-                <li key={r.player_id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 py-2" data-testid="proj-duel-row">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold" title={r.name}>{r.name}{r.position ? ` (${r.position})` : ''}</div>
-                    <div className="flex flex-wrap gap-1">
-                      {r.starter && <Chip tone="accent">Your starter</Chip>}
-                      {r.target && <Chip tone="accent">Plan target</Chip>}
-                      {r.closer === 'ours' && <Chip tone="good">Ours closer</Chip>}
-                      {r.closer === 'espn' && <Chip tone="warn">ESPN closer</Chip>}
-                      {r.closer === 'tie' && <Chip>Tie</Chip>}
+                <li key={r.player_id}>
+                  <button type="button" onClick={() => setOpen(r.player_id)} data-testid="proj-duel-row"
+                    className="flex w-full min-w-0 items-center gap-3 py-3 text-left" aria-label={`${r.name}: ESPN ${pts(r.espn)}, ours ${pts(r.ours)}. Open the breakdown`}>
+                    <Avatar name={r.name} src={headshots[r.player_id] ?? null} size={40} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="truncate text-sm font-semibold" title={r.name}>{r.name}</span>
+                        <span className="ds-note">{[r.position, r.team].filter(Boolean).join(' · ')}</span>
+                        {r.starter && <Chip tone="accent">Your starter</Chip>}
+                        {!r.starter && r.target && <Chip tone="accent">Plan target</Chip>}
+                        {r.closer === 'ours' && <Chip tone="good">Ours closer</Chip>}
+                        {r.closer === 'espn' && <Chip tone="warn">ESPN closer</Chip>}
+                        {r.closer === 'tie' && <Chip>Tie</Chip>}
+                      </div>
+                      {(r.happened || r.why) && <p className="ds-note mt-0.5 truncate" data-testid="proj-duel-why" title={r.happened ? `What happened: ${r.happened}` : r.why ?? ''}>
+                        {r.happened ? `What happened: ${r.happened}` : r.why}</p>}
                     </div>
-                    {r.why && <p className="ds-note mt-1" data-testid="proj-duel-why">{r.why}</p>}
-                    {r.happened && <p className="ds-note" data-testid="proj-duel-happened">What happened: {r.happened}</p>}
-                  </div>
-                  <div className="grid shrink-0 grid-cols-3 gap-3 text-right tabular-nums">
-                    <div><div className="ds-note">ESPN</div><div className="text-sm font-semibold">{pts(r.espn)}</div></div>
-                    <div><div className="ds-note">Ours</div><div className="text-sm font-semibold">{pts(r.ours)}</div></div>
-                    <div><div className="ds-note">{r.actual != null ? 'Scored' : 'Gap'}</div>
-                      <div className="text-sm font-semibold">{r.actual != null ? pts(r.actual) : sign(r.gap)}</div></div>
-                  </div>
+                    <div className="grid shrink-0 grid-cols-3 items-center gap-2 text-right tabular-nums">
+                      <div><div className="ds-note">ESPN</div><div className="text-sm font-semibold">{pts(r.espn)}</div></div>
+                      <div><div className="ds-note">Ours</div><div className="text-sm font-semibold">{pts(r.ours)}</div></div>
+                      <div><div className="ds-note">{r.actual != null ? 'Scored' : 'Gap'}</div>
+                        {r.actual != null ? <div className="text-sm font-semibold">{pts(r.actual)}</div> : <Chip tone={gapTone(r.gap)}>{sign(r.gap)}</Chip>}</div>
+                    </div>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -93,6 +104,7 @@ export default function ProjDuel({ leagueId }: { leagueId: number }) {
             )}
           </>}
       </Card>
+      <ProjDuelSheet leagueId={leagueId} week={d.week} playerId={open} headshot={open ? headshots[open] ?? null : null} onClose={() => setOpen(null)} />
     </div>
   );
 }

@@ -39,6 +39,7 @@ import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tm
 import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability,
   claimRule, strandedBranch, CLAIM_CONFIRM_MAX } from './search-wide.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+import { playoffPathFor } from '../playoff-path.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
 const yesPoint = curve => {
@@ -770,6 +771,9 @@ export function planLeague(adapter, settings) {
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),
+    // PLAYOFF-SEEDING (shadow, GRIDIRON_PLAYOFF_SEEDING): the world's seed values, win targets and must-win
+    // weeks for Nick (ids only); the producer writes it to _run.inputs.playoff_path and nothing served reads it.
+    playoff_path: playoffPathFor(W.base, me),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     ...(ladders ? { ladders } : {}),
     // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).

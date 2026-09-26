@@ -39,6 +39,7 @@ import { availHorizonFlag, availHorizonPreviewFields } from './availability-retu
 import { rbTitleMode, conditionalTitle, meanInterval } from './rb-title.js';
 import { standingsCheckField } from './standings-reconcile.js';
 import { espnProjections } from './espn-league-projections.js';
+import { playoffPathCollector, playoffPathMode } from './playoff-path.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -592,7 +593,7 @@ function kdstPoints(lg, players, simWeeks, nflSchedule, flag) {
  */
 export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
-  keepRuns = false, universe = null, worldId = null
+  keepRuns = false, universe = null, worldId = null, playoffPath = false
 } = {}) {
   const prep = prepareSeason(lg, { requestedWeek, scoring, overrides, projections, universe, worldId });
   if (prep.fail) return prep.fail;
@@ -614,7 +615,7 @@ export function simulateSeason(lg, {
   return playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
     const { drawn, expected, kdst } = drawnFor(run, week);
     return lineupPoints(t.players, prep.slots, drawn, expected, kdst);
-  });
+  }, { playoffPath });
 }
 
 /**
@@ -798,7 +799,7 @@ function applyOverrides(teams, overrides, assets) {
  * full simulation (lineups set from fresh draws) and a trade rescore (lineups
  * read from a prebuilt world), so both give the same numbers.
  */
-function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
+function playSeasons(prep, teams, runs, keepRuns, rawPointsFor, { playoffPath = false } = {}) {
   const { lg, rules, fromWeek, sched, weeks, bracketWeeks, playoffTeams, medianGame } = prep;
   const ids = teams.map(t => t.roster_id);
   // AVAIL-HORIZON-2 change B: each run draws each team's strength offset once and adds it
@@ -824,6 +825,12 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
   // RB-TITLE: each run's title as the probability of winning its bracket (rb-title.js).
   const rbMode = prep.rbTitle ?? rbTitleMode();
   const rb = rbMode === 'off' ? null : rbTitleState(prep, teams, runs, rawPointsFor, perRun);
+  // PLAYOFF-SEEDING (shadow, playoff-path.js): seed values, win targets and must-win weeks off these same runs.
+  const pp = playoffPath ? playoffPathCollector({
+    ids, runs, weeks, sched, startingRecords, playoffTeams, rounds: rules.schedule.playoff_weeks.length,
+    seed: standings => seedStandings(standings, rules),
+    bracket: (field, scoreFor) => playBracket(field, rules.schedule, scoreFor)
+  }) : null;
 
   for (let run = 0; run < runs; run++) {
     const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
@@ -839,6 +846,7 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
       }
       for (const [id, s] of weekScore) record.get(id).pf += s;
       if (medianGame) addMedianResults(weekScore, record);
+      if (pp) pp.week(week, weekScore);
     }
 
     // Seed by the league's rule (division winners first where there are
@@ -853,8 +861,9 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     }
 
     /* --- playoff bracket: the league's own format (playBracket) --- */
-    const bracket = playBracket(field, rules.schedule, (id, roundWeeks) =>
-      roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0));
+    const bracketScore = (id, roundWeeks) =>
+      roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0);
+    const bracket = playBracket(field, rules.schedule, bracketScore);
     for (const id of bracket.byes) stats.get(id).byes++;
     for (const id of bracket.finalists) stats.get(id).finals++;
     if (bracket.champion) {
@@ -862,6 +871,7 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
       if (perRun) perRun.get(bracket.champion).title[run] = 1;
     }
     if (rb) rb.add(run, field, sd > 0 ? teamOffsets(prep.world, ids, run, sd) : null);
+    if (pp) pp.add(record, field, bracket.champion, bracketScore);
   }
 
   const out = [...stats.values()].map(s => {
@@ -899,7 +909,8 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     // Both on only under preview: name both reasons, not just the last one.
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),
-    ...(perRun ? { per_run: perRun } : {})
+    ...(perRun ? { per_run: perRun } : {}),
+    ...(pp ? { playoff_path: pp.result() } : {})
   };
 }
 
@@ -1048,7 +1059,8 @@ export function tradeImpactWorld(lg, {
   // PRODUCER-FAST: `fastLineups` scores every lineup of this world (base and deals) with teamPointsFast.
   if (fastLineups) w.teamPoints = teamPointsFast;
   w.points = new Map(prep.teams.map(t => [t.roster_id, (w.teamPoints ?? teamPoints)(w, t.players)]));
-  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points));
+  // PLAYOFF-SEEDING (shadow): only the base season carries it; a deal's rescore never does.
+  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points), { playoffPath: playoffPathMode() !== 'off' });
   return w;
 }
 

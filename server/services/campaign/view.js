@@ -615,6 +615,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null, res.chat_interest ?? null),
         ...(res.stops ? { stops: stopsSummary(res.stops) } : {}),
         ...(res.deadline ? { deadline_mode: deadlineSummary(res.deadline) } : {}),
+        // PLAYOFF-SEEDING (shadow): seed values, win targets and must-win weeks, each with its SE (playoff-path.js).
+        ...(res.playoff_path ? { playoff_path: res.playoff_path } : {}),
         ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,

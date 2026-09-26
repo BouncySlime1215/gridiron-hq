@@ -32,6 +32,7 @@ import { withIdentityTeams } from './partner.js';
 import { routeIntent } from '../warroom-actions/intent.js';
 import { holdToRules, coachRules, hiddenFlipsLine } from './rules-check.js';
 import { LlmBudgetError } from '../llm-budget.js';
+import { readForFocus } from '../numbers-people/view.js';
 import { routeQuestion, ruleIntent } from './router.js';
 import { explainTerm, chatReply } from './explain.js';
 import { shapeDeterministic, stripDevText } from './answer-shape.js';
@@ -146,6 +147,18 @@ export function proposalsFor(intent, focus, entry) {
 }
 
 /**
+ * NUMBERS-PEOPLE: the stored Numbers & People read of the item this answer is about (the focus
+ * after the turn), shown with the answer. Optional: a read that cannot be looked up is said in
+ * the log and the answer ships without it.
+ */
+function numbersPeopleFor({ leagueId, focus, entry }) {
+  try { return readForFocus({ leagueId, focus, entry }); } catch (e) {
+    console.warn(`[coach] Numbers & People read for league ${leagueId} could not be looked up: ${e?.message ?? e}`);
+    return null;
+  }
+}
+
+/**
  * One conversational turn. `userId`/`leagueId` pick the thread. Returns what
  * askCoach returns, plus `thread` ({ id, focus, followups, proposals }).
  */
@@ -253,11 +266,14 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
     }
   }
   const replyText = [...result.answer.claims.map(c => c.text), ...result.answer.refusals].join(' ');
+  const numbersPeople = numbersPeopleFor({ leagueId, focus: nextFocus, entry });
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
     followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}),
-    ...(result.answer.shape ? { shape: result.answer.shape } : {}), ...(result.route ? { route: result.route.intent } : {}) };
+    ...(result.answer.shape ? { shape: result.answer.shape } : {}), ...(result.route ? { route: result.route.intent } : {}),
+    ...(numbersPeople ? { numbers_people: numbersPeople } : {}) };
   appendTurn(thread.id, { question: asked, intent, reply, focus: nextFocus }, { limit });
-  return { ...result, intent, thread: { id: thread.id, focus: nextFocus, followups, proposals } };
+  return { ...result, intent, thread: { id: thread.id, focus: nextFocus, followups, proposals },
+    ...(numbersPeople ? { numbers_people: numbersPeople } : {}) };
 }
 
 export { CHIP };

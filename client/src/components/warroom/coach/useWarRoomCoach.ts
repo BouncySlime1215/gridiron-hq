@@ -22,6 +22,8 @@ import {
   markRecorded, coachFooter, savedLayoutOf, type CoachSession, type CoachAction, type Outcome
 } from './warroomCoach';
 
+import type { NPItem } from '../../trade/NumbersPeopleCard';
+
 export interface CoachMessage {
   who: 'nick' | 'coach';
   text: string;
@@ -40,6 +42,8 @@ export interface CoachMessage {
   proposals?: CoachProposal[];
   /** COACH-LANES: the numbers and people lanes behind a model answer (collapsed under "Claude + Jev"). */
   lanes?: CoachLanes | null;
+  /** NUMBERS-PEOPLE: the stored Numbers & People read of the item this answer is about (shared card, compact). */
+  numbersPeople?: NPItem | null;
   /** COACH-V2: the answer in the answer format (verdict, why, risks); claims still carry the cites. */
   shape?: CoachShape | null;
 }
@@ -79,12 +83,14 @@ export interface CoachProposal {
 interface StoredMessage {
   who: 'nick' | 'coach'; text: string; claims?: CoachMessage['claims']; refusals?: string[];
   ledger?: CoachMessage['ledger'] | null; followups?: string[]; proposals?: CoachProposal[]; lanes?: CoachLanes | null; shape?: CoachShape | null;
+  numbers_people?: NPItem | null;
 }
 interface ThreadView { messages: StoredMessage[]; starters: string[] }
 
 const fromStored = (m: StoredMessage, question?: string): CoachMessage => (m.who === 'nick' ? { who: 'nick', text: m.text }
   : { who: 'coach', text: m.text, claims: m.claims ?? [], refusals: m.refusals ?? [], ledger: m.ledger ?? undefined,
-    followups: m.followups ?? [], proposals: m.proposals ?? [], lanes: m.lanes ?? null, shape: m.shape ?? null, question });
+    followups: m.followups ?? [], proposals: m.proposals ?? [], lanes: m.lanes ?? null, shape: m.shape ?? null,
+    numbersPeople: m.numbers_people ?? null, question });
 
 interface Options {
   leagueId: number | null;          // the app's league id, for the write routes
@@ -267,7 +273,7 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
         followups: Array.isArray(res.thread?.followups) ? res.thread.followups : [],
         proposals: Array.isArray(res.thread?.proposals) ? res.thread.proposals : [],
         lanes: res.lanes ?? null,
-        shape: res.answer?.shape ?? null };
+        shape: res.answer?.shape ?? null, numbersPeople: res.numbers_people ?? null };
       say(reply);
       return reply;
     } catch (e) {

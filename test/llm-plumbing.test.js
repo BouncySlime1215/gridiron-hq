@@ -406,7 +406,7 @@ test('listBudgets shows every default and every override with today\'s spend', (
   seedSpend({ feature: 'coach:answer', cost: 0.30 });
   const list = budget.listBudgets();
   const byKey = Object.fromEntries(list.map(b => [b.key, b]));
-  assert.deepEqual(Object.keys(byKey).sort(), ['coach', 'negotiation_profile', 'trade_proposals']);
+  assert.deepEqual(Object.keys(byKey).sort(), ['coach', 'negotiation_profile', 'numbers_people', 'trade_proposals']);
   near(byKey.coach.spent_usd, 0.30);
   assert.equal(byKey.negotiation_profile.budget_usd, 0.25);
   assert.equal(byKey.trade_proposals.budget_usd, 0.50);

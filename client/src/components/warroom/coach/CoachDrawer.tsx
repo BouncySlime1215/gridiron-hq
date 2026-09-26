@@ -5,6 +5,7 @@ import { DraftCard, PlanChangeCard, ProposalCard } from './ActionCards';
 import type { CoachMessage, WarRoomCoach } from './useWarRoomCoach';
 import { api } from '../../../api';
 import Icon from '../icons';
+import NumbersPeopleCard from '../../trade/NumbersPeopleCard';
 
 /**
  * WAR-ROOM-UI v2 + COACH-CHAT: Coach as a right-side drawer, closed by default,
@@ -237,6 +238,8 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
       {slot.refusals?.map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
       <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />
       {slot.lanes && <LanesReveal lanes={slot.lanes} />}
+      {/* NUMBERS-PEOPLE: the item this answer is about has a stored read: both lanes, compact (the shared card). */}
+      {slot.numbersPeople && <div className="mt-2" data-testid="coach-numbers-people"><NumbersPeopleCard item={slot.numbersPeople} variant="compact" /></div>}
     </div>
   );
 }

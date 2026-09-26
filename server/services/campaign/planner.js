@@ -20,6 +20,7 @@ import { coachMessagesOn } from './messages.js';
 import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
 import { stopsMode, findHoles, priceHoles } from './stops.js';
+import { titlePathFlag, titlePath } from './title-path.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { deadlineMode, deadlineReport } from './deadline-mode.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
@@ -815,6 +816,13 @@ export function planLeague(adapter, settings) {
       arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
       give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
+  // TITLE-PATH (GRIDIRON_TITLE_PATH=1 only, shadow): three plain lines on why the served move wins the title,
+  // from plan numbers only (title-path.js). Read after planning; it moves nothing and nothing served reads it.
+  const title_path = titlePathFlag(env) === 'off' ? undefined : { mode: 'shadow', ...titlePath({
+    plan: best, titleNow: now.title, roster: adapter.rosters.get(me) ?? [], players: adapter.players, starters: adapter.starters,
+    weeklyOf: W.weekly ? (st => (st ? weeklyOf(st.state) : nowWeeks)) : null,
+    from: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
+    playoffWeeks: L.playoff_weeks ?? null, untouchable: [...untouchable, ...(objective.untouchables ?? [])] }) };
   // STOPS-01 (GRIDIRON_STOPS: 1 serves, shadow reports, default off): bye / injury holes in Nick's weekly lineup,
   // each priced as a plan-added stop on the ranked (rule-filtered) plans; off, nothing is computed.
   const stopsM = stopsMode(env);
@@ -885,7 +893,7 @@ export function planLeague(adapter, settings) {
       ...(c.plan.aj ? { aj: { for: c.plan.aj.for, requires_nick_confirm: true, nick_confirmed: !c.aj_waiting } } : {}) })),
     aj_pick: ajSink,
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(title_path ? { title_path } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),

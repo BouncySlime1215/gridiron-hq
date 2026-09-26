@@ -39,6 +39,10 @@ const { run, rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 const { hashSessionToken, requireAuthenticated } = await import('../server/platform/auth.js');
 const { setAnthropicClientForTesting } = await import('../server/services/claude.js');
+// Nick's rules are held by rules-check.js and fuzzed in coach-rules-fuzz.test.js; the fixture has no board or
+// FantasyCalc values (the gate would fail closed on every move), so this conversation test runs without it.
+const { setCoachRulesSource } = await import('../server/services/coach/rules-check.js');
+setCoachRulesSource(() => null);
 const { default: warroomRouter } = await import('../server/routes/warroom.js');
 const { default: coachRouter } = await import('../server/routes/coach.js');
 
@@ -118,7 +122,7 @@ test('an empty conversation shows the starters; an answer is bubbles, chips and 
   assert.deepEqual(b.map(e => e.getAttribute('data-testid')), ['coach-msg-me', 'coach-msg-coach']);
   assert.equal(textOf(b[0]), FIXED_QUESTIONS[0]);
   const answer = textOf(b[1]);
-  assert.match(answer, /Offer /);
+  assert.match(answer, /Send |Offer /);
   assert.doesNotMatch(answer, /Destination: /, 'no footer line in the answer');
   assert.doesNotMatch(answer.replace(/sources.*$/, ''), ENGINE, 'no raw engine labels');
   assert.equal(byAttr(drawer, 'data-testid', 'coach-fixed-q').length, 0, 'the starters give way to the thread');

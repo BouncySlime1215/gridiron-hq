@@ -34,6 +34,7 @@
  * turns it on through preview-mode.js; GRIDIRON_COACH_BRAIN_TOOLS=0 vetoes
  * preview). With the flag off Coach is offered exactly the tools it had.
  */
+import { holdStepRegret } from '../campaign/serve-regret.js';
 import { FP_KEY } from '../fantasypros-guard.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -250,8 +251,10 @@ function loadLeaguePlan(leagueId) {
     const found = doc?.schema == null ? 'has no schema field (written by a pre-contract producer)' : `is ${JSON.stringify(doc.schema)}`;
     return { rows: failedRow(`the plans file ${found}, not the ${SCHEMA_VERSION} contract`) };
   }
-  const entry = Array.isArray(doc.leagues) ? doc.leagues.find(l => l?.league === leagueId) : null;
-  if (!entry) return { rows: unknownRow(`the plans file has no entry for league ${leagueId}`) };
+  const found = Array.isArray(doc.leagues) ? doc.leagues.find(l => l?.league === leagueId) : null;
+  if (!found) return { rows: unknownRow(`the plans file has no entry for league ${leagueId}`) };
+  // STEP-REGRET at the serve step: a move with a step that does not beat doing nothing is never read out.
+  const entry = holdStepRegret(found).entry;
   const head = { league_id: leagueId, plans_generated_at: doc.generated_at ?? null, plans_producer: doc.producer ?? null };
   const check = validateLeague(entry);
   if (!check.ok) {

@@ -114,7 +114,7 @@ const leagueParam = req => {
 const shownMessage = m => (m.role === 'nick' ? { id: m.id, who: 'nick', text: m.text, at: m.created_at }
   : { id: m.id, who: 'coach', text: m.text, intent: m.intent, at: m.created_at, claims: m.payload.claims ?? [], refusals: m.payload.refusals ?? [],
     ledger: m.payload.ledger ?? null, followups: m.payload.followups ?? [], proposals: m.payload.proposals ?? [], lanes: m.payload.lanes ?? null,
-    numbers_people: m.payload.numbers_people ?? null });
+    shape: m.payload.shape ?? null, numbers_people: m.payload.numbers_people ?? null });
 
 function threadView(userId, leagueId, thread) {
   const t = thread ?? activeThread(userId, leagueId, { create: false });

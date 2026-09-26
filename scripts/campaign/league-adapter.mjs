@@ -422,6 +422,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     const cached = fast && rescoreCache ? rescoreCache.wrap(w, lg, rescore, otherOf) : null;
     return {
       seed: w.key.seed,
+      // PLAYOFF-SEEDING (shadow, integration-e): the base season's playoff_path block, which the planner reads
+      // as W.base (planner.js#playoffPathFor). Only the block is exposed; flag off, the key is absent.
+      ...(w.base?.playoff_path ? { base: { playoff_path: w.base.playoff_path } } : {}),
       rescore: cached ? (state, a = me, b = null) => cached(state, a, b) : rescore,
       weekly(ids) {
         const pts = teamPoints(w, ids.map(id => assets.get(id)).filter(Boolean));

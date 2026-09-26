@@ -63,6 +63,7 @@ const { default: draftCaptureRouter, serveCaptureScript } = await import('./rout
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { default: gatesRouter } = await import('./routes/gates.js');
 const { default: brainReportRouter } = await import('./routes/brain-report.js');
+const { default: replyLatencyRouter } = await import('./routes/reply-latency.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
@@ -168,6 +169,8 @@ app.use('/api/number-audit', ...legacyAuthenticated, numberAuditRouter);
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
 app.use('/api/brain-report', ...legacyAuthenticated, brainReportRouter);
+// E-LATENCY: descriptive reply-time table + follow-up hint, flag-off (GRIDIRON_REPLY_LATENCY).
+app.use('/api/reply-latency', ...legacyAuthenticated, replyLatencyRouter);
 // /api/props and /api/props-tickets, the MLB props board and its saved slips, used
 // to mount here. MLB was removed from the product in #128; no client page has
 // called either path since the UI teardown 1694694c, 2026-09-19, so SY-06

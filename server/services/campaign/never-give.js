@@ -32,12 +32,15 @@ export const PINNED_NEVER_GET = Object.freeze(['290']);
 
 /**
  * The adapter with the pinned never-give ids on Nick's roster and the pinned never-get ids on anyone
- * else's roster added to adapter.untouchable (nothing else changes).
+ * else's roster added to adapter.untouchable (nothing else changes). `league`: the league's own
+ * never_give / never_get ids (PER-LEAGUE RULES, resolveLeagueRules), added the same way on top of the pins.
  */
-export function withNeverGive(adapter) {
+export function withNeverGive(adapter, league = null) {
   const mine = new Set((adapter.rosters?.get(adapter.league?.me) ?? []).map(String));
   const theirs = new Set([...(adapter.rosters ?? new Map())].filter(([t]) => String(t) !== String(adapter.league?.me)).flatMap(([, ids]) => ids.map(String)));
-  const pinned = [...PINNED_NEVER_GIVE.filter(id => mine.has(id)), ...PINNED_NEVER_GET.filter(id => theirs.has(id))];
+  const give = [...PINNED_NEVER_GIVE, ...(league?.never_give ?? []).map(String)];
+  const get = [...PINNED_NEVER_GET, ...(league?.never_get ?? []).map(String)];
+  const pinned = [...new Set([...give.filter(id => mine.has(id)), ...get.filter(id => theirs.has(id))])];
   if (!pinned.length) return adapter;
   return { ...adapter, untouchable: new Set([...[...(adapter.untouchable ?? [])].map(String), ...pinned]) };
 }
@@ -74,7 +77,8 @@ const depthFor = (rules, id) => {
 /**
  * One suggestion against Nick's rules, from Nick's side.
  * rules: { neverGive: Set, neverGet: Set, sold: Set, fc: Map id -> value, scoreOf(id) -> number|null,
- *   closed: string|null, ajAllow?: Set (AJ-PICK) }
+ *   closed: string|null, ajAllow?: Set (AJ-PICK), floor?, overpayCap?, depthPremiumMax? } (the last
+ *   three from the league's rules block under GRIDIRON_PER_LEAGUE_RULES; absent -> 83, 0 and +12%, Nick's league-4 rules).
  * t: { give: id[], get: id[], premium?: { points_delta, title_delta } } (premium only where the surface
  *   computed Nick's own change in lineup points and title odds for this trade; otherwise the +12%
  *   depth-only 2-for-1 exception does not apply).
@@ -100,7 +104,7 @@ export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
     // served board; a player the board does not score is unscored and fails closed, never certified.
     const s = rules.scoreOf(id);
     if (s == null) reasons.add('unscored');
-    else if (s < BLUE_CHIP_SCORE) reasons.add('below_blue_chip');
+    else if (s < (rules.floor ?? BLUE_CHIP_SCORE)) reasons.add('below_blue_chip');
   }
   const priced = [...g, ...r].every(id => rules.fc.has(id));
   let over = null;
@@ -109,10 +113,10 @@ export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
     const gv = g.reduce((s, id) => s + rules.fc.get(id), 0);
     const rv = r.reduce((s, id) => s + rules.fc.get(id), 0);
     over = overpayPct(gv, rv);
-    if (over > EPS) {
+    if (over > (rules.overpayCap ?? 0) + EPS) {
       const twoForOne = g.length === 2 && r.length === 1 && g.every(id => depthFor(rules, id));
       const rises = Number(premium?.points_delta) > 0 && Number(premium?.title_delta) > 0;
-      if (!(twoForOne && rises && over <= DEPTH_PREMIUM_MAX + EPS)) reasons.add('overpay');
+      if (!(twoForOne && rises && over <= (rules.depthPremiumMax ?? DEPTH_PREMIUM_MAX) + EPS)) reasons.add('overpay');
     }
   }
   return { ok: reasons.size === 0, reasons: [...reasons], overpay: over, requires_nick_confirm: needsOk };
@@ -188,17 +192,91 @@ export function servedScores(leagueId, { plansPath = warRoomPlansPath() } = {}) 
   return { status: 'ok', byId };
 }
 
+/** The objectives file: the producer's GRIDIRON_WARROOM_OBJECTIVES, else objectives.json next to the plans. */
+const objectivesFile = (plansPath, env) =>
+  env.GRIDIRON_WARROOM_OBJECTIVES?.trim() || path.join(path.dirname(path.resolve(plansPath)), 'objectives.json');
+
+/** One league's row of the objectives file, or null (absent file or no row). A file that does not parse throws. */
+function objectiveRow(leagueId, { plansPath, env }) {
+  const file = objectivesFile(plansPath, env);
+  if (!fs.existsSync(file)) return null;
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const raw = parsed?.[S(leagueId)];
+  return raw && typeof raw === 'object' ? raw : null;
+}
+
 /**
  * Nick's own untouchables for this league from the objectives file (the producer's
  * GRIDIRON_WARROOM_OBJECTIVES, else objectives.json next to the plans). Absent file -> none.
  * A file that does not parse throws: the gate fails closed on it.
  */
 export function objectiveUntouchables(leagueId, { plansPath = warRoomPlansPath(), env = process.env } = {}) {
-  const file = env.GRIDIRON_WARROOM_OBJECTIVES?.trim() || path.join(path.dirname(path.resolve(plansPath)), 'objectives.json');
-  if (!fs.existsSync(file)) return [];
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const raw = parsed?.[S(leagueId)];
+  const raw = objectiveRow(leagueId, { plansPath, env });
   return Array.isArray(raw?.untouchables) ? raw.untouchables.map(S) : [];
+}
+
+/* ------------------------------------------------------------------ PER-LEAGUE RULES (plan item 36) */
+
+/**
+ * Nick's rules, per league: each league's objectives row may carry a `rules` block
+ *   { never_give: id[], never_get: id[], floor: score, overpay_cap: fraction, depth_premium_max: fraction }
+ * so leagues 1, 2, 3 and 5 get the same protections with their own player ids. Read only with
+ * GRIDIRON_PER_LEAGUE_RULES=1 (off: every league runs on the pins and the constants below, as before).
+ *
+ * TIGHTEN-ONLY. A block may add ids and raise the bar; it can never lower one:
+ *   - the pinned ids (PINNED_NEVER_GIVE, PINNED_NEVER_GET) hold in every league whatever the block says;
+ *   - floor >= 83 (Blue chip), overpay_cap <= 0, 0 <= depth_premium_max <= +12%.
+ * A value that would loosen a rule, or does not read, is an error, never a silent clamp: the gate and the
+ * planner fail closed on it (nothing is served for that league until the block is fixed). No block, or no
+ * row, is league 4's rules exactly (leagueRuleDefaults).
+ */
+export const PER_LEAGUE_RULES_ENV = 'GRIDIRON_PER_LEAGUE_RULES';
+export const perLeagueRulesOn = (env = process.env) => env?.[PER_LEAGUE_RULES_ENV] === '1';
+/** League 4's rules, the default for any league without a block (a function: search.js is mid-cycle at import). */
+export const leagueRuleDefaults = () => ({ floor: BLUE_CHIP_SCORE, overpay_cap: 0, depth_premium_max: DEPTH_PREMIUM_MAX });
+const RULE_KEYS = Object.freeze(['never_give', 'never_get', 'floor', 'overpay_cap', 'depth_premium_max']);
+const PLAYER_ID = /^[1-9][0-9]*$/;
+
+/**
+ * One league's `rules` block, resolved tighten-only. -> { never_give: string[], never_get: string[],
+ * floor, overpay_cap, depth_premium_max, source: 'default' | 'objectives', errors: string[] }.
+ * errors non-empty -> the caller fails closed. never_give / never_get are the block's ids (the pins are
+ * added by the callers, as for league 4).
+ */
+export function resolveLeagueRules(block) {
+  const out = { never_give: [], never_get: [], ...leagueRuleDefaults(), source: 'default', errors: [] };
+  if (block == null) return out;
+  if (typeof block !== 'object' || Array.isArray(block)) { out.errors.push('rules block is not an object'); return out; }
+  out.source = 'objectives';
+  for (const k of Object.keys(block)) if (!RULE_KEYS.includes(k)) out.errors.push(`unknown rule "${k}"`);
+  for (const k of ['never_give', 'never_get']) {
+    if (block[k] == null) continue;
+    if (!Array.isArray(block[k])) { out.errors.push(`${k} is not a list of player ids`); continue; }
+    const ids = block[k].map(S);
+    const bad = ids.filter(id => !PLAYER_ID.test(id));
+    if (bad.length) out.errors.push(`${k} has ${bad.length} value(s) that are not player ids`);
+    out[k] = [...new Set(ids.filter(id => PLAYER_ID.test(id)))];
+  }
+  const num = (k, ok, why) => {
+    if (block[k] == null) return;
+    const v = typeof block[k] === 'number' ? block[k] : NaN;
+    if (!Number.isFinite(v)) out.errors.push(`${k} is not a number`);
+    else if (!ok(v)) out.errors.push(`${k} ${v} ${why}`);
+    else out[k] = v;
+  };
+  num('floor', v => v >= BLUE_CHIP_SCORE && v <= 100, `would lower the Blue chip floor (${BLUE_CHIP_SCORE}-100 only)`);
+  num('overpay_cap', v => v <= 0 && v >= -1, 'would allow an overpay (0 or below only)');
+  num('depth_premium_max', v => v >= 0 && v <= DEPTH_PREMIUM_MAX, `would widen the depth-only premium (0 to +${DEPTH_PREMIUM_MAX * 100}% only)`);
+  return out;
+}
+
+/**
+ * The league's rules from the objectives file, resolved (resolveLeagueRules) plus the row's untouchables.
+ * A file that does not parse throws: the gate fails closed on it.
+ */
+export function leagueRulesOf(leagueId, { plansPath = warRoomPlansPath(), env = process.env } = {}) {
+  const raw = objectiveRow(leagueId, { plansPath, env });
+  return { ...resolveLeagueRules(raw?.rules), untouchables: Array.isArray(raw?.untouchables) ? raw.untouchables.map(S) : [] };
 }
 
 /* ------------------------------------------------------------------ the gate */
@@ -222,7 +300,17 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
   const me = nick.me;
   const closed = [];
   let extra = [];
-  try { extra = objectiveUntouchables(leagueId, { plansPath, env }); } catch (e) { closed.push(`objectives file unreadable (${e.message})`); }
+  // PER-LEAGUE RULES (flag GRIDIRON_PER_LEAGUE_RULES=1): the league's rules block; off, today's constants.
+  let lr = null;
+  if (perLeagueRulesOn(env)) {
+    try {
+      lr = leagueRulesOf(leagueId, { plansPath, env });
+      extra = [...lr.untouchables, ...lr.never_give];
+      if (lr.errors.length) closed.push(`league ${leagueId} rules block invalid (${lr.errors.join('; ')})`);
+    } catch (e) { closed.push(`objectives file unreadable (${e.message})`); }
+  } else {
+    try { extra = objectiveUntouchables(leagueId, { plansPath, env }); } catch (e) { closed.push(`objectives file unreadable (${e.message})`); }
+  }
   const fc = fcValues(db);
   const sold = soldThisSeason(db, { leagueId, season: nick.season, me, now });
   if (sold.status === 'ledger_missing' || sold.status === 'error') closed.push(sold.reason);
@@ -235,13 +323,15 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
   }
   const rules = {
     neverGive: new Set([...PINNED_NEVER_GIVE, ...extra]),
-    neverGet: new Set(PINNED_NEVER_GET),
+    neverGet: new Set([...PINNED_NEVER_GET, ...(lr?.never_get ?? [])]),
     sold: sold.sold,
     fc: fc.byId,
     scoreOf: id => scores.byId.get(S(id)) ?? null,
     closed: closed.length ? closed.join('; ') : null,
     ajAllow: aj.allow,
     sources: { fc_value: fc.status, ledger: sold.status, scores: scores.status, aj_pick: aj.status },
+    ...(lr ? { floor: lr.floor, overpayCap: lr.overpay_cap, depthPremiumMax: lr.depth_premium_max,
+      league_rules: { source: lr.errors.length ? 'invalid' : lr.source } } : {}),
   };
   const forNick = teamId == null || S(teamId) === me;
   const check = t => ruleVerdict(rules, t);

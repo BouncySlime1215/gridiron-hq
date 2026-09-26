@@ -99,7 +99,8 @@ test('E1 reads the real trade_outcomes ledger: sent app_proposed rows only; offe
   db.exec(`CREATE TABLE offer_log (league_id INTEGER, counterparty_team_id TEXT, proposed_at TEXT, model_p_accept REAL, status TEXT, idea_id TEXT)`);
   db.exec(`INSERT INTO offer_log VALUES (1, '9', '2026-09-11', 0.6, 'accepted', 'fresh')`);
   const { offers, sources } = E1.load(db);
-  assert.deepEqual(sources, ['trade_outcomes']);
+  // E-DATA (migration 106) builds trade_proposal_snapshots, which decided-offers.js reads when present (empty here).
+  assert.deepEqual(sources, ['trade_outcomes', 'trade_proposal_snapshots']);
   assert.equal(offers.length, 12, '12 sent, resolved app_proposed rows; the open, the unsent and the offer_log row are not outcomes');
   const r = E1.run(db);
   assert.equal(r.n, 12);
@@ -128,7 +129,7 @@ test('E1 reads every manager\'s offers: observed trade_outcomes plus unsettled l
     (2, 2026, 'observed', '6', '8', '2026-09-04T00:00:00Z', 'accepted', 'p0', '2026-09-04T02:00:00Z', 'x'),
     (2, 2026, 'observed', '4', '6', '2026-09-05T00:00:00Z', 'declined', 'p1', '2026-09-05T03:00:00Z', 'x')`);
   const { offers, excluded, sources } = E1.load(db);
-  assert.deepEqual(sources, ['trade_outcomes', 'league_transactions_raw']);
+  assert.deepEqual(sources, ['trade_outcomes', 'league_transactions_raw', 'trade_proposal_snapshots']);
   const league2 = offers.filter(o => o.league_id === 2);
   assert.equal(league2.length, 3, 'p0 and p1 from the ledger (p1 once), p2 from raw; p3 was withdrawn');
   assert.equal(new Set(league2.map(o => o.proposer_team_id)).size, 3, 'three different proposers, none of them the app');

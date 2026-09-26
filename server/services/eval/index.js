@@ -21,6 +21,7 @@ import * as e7 from './e7.js';
 import * as e3espn from './e3-espn.js';
 import * as c8 from '../reasoning/grade.js';
 import * as l01b from './living-gate.js';
+import * as calmon from './calibration-monitor.js';
 import { result, STATUS } from './common.js';
 
 // FIX-322-1: E3-ESPN (week-7 title-odds replay on Nick's past ESPN seasons) runs with the report card,
@@ -37,7 +38,12 @@ import { result, STATUS } from './common.js';
  * emits L01B-ACT, L01B-SIM and L01B-GATE; its optional models (ACTIVITY-01 and the
  * LIVING-01b sim) arrive through opts['L01B-GATE'] from run-graders.mjs.
  */
-export const GRADERS = Object.freeze([e1, e2, e3, e4, e5, e6, e7, e3espn, c8, l01b]);
+/**
+ * CAL-MON (batch D item 29, calibration-monitor.js): weekly matchup and title-odds
+ * calibration with a drift alarm. Shadow-only rows; emits nothing unless
+ * GRIDIRON_CAL_MONITOR=1.
+ */
+export const GRADERS = Object.freeze([e1, e2, e3, e4, e5, e6, e7, e3espn, c8, l01b, calmon]);
 
 export function runAll(database, opts = {}) {
   const out = [];

@@ -17,6 +17,17 @@ import { rows, row } from '../db/index.js';
  * freshness registry and the Trade Lab age line all use this one budget.
  */
 export const MARKET_MAX_AGE_MINUTES = 24 * 60;
+
+/**
+ * How old a FantasyCalc price may be before a reader calls it stale: an AGE rule, never a
+ * per-week one, because the price is fetched daily. It is the daily budget plus the refresh
+ * loop's slack: the job is due at 24 h but only runs on the loop's next tick (15 min by default)
+ * and then takes its own fetch time, so a price that is 24 h 10 min old is on schedule, not late.
+ * One hour covers a tick, the fetch and one missed tick. Every freshness reader of a FantasyCalc
+ * price (the Data freshness registry, marketAsOf) uses this one window.
+ */
+export const MARKET_FRESH_SLACK_MINUTES = 60;
+export const MARKET_FRESH_MINUTES = MARKET_MAX_AGE_MINUTES + MARKET_FRESH_SLACK_MINUTES;
 export const MARKET_SOURCE_URL = 'https://fantasycalc.com';
 
 const tableExists = name =>
@@ -53,14 +64,14 @@ export function currentMarket(formatKey) {
  * How old one format's market price is. `state` says which absence it is:
  *   table_absent  no dynasty_values table in this database
  *   empty         no live row for this format (never fetched, or every row retired)
- *   stale         newest fetch older than MARKET_MAX_AGE_MINUTES
+ *   stale         newest fetch older than MARKET_FRESH_MINUTES (the daily budget + loop slack)
  *   fresh         otherwise
  */
 export function marketAsOf(formatKey, { now = new Date() } = {}) {
   const base = {
     format_key: formatKey, fetched_at: null, age_hours: null, state: 'empty',
     live_rows: 0, retired_rows: 0,
-    stale_after_hours: MARKET_MAX_AGE_MINUTES / 60,
+    stale_after_hours: MARKET_FRESH_MINUTES / 60,
     source: 'FantasyCalc', source_url: MARKET_SOURCE_URL
   };
   if (!tableExists('dynasty_values')) return { ...base, state: 'table_absent' };
@@ -77,7 +88,7 @@ export function marketAsOf(formatKey, { now = new Date() } = {}) {
     ...out,
     fetched_at: r.fetched_at,
     age_hours: +ageHours.toFixed(1),
-    state: ageHours * 60 > MARKET_MAX_AGE_MINUTES ? 'stale' : 'fresh'
+    state: ageHours * 60 > MARKET_FRESH_MINUTES ? 'stale' : 'fresh'
   };
 }
 

@@ -24,6 +24,7 @@
  * reads the manager-profile routes instead.)
  */
 // FP-GUARD: FantasyPros fields never leave the server (fantasypros-guard.js).
+import { holdStepRegret } from './campaign/serve-regret.js';
 import { stripFantasyPros } from './fantasypros-guard.js';
 import fs from 'node:fs/promises';
 import { previewFields, previewText } from './preview-mode.js';
@@ -309,7 +310,11 @@ export async function liveNumberHealth(leagueId) {
 export async function warRoomView(leagueId) {
   const flag = warRoomFlag();
   if (!flag.enabled) return { enabled: false };
-  const view = buildWarRoomView(leagueId, await loadPlans(), flag);
+  // STEP-REGRET at the serve step (campaign/serve-regret.js): a move with a step that loses to doing nothing is held back.
+  const plans = await loadPlans();
+  const held = plans?.status === 'ok' && Array.isArray(plans.entries)
+    ? { ...plans, entries: plans.entries.map(e => (e && !e.error ? holdStepRegret(e).entry : e)) } : plans;
+  const view = buildWarRoomView(leagueId, held, flag);
   // Only when the plan has no usable number_health, and never over a planner that failed.
   if (view.number_health && view.number_health.status === 'unknown') {
     const live = await liveNumberHealth(leagueId);

@@ -188,7 +188,8 @@ test('E1 load: app arm = sent app_proposed rows; offer_log is not read even when
   db.exec(`CREATE TABLE offer_log (league_id INTEGER, counterparty_team_id TEXT, proposed_at TEXT, model_p_accept REAL, status TEXT, idea_id TEXT);
     INSERT INTO offer_log VALUES (1, '9', '${iso(9)}', 0.6, 'accepted', 'fresh')`);
   const { offers, sources, excluded } = E1.load(db);
-  assert.deepEqual(sources, ['trade_outcomes']);
+  // E-DATA (migration 106) builds trade_proposal_snapshots, which decided-offers.js reads when present (empty here).
+  assert.deepEqual(sources, ['trade_outcomes', 'trade_proposal_snapshots']);
   assert.equal(offers.length, 7, '6 sent app offers + the observed offer the unsent suggestion used to hide');
   assert.equal(offers.filter(o => o.source === 'observed').length, 1);
   assert.equal(excluded.espn_copy_of_app_offer, 1);

@@ -1,6 +1,6 @@
 # TITLE-PATH EXPLAINER (plan item 41)
 
-RED `<this branch's test commit>` · GREEN follows · `test/campaign-title-path.test.js`.
+RED `f67a0d67` · GREEN follows · `test/campaign-title-path.test.js`.
 
 Unit source: Nick's reserve queue, item 41: "for the next move, a 3-line plain-English
 'why this wins you the title' (the lineup slot it fixes, the weeks it matters, the odds

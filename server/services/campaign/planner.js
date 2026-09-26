@@ -435,6 +435,10 @@ export function planLeague(adapter, settings) {
     const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
     const fresh = freshMe.map(r => metricOf(r, objective));
     const re = repricePlan(p, fresh);
+    // RB-DELTAS shadow: each step's title delta on both estimators (confirm dice), for the shadow table.
+    re.steps = re.steps.map((st, i) => (Number.isFinite(freshMe[i]?.title_delta_rb) ? { ...st, title_pair: {
+      rb_delta: freshMe[i].title_delta_rb, rb_se: freshMe[i].title_delta_rb_se,
+      plain_delta: freshMe[i].title_delta_plain, plain_se: freshMe[i].title_delta_plain_se } } : st));
     // LIVE-BLEND: the verdict that can fail a plan reads each step's gate p (planner.js#confirmGate).
     let v = confirmGate(p, re);
     // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.

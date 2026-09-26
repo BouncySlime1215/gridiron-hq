@@ -89,6 +89,8 @@ import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile, PRODUCER_VERSION } from '../../server/services/campaign/view.js';
 import { hisSideOn, hisSideLine } from '../../server/services/campaign/his-side.js';
 import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
+import { rbShadowRows, rbShadowSummary, RB_SHADOW_ENV } from '../../server/services/campaign/rb-shadow.js';
+import { rbTitleMode } from '../../server/services/rb-title.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { applyNegotiatorSafety, blockedIds, negotiatorSafetyOn } from '../../server/services/campaign/negotiator-safety.js';
@@ -354,6 +356,9 @@ export async function buildPlansFile(leagues, {
         his_side_on: hisSideOn(env) });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
+        // RB-DELTAS shadow (GRIDIRON_RB_TITLE=shadow or deltas): every served step's title delta on both estimators.
+        const rbRows = res.error ? [] : rbShadowRows(res);
+        if (rbRows.length) entry._run.rb_shadow = { mode: rbTitleMode(), summary: rbShadowSummary(rbRows), rows: rbRows };
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
         entry._run.inputs = {
           ...entry._run.inputs,
@@ -594,6 +599,12 @@ async function main() {
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     reasoning.commit();
+    // RB-DELTAS shadow: one JSONL row per served step per tick (rb-shadow.jsonl next to the plans file).
+    const rbShadow = file.leagues.flatMap(e => (e._run?.rb_shadow?.rows ?? []).map(r => ({ at: generated_at, league: e.league, mode: e._run.rb_shadow.mode, ...r })));
+    if (rbShadow.length) {
+      fs.appendFileSync(sibling(env, RB_SHADOW_ENV, 'rb-shadow.jsonl'), rbShadow.map(r => JSON.stringify(r)).join('\n') + '\n');
+      for (const e of file.leagues) if (e._run?.rb_shadow) console.log(`[warroom] rb-shadow league ${e.league}: ${JSON.stringify(e._run.rb_shadow.summary)}`);
+    }
     if (fast) writeRescoreCache(cacheFile, Object.fromEntries([...caches].map(([id, c]) => [id, c.next])));
     // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
     // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.

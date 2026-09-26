@@ -5,15 +5,10 @@ import { ConnectedNewsHub } from '../features/news/NewsHub';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import NewsList from '../components/NewsList';
 import { Tabs } from '../components/ui/DesignSystem';
+import { SIGNAL_LABEL } from '../features/news/signalLabels';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-const SIGNAL_LABEL: Record<string, string> = {
-  out_for_season: 'Out for season', out: 'Out', doubtful: 'Doubtful', questionable: 'Questionable',
-  did_not_practice: 'Did not practice', limited: 'Limited practice', available_positive: 'Cleared',
-  starter_confirmed: 'Starter confirmed', role_down: 'Role decreasing', role_up: 'Role increasing',
-  role_limited: 'Role limited'
-};
 const SIGNAL_TONE: Record<string, string> = {
   out_for_season: 'border-rose-500 bg-rose-50', out: 'border-rose-400 bg-rose-50',
   doubtful: 'border-rose-300 bg-rose-50/60', questionable: 'border-amber-400 bg-amber-50',

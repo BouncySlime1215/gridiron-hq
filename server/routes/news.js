@@ -231,7 +231,7 @@ r.get('/signals', requireAuthenticated, (req, res) => {
   const mine = myRosterNames(req.auth.userId);
   const myKeys = new Set(mine.map(normalizePlayerName).filter(Boolean));
 
-  let sql = `SELECT s.*, n.source_url AS story_url FROM nfl_news_signals_current s
+  let sql = `SELECT s.*, n.source_url AS story_url, n.headline AS story_headline FROM nfl_news_signals_current s
              LEFT JOIN news_items n ON n.id = s.news_id
              WHERE s.verification_state='verified' AND s.published_at >= ?`;
   const params = [since];

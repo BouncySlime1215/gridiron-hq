@@ -998,7 +998,7 @@ export function planLeague(adapter, settings) {
   const consolidationMode = consolidationFlag(env);
   const consolidation = consolidationMode === 'off' ? null : findConsolidations({ mode: consolidationMode, adapter, S, S2, board, vals,
     depthPremium, excludedTeam: excluded, soldOut: id => !!TM?.excluded(id),
-    stepOk: step => !TM || stepPasses(TM, step, tmFloor), ledgerMissing });
+    stepOk: step => !TM || stepPasses(TM, step, tmFloor), ledgerMissing, untouchables: objective.untouchables ?? [] });
   if (consolidation) mark('consolidation');
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
   const sanity = adapter.sanity ? adapter.sanity() : null;

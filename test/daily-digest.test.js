@@ -278,3 +278,25 @@ test('the refresh loop step: off starts nothing; on runs the script with --apply
   assert.deepEqual(records[0].slice(0, 2), ['daily_digest', 'ok']);
   assert.match(records[0][2].summary, /^daily_digest: quiet/);
 });
+
+test('integration-f: a step that loses to doing nothing (STEP-REGRET) is never written out, as the War Room holds it', () => {
+  const st = baseline(plans());
+  const p = plans({ next: 'L1-new', title: 0.47 });
+  const d0 = p.leagues[0].next_move.value.steps[0].title_odds_delta;
+  p.leagues[0].next_move.value.steps[0].title_odds_delta = { ...d0, status: 'ok', unit: 'title_odds', value: -0.01 };
+  const d = buildDigest({ plans: p, state: st, now: AT_9_EDT, gateFor: () => gate() });
+  assert.equal(d.status, 'send');
+  assert.match(d.text, /Next move: none clears the bar today\./);
+  assert.doesNotMatch(d.text, /offer Team/);
+});
+
+test('integration-f: a plan out of date is not written out (plan age, as the War Room)', () => {
+  const st = baseline(plans());
+  const p = plans({ next: 'L1-new', title: 0.47 });
+  p.leagues[0].planned_at = '2026-09-20T00:00:00Z';
+  const d = buildDigest({ plans: p, state: st, now: AT_9_EDT, gateFor: () => gate() });
+  assert.match(d.text, /Next move: plan out of date/);
+  assert.doesNotMatch(d.text, /offer Team/);
+  const off = buildDigest({ plans: p, state: st, now: AT_9_EDT, gateFor: () => gate(), env: { GRIDIRON_PLANS_EXPIRE: '0' } });
+  assert.match(off.text, /offer Team 3/);
+});

@@ -141,7 +141,8 @@ export function findConsolidations(ctx) {
   const budget = { ...CONSOLIDATION_BUDGET, ...(ctx.budget ?? {}) };
   const out = newReport(mode);
   const me = adapter.league.me;
-  const untouchable = new Set([...(adapter.untouchable ?? [])].map(S));
+  // integration-f: the objectives file's untouchables count as the adapter's do (never a give, never depth).
+  const untouchable = new Set([...(adapter.untouchable ?? []), ...(ctx.untouchables ?? [])].map(S));
   const valueOf = id => { const v = adapter.players.get(id)?.value; return v != null && finite(Number(v)) && Number(v) > 0 ? Number(v) : null; };
   const posOf = id => adapter.players.get(id)?.position ?? null;
   const scoreOf = id => { const s = board?.get(S(id)); return s == null ? null : s; };

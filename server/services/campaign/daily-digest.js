@@ -26,6 +26,8 @@
  * FLAG: GRIDIRON_DAILY_DIGEST=1 only (never the preview switch). Off -> nothing read or written.
  */
 import { etDay } from '../et-day.js';
+import { holdStepRegret } from './serve-regret.js';
+import { planAge, plansExpireFlag } from './plan-age.js';
 
 export const DIGEST_FLAG_ENV = 'GRIDIRON_DAILY_DIGEST';
 export const DIGEST_TZ = 'America/New_York';
@@ -171,7 +173,7 @@ export function repliesOf(offers, { me, since, until }) {
  * -> { status: 'closed' | 'done_today' | 'baseline' | 'quiet' | 'send', text, lines, state, errors }
  * `state` is what to write back (null when nothing should be written).
  */
-export function buildDigest({ plans, state = null, offers = { rows: [], reason: null }, gateFor = () => null, now = new Date() }) {
+export function buildDigest({ plans, state = null, offers = { rows: [], reason: null }, gateFor = () => null, now = new Date(), env = process.env }) {
   const at = now.toISOString();
   const win = digestWindow(now);
   if (!win.open) return { status: 'closed', text: null, lines: [], state: null, errors: [] };
@@ -185,7 +187,12 @@ export function buildDigest({ plans, state = null, offers = { rows: [], reason: 
 
   const lines = [];
   const errors = [];
-  for (const e of entries) {
+  for (const raw of entries) {
+    // STEP-REGRET and plan age, as the War Room serves them (war-room-view.js): a move with a step that loses to
+    // doing nothing, or a plan kept from an older run, is never written out (integration-f review finding 2).
+    const e = raw && !raw.error ? holdStepRegret(raw).entry : raw;
+    const stale = !!e && !e.error && plansExpireFlag(env) === 'on'
+      && planAge(e, { entries, now: now.getTime() }).status === 'out_of_date';
     const cur = snapshotOf(e);
     if (!cur) continue; // a failed league keeps its baseline
     const k = S(e.league);
@@ -199,7 +206,7 @@ export function buildDigest({ plans, state = null, offers = { rows: [], reason: 
     }
     const parts = [...changes.map(c => c.text),
       ...answered.map(r => `Team ${r.team} ${ANSWER_LABEL[r.status]} your offer`)];
-    lines.push(`League ${k}: ${parts.join('; ')}.`, nextMoveLine(e, gate));
+    lines.push(`League ${k}: ${parts.join('; ')}.`, stale ? 'Next move: plan out of date; open the War Room after the next replan.' : nextMoveLine(e, gate));
   }
   const nextState = { day: win.day, at, leagues: snaps };
   if (first) return { status: 'baseline', text: null, lines: [], state: nextState, errors };

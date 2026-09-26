@@ -233,7 +233,8 @@ function entryRows(e) {
 
 /** Rows (and their entries' pins) in one transaction. Throws on a failed write, after rolling back. */
 function writeRows(out, database, pinned = []) {
-  if (!out.length) return 0;
+  // integration-f: an entry with a pin and zero extracted rows still writes its pin.
+  if (!out.length && !pinned.length) return 0;
   database.exec('BEGIN IMMEDIATE');
   try {
     const stmt = database.prepare(INSERT);

@@ -206,13 +206,15 @@ export function readObjectives(file) {
  * season's sales (trade memory: no buy-backs), priced by injury-insurance.js. A failed read is
  * recorded with its reason and logged, never a dead league entry and never a silent empty block.
  */
-export async function insuranceForRun(adapter, res, log = () => {}, league = null) {
+export async function insuranceForRun(adapter, res, log = () => {}, league = null, objectiveUntouchables = []) {
   try {
     const inp = await adapter.injuryInsurance();
     const tm = res.trade_memory ?? {};
     const sold = new Set([...(tm.sold_recently ?? []), ...(tm.buy_backs ?? []).map(b => b.player)].map(String));
     const playerOf = id => { const p = adapter.players?.get(id) ?? adapter.players?.get(Number(id)); return p ? { position: p.position, ros_ppg: p.ros_ppg, available: p.available } : null; };
-    return insuranceSummary(priceInsurance({ ...inp, sold: new Set([...(inp.sold ?? []), ...sold].map(String)),
+    // integration-f: the objectives file's untouchables count too (never the drop), as the planner's neverDrop.
+    const untouchable = new Set([...(inp.untouchable ?? []), ...(objectiveUntouchables ?? [])].map(String));
+    return insuranceSummary(priceInsurance({ ...inp, untouchable, sold: new Set([...(inp.sold ?? []), ...sold].map(String)),
       trade: servedTrade(res.best, playerOf) }));
   } catch (e) {
     log(`[warroom] league ${league}: injury insurance read failed: ${e.message}`);
@@ -456,7 +458,7 @@ export async function buildPlansFile(leagues, {
       // INJURY INSURANCE (shadow, GRIDIRON_INJURY_INSURANCE=1): a handcuff for each Blue chip, priced beside the
       // served move. Read after planning, so it can never constrain the search; nothing served reads it.
       if (entry._run && typeof adapter.injuryInsurance === 'function' && !res.error) {
-        entry._run.inputs.injury_insurance = await insuranceForRun(adapter, res, log, id);
+        entry._run.inputs.injury_insurance = await insuranceForRun(adapter, res, log, id, objective.untouchables ?? []);
       }
       if (buyLow) {
         entry = annotateEntryTargets(entry, buyLow.reads, blPositions);

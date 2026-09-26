@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -151,9 +152,22 @@ test('B2 installable: manifest fields, icon files exist at their declared sizes'
   } finally { await app.close(); }
 });
 
+// integration-f: compare the decoded pixels, not the file bytes: zlib's deflate output differs across Node
+// versions (CI Node 22 vs the Mac's Node 25), while the drawing it encodes is the same.
+function pngPixels(buf) {
+  const idat = [];
+  for (let o = 8; o < buf.length;) {
+    const len = buf.readUInt32BE(o); const type = buf.toString('ascii', o + 4, o + 8);
+    if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len));
+    o += 12 + len;
+  }
+  return { header: buf.subarray(0, 33), pixels: zlib.inflateSync(Buffer.concat(idat)) };
+}
+
 test('B2 committed icons are the generator\'s current drawing', () => {
   for (const spec of ICON_SPECS) {
-    assert.ok(fs.readFileSync(path.join(ICON_DIR, spec.file)).equals(renderIcon(spec)), `${spec.file} is stale: node scripts/pwa/make-icons.mjs`);
+    const a = pngPixels(fs.readFileSync(path.join(ICON_DIR, spec.file))); const b = pngPixels(renderIcon(spec));
+    assert.ok(a.header.equals(b.header) && a.pixels.equals(b.pixels), `${spec.file} is stale: node scripts/pwa/make-icons.mjs`);
   }
 });
 

@@ -24,6 +24,8 @@ import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { sellHighEnabled } from '../../server/services/campaign/sell-high.js';
 import { readSellHighInputs } from '../../server/services/campaign/sell-high-inputs.js';
+import { insuranceEnabled } from '../../server/services/campaign/injury-insurance.js';
+import { handcuffsByStarter } from '../../server/services/campaign/injury-insurance-inputs.js';
 import { buyLowEnabled } from '../../server/services/campaign/buy-low.js';
 import { readBuyLow } from '../../server/services/campaign/buy-low-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
@@ -345,7 +347,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env),
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env), injuryInsurance = insuranceEnabled(env),
   searchWide = searchWideFlag(env) } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
@@ -611,6 +613,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     ...(sellHigh ? { sellHigh: () => readSellHighInputs(svc.db, { season, week, ids: rosters.get(me) ?? [] }) } : {}),
     // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only): usage-up / points-down reads for ids, weeks < this week.
     ...(buyLow ? { buyLow: ids => readBuyLow(svc.db, { season, week, ids }) } : {}),
+    // INJURY INSURANCE (shadow, GRIDIRON_INJURY_INSURANCE=1 only): the inputs to price a handcuff for each of
+    // Nick's Blue chips (injury-insurance.js). The handoff and miss rates are fit through last season.
+    ...(injuryInsurance ? { injuryInsurance: () => insuranceInputs(svc, { rosters, players, assets, me, slots, week, season, fc,
+      scoreOf: board.byId?.size ? id => board.byId.get(String(id)) ?? null : null, untouchable }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),
@@ -671,5 +677,31 @@ export function blueChipBoard(svc, lg, { rosters, players, assets, me, untouchab
       draft: { season: lg.season, picks: n, ...(pickReason ? { reason: pickReason } : {}) },
       fp: { status: fp.status, ...(fp.reason ? { reason: fp.reason } : {}), scrape_date: fp.scrape_date ?? null, prev_date: fp.prev_date ?? null,
         sync: svc.fpSync?.status ?? 'not_run' } },
+  };
+}
+
+/**
+ * INJURY INSURANCE inputs for Nick's roster: the one lineup (trade-engine.js bestLineup on ros_ppg, as
+ * roster-risk.js prices bye and fragility weeks), the board, FantasyCalc values, miss rates
+ * (1 - contingency.js#availability) and each starter's measured handcuffs with their owners.
+ */
+export async function insuranceInputs(svc, { rosters, players, assets, me, slots, week, season, fc, scoreOf, untouchable }) {
+  const c = await import('../../server/services/contingency.js');
+  const through = Number(season) - 1;
+  const owner = new Map();
+  for (const [t, ids] of rosters) for (const id of ids) owner.set(String(id), t);
+  const mine = (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean)
+    .map(p => ({ id: p.id, position: p.position, ros_ppg: p.ros_ppg, available: p.available }));
+  const avail = c.availability({ through });
+  const playerOf = id => { const a = assets.get(id) ?? assets.get(Number(id)); return a ? { position: a.position, ros_ppg: a.ros_ppg, available: a.available } : null; };
+  return {
+    roster: mine,
+    lineupPoints: ps => svc.engine.bestLineup(ps, slots, 'ros_ppg').points,
+    scoreOf,
+    valueOf: id => players.get(id)?.value ?? players.get(Number(id))?.value ?? fcValueOf(fc, Number(id)),
+    missRateOf: id => { const a = avail.get(Number(id)); return a ? 1 - a.available : null; },
+    handcuffs: handcuffsByStarter(c.handcuffValue({ through }), { starters: mine.map(p => p.id), playerOf, ownerOf: id => owner.get(String(id)) ?? null }),
+    untouchable: new Set([...untouchable].map(String)),
+    week,
   };
 }

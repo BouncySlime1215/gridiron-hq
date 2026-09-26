@@ -100,6 +100,8 @@ import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { sellHighSummary } from '../../server/services/campaign/sell-high.js';
+import { priceInsurance, insuranceSummary } from '../../server/services/campaign/injury-insurance.js';
+import { servedTrade } from '../../server/services/campaign/injury-insurance-inputs.js';
 import { buyLowPositions, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
@@ -196,6 +198,25 @@ export function readObjectives(file) {
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${file}: expected an object keyed by league id`);
   return parsed;
+}
+
+/**
+ * INJURY INSURANCE (shadow): the adapter's inputs, Nick's side of the served move (res.best) and this
+ * season's sales (trade memory: no buy-backs), priced by injury-insurance.js. A failed read is
+ * recorded with its reason and logged, never a dead league entry and never a silent empty block.
+ */
+export async function insuranceForRun(adapter, res, log = () => {}, league = null) {
+  try {
+    const inp = await adapter.injuryInsurance();
+    const tm = res.trade_memory ?? {};
+    const sold = new Set([...(tm.sold_recently ?? []), ...(tm.buy_backs ?? []).map(b => b.player)].map(String));
+    const playerOf = id => { const p = adapter.players?.get(id) ?? adapter.players?.get(Number(id)); return p ? { position: p.position, ros_ppg: p.ros_ppg, available: p.available } : null; };
+    return insuranceSummary(priceInsurance({ ...inp, sold: new Set([...(inp.sold ?? []), ...sold].map(String)),
+      trade: servedTrade(res.best, playerOf) }));
+  } catch (e) {
+    log(`[warroom] league ${league}: injury insurance read failed: ${e.message}`);
+    return { lane: 'shadow', status: 'error', reason: e.message };
+  }
 }
 
 function readPrevious(file) {
@@ -405,6 +426,11 @@ export async function buildPlansFile(leagues, {
           // A label, weight 0, read after planning; nothing served reads it.
           ...(adapter.sellHigh ? { sell_high: sellHighSummary(adapter.sellHigh(), { untouchable: adapter.untouchable ?? [] }) } : {}),
         };
+      }
+      // INJURY INSURANCE (shadow, GRIDIRON_INJURY_INSURANCE=1): a handcuff for each Blue chip, priced beside the
+      // served move. Read after planning, so it can never constrain the search; nothing served reads it.
+      if (entry._run && typeof adapter.injuryInsurance === 'function' && !res.error) {
+        entry._run.inputs.injury_insurance = await insuranceForRun(adapter, res, log, id);
       }
       if (buyLow) {
         entry = annotateEntryTargets(entry, buyLow.reads, blPositions);

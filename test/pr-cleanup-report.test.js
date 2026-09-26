@@ -49,7 +49,7 @@ function commit(dir, files, msg) {
  *   picked   - one commit cherry-picked onto main (same patch id)
  *   unique   - one commit main never gained
  *   partial  - two commits; main gained only the first
- *   diverged - squash-merged, then main rewrote the same lines (conservative: unique)
+ *   diverged - two commits squash-merged, then main rewrote the same lines (conservative: unique)
  */
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-cleanup-'));
@@ -85,8 +85,9 @@ function fixture() {
 
   git(dir, 'checkout', '-q', '-b', 'diverged');
   commit(dir, { 'b.txt': 'b2\n' }, 'diverged edit');
+  commit(dir, { 'c.txt': 'c1\n' }, 'diverged second');
   git(dir, 'checkout', '-q', 'main');
-  commit(dir, { 'b.txt': 'b2\n' }, 'diverged squashed (#2)');
+  commit(dir, { 'b.txt': 'b2\n', 'c.txt': 'c1\n' }, 'diverged squashed (#2)');
   commit(dir, { 'b.txt': 'b3 rewritten\n' }, 'main rewrites b');
   return dir;
 }
@@ -172,4 +173,51 @@ test('markdown table lists every row with its action and reason', () => {
   assert.match(md, /A \\\| pipe/);
   assert.match(md, /close/);
   assert.match(md, /flag/);
+});
+
+// Found on the first real run: main was re-rooted on 2026-09-24, so 102 open PRs share no
+// history with it. Their own change is measured from the PR's base sha instead.
+test('B8: a PR from before a history rewrite is measured from its own base', () => {
+  loaded();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-cleanup-rewrite-'));
+  try {
+    git(dir, 'init', '-q', '-b', 'old');
+    const oldBase = commit(dir, { 'a.txt': 'a1\n' }, 'old base');
+    git(dir, 'checkout', '-q', '-b', 'landed');
+    commit(dir, { 'x.txt': 'x part 1\n' }, 'landed 1');
+    commit(dir, { 'x.txt': 'x part 1\nx part 2\n' }, 'landed 2');
+    git(dir, 'checkout', '-q', 'old');
+    git(dir, 'checkout', '-q', '-b', 'lost');
+    commit(dir, { 'y.txt': 'never on main\n' }, 'lost');
+    git(dir, 'checkout', '-q', '--orphan', 'main');
+    git(dir, 'rm', '-q', '-rf', '.');
+    commit(dir, { 'a.txt': 'a1\n', 'x.txt': 'x part 1\nx part 2\n' }, 'rewritten root');
+
+    const c = (head, baseSha) => R.classifyContent({ repo: dir, base: 'main', head, baseSha });
+    assert.equal(c('landed', oldBase).status, 'on-main', 'its change is on the rewritten main');
+    assert.equal(c('lost', oldBase).status, 'unique');
+    assert.deepEqual(c('lost', oldBase).files, ['y.txt']);
+    assert.equal(c('lost', undefined).status, 'unreadable', 'no shared history and no base: never guessed');
+    assert.equal(c('lost', 'f'.repeat(40)).status, 'unreadable', 'base sha not fetched');
+  } finally { cleanup(dir); }
+});
+
+test('hint: share of added lines already on main, never a close reason', () => {
+  loaded();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-cleanup-hint-'));
+  try {
+    git(dir, 'init', '-q', '-b', 'main');
+    commit(dir, { 'a.txt': 'a1\n' }, 'base');
+    git(dir, 'checkout', '-q', '-b', 'reshaped');
+    commit(dir, { 'h.txt': 'alpha line\nbeta line\n' }, 'pr adds two lines');
+    git(dir, 'checkout', '-q', 'main');
+    commit(dir, { 'h.txt': 'alpha line\ngamma line\n' }, 'main lands one of them, reshaped');
+    const c = R.classifyContent({ repo: dir, base: 'main', head: 'reshaped' });
+    assert.equal(c.status, 'unique');
+    assert.equal(c.landed, 0.5);
+    const [row] = R.buildReport({ repo: dir, base: 'main', now: NOW, minAgeDays: 7,
+      prs: [pr(8, 'reshaped', '2026-09-01T00:00:00Z')] });
+    assert.equal(row.action, 'flag');
+    assert.match(row.reason, /50% of its added lines are on main/);
+  } finally { cleanup(dir); }
 });

@@ -24,6 +24,33 @@ Pass bar (all in `test/pr-cleanup-report.test.js`, on a throwaway git repo):
 
 Fails it: any `unique` branch that comes out `close`, or any close path in the script.
 
-## RED
+## RED (097fa2d8)
+
+`node --test test/pr-cleanup-report.test.js`: the script did not exist; tests 5, pass 0, fail 5.
 
 ## GREEN
+
+Same command: tests 7, pass 7, fail 0.
+
+Two test corrections on the way, both where the test's fixture did not match the case it named:
+
+- **B4.** The first fixture squash-merged a one-commit branch, which is a cherry-pick, and main held
+  that exact patch before rewriting the lines. The PR's change really did land, so `on-main` was
+  right. The fixture now squash-merges two commits (no patch match) before main rewrites them; that
+  comes out `unique`, as B4 requires.
+- **Hint test.** A same-second cherry-pick onto an identical parent reproduces the same commit, so
+  the "partial" branch's first commit was already main's ancestor. The hint test now uses its own
+  fixture (one of two added lines reshaped onto main: 50%).
+
+Added after the first real run (**B8**): main was re-rooted on 2026-09-24, and 102 of 126 open PRs
+share no history with it. `git merge-base` fails for them, so the first run crashed instead of
+classifying. Such a PR is now measured from its own GitHub base sha; with no base, or a base the
+head does not descend from, it is `unreadable` (flag), never guessed. B8 pins both.
+
+Also added: the added-lines share (a hint in the reason, never a close reason).
+
+## Real run
+
+126 open PRs, main 721da970, 2026-09-26 08:00 UTC: all `wait` (none is 7 days old). When eligible:
+close 4 (#77 on main; #288, #377, #387 superseded by merged #443, #440, #473), flag 104 (2 unreadable,
+4 with 90%+ of added lines on main), keep 18. Full table: `docs/ops/PR-CLEANUP.md`.

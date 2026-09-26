@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useWindowedRows } from '../lib/windowRows';
 import { api, headshotUrl, RankingEntry, useApi } from '../api';
 import { TIER_COLORS } from '../components/PlayerRow';
 import { StatRow, StatHeader, colsFor, StatMode } from '../components/StatTable';
@@ -104,10 +105,21 @@ export default function Rankings() {
     }
   };
 
-  const visible = entries.map((e, i) => ({ e, i })).filter(({ e }) => filter === 'ALL' || e.position === filter);
+  const visible = useMemo(() => entries.map((e, i) => ({ e, i })).filter(({ e }) => filter === 'ALL' || e.position === filter), [entries, filter]);
   const canDrag = filter === 'ALL';
   // one position filtered = show that position's columns; ALL = generic receiving line
   const statCols = colsFor(filter);
+  // The drawn lines: a tier break before a player whose tier changes (ALL only), then his row. Only the
+  // lines near the screen are drawn (lib/windowRows); the rest are one spacer row each side.
+  const lines = useMemo(() => visible.flatMap(({ e, i }, vIdx) => {
+    const prevTier = vIdx > 0 ? visible[vIdx - 1].e.tier : null;
+    const out: { kind: 'tier' | 'row'; e: RankingEntry; i: number }[] = [];
+    if (canDrag && prevTier != null && prevTier !== e.tier) out.push({ kind: 'tier', e, i });
+    out.push({ kind: 'row', e, i });
+    return out;
+  }), [visible, canDrag]);
+  const body = useRef<HTMLTableSectionElement>(null);
+  const win = useWindowedRows(body, lines.map(l => l.kind), { row: 45, tier: 25 });
 
   return (
     <div>
@@ -177,48 +189,43 @@ export default function Rankings() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><StatHeader cols={statCols} mode={mode}><th className="px-2 py-2 w-24" /></StatHeader></thead>
-            <tbody className="divide-y divide-slate-100">
-              {visible.map(({ e, i }, vIdx) => {
-                const prevTier = vIdx > 0 ? visible[vIdx - 1].e.tier : null;
-                const isBreak = canDrag && prevTier != null && prevTier !== e.tier;
-                return (
-                  <>
-                    {isBreak && (
-                      <tr key={`t${e.player_id}`}>
-                        <td colSpan={statCols.length + 7} className="px-3 py-1 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                          <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: TIER_COLORS[e.tier] }} />
-                          {TIER_LABEL[e.tier] ?? `Tier ${e.tier}`}
-                        </td>
-                      </tr>
-                    )}
-                    <StatRow key={e.player_id} e={e} mode={mode} cols={statCols}>
-                      <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-1 justify-end">
-                          {editing === e.player_id ? (
-                            <input autoFocus className="input py-0.5 text-xs w-32" placeholder="note…"
-                              value={e.note ?? ''} onChange={ev => patch(e.player_id, { note: ev.target.value })}
-                              onBlur={() => setEditing(null)}
-                              onKeyDown={ev => { if (ev.key === 'Enter') setEditing(null); }} />
-                          ) : (
-                            <button className="text-[11px] text-slate-500 hover:text-slate-600"
-                              title={e.note || 'add note'} onClick={() => setEditing(e.player_id)}>
-                              {e.note ? '✎*' : '✎'}
-                            </button>
-                          )}
-                          <select aria-label={`Tier for ${e.name ?? 'this player'}`} className="w-14 bg-slate-50 border border-slate-200 rounded text-[11px] px-1 py-0.5 text-slate-600"
-                            value={e.tier} onChange={ev => patch(e.player_id, { tier: Number(ev.target.value) })}>
-                            {[1, 2, 3, 4, 5, 6].map(t => <option key={t} value={t}>T{t}</option>)}
-                          </select>
-                          <div className="flex flex-col leading-none">
-                            <button className="text-slate-500 hover:text-slate-700 text-[9px]" onClick={() => move(i, i - 1)}>▲</button>
-                            <button className="text-slate-500 hover:text-slate-700 text-[9px]" onClick={() => move(i, i + 1)}>▼</button>
-                          </div>
-                        </div>
-                      </td>
-                    </StatRow>
-                  </>
-                );
-              })}
+            <tbody ref={body} className="divide-y divide-slate-100" data-rows={visible.length} data-drawn={win.end - win.start}>
+              {win.padTop > 0 && <tr aria-hidden style={{ height: win.padTop }} data-spacer="top"><td colSpan={statCols.length + 7} /></tr>}
+              {lines.slice(win.start, win.end).map(({ kind, e, i }) => kind === 'tier' ? (
+                <tr key={`t${e.player_id}`} ref={el => win.measure('tier', el)}>
+                  <td colSpan={statCols.length + 7} className="px-3 py-1 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: TIER_COLORS[e.tier] }} />
+                    {TIER_LABEL[e.tier] ?? `Tier ${e.tier}`}
+                  </td>
+                </tr>
+              ) : (
+                  <StatRow key={e.player_id} e={e} mode={mode} cols={statCols} rowRef={el => win.measure('row', el)}>
+                  <td className="px-2 py-1.5">
+                    <div className="flex items-center gap-1 justify-end">
+                      {editing === e.player_id ? (
+                        <input autoFocus className="input py-0.5 text-xs w-32" placeholder="note…"
+                          value={e.note ?? ''} onChange={ev => patch(e.player_id, { note: ev.target.value })}
+                          onBlur={() => setEditing(null)}
+                          onKeyDown={ev => { if (ev.key === 'Enter') setEditing(null); }} />
+                      ) : (
+                        <button className="text-[11px] text-slate-500 hover:text-slate-600"
+                          title={e.note || 'add note'} onClick={() => setEditing(e.player_id)}>
+                          {e.note ? '✎*' : '✎'}
+                        </button>
+                      )}
+                      <select aria-label={`Tier for ${e.name ?? 'this player'}`} className="w-14 bg-slate-50 border border-slate-200 rounded text-[11px] px-1 py-0.5 text-slate-600"
+                        value={e.tier} onChange={ev => patch(e.player_id, { tier: Number(ev.target.value) })}>
+                        {[1, 2, 3, 4, 5, 6].map(t => <option key={t} value={t}>T{t}</option>)}
+                      </select>
+                      <div className="flex flex-col leading-none">
+                        <button className="text-slate-500 hover:text-slate-700 text-[9px]" onClick={() => move(i, i - 1)}>▲</button>
+                        <button className="text-slate-500 hover:text-slate-700 text-[9px]" onClick={() => move(i, i + 1)}>▼</button>
+                      </div>
+                    </div>
+                  </td>
+                  </StatRow>
+              ))}
+              {win.padBottom > 0 && <tr aria-hidden style={{ height: win.padBottom }} data-spacer="bottom"><td colSpan={statCols.length + 7} /></tr>}
             </tbody>
           </table>
         </div>

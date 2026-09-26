@@ -5,6 +5,7 @@ import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
 import DraftRecap from '../components/DraftRecap';
 import { PageError, PageLoading } from '../components/PageState';
+import { Button, Card, Chip, PageHeader } from '../components/ui/DesignSystem';
 import DraftQueue from '../features/draft/DraftQueue';
 import { useDraftQueue } from '../features/draft/useDraftQueue';
 
@@ -152,120 +153,102 @@ export default function DraftRoom() {
   const pickByCell = new Map(draft.picks.map(p => [`${Math.ceil(p.pick_number / draft.team_count)}|${p.team_slot}`, p]));
 
   return (
-    <div>
+    <div className="draft-room">
       <DraftRecap draft={draft} open={recapOpen} onClose={() => setRecapOpen(false)} />
-      {/* ---- status bar ---- */}
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <Link to="/draft" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
-        <h1 className="text-lg font-bold">{draft.name}</h1>
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isMock ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
-          {isMock ? 'MOCK' : 'LIVE'}
-        </span>
-        <span className="text-xs text-slate-400">Pick {Math.min(nextPick, totalPicks)}/{totalPicks} · Rd {round}</span>
-        <div className="ml-auto flex gap-2">
-          {isMock && !draftOver && (
-            <button className="btn-ghost" onClick={() => setPausedRemote(!paused)}>{paused ? '▶ Resume' : '⏸ Pause'}</button>
-          )}
-          {isMock && !draftOver && (
-            <button className="btn-ghost" onClick={async () => {
-              await api(`/drafts/${id}/sim-to-end`, { method: 'POST' });
-              refetch();
-            }}>⏭ Sim to end</button>
-          )}
-          {draft.picks.length > 0 && (
-            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>Recap</button>
-          )}
-          <button className="btn-ghost" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo</button>
-        </div>
-      </div>
+      <PageHeader eyebrow="Draft" title={draft.name}
+        meta={<>
+          <Link to="/draft" className="ds-note hover:underline">← All drafts</Link>
+          <Chip tone={isMock ? 'accent' : 'warn'}>{isMock ? 'Mock' : 'Live'}</Chip>
+          <span className="ds-note tabular-nums">Pick {Math.min(nextPick, totalPicks)} of {totalPicks} · round {round}</span>
+          {paused && <Chip tone="warn">Paused</Chip>}
+        </>}
+        actions={<>
+          {isMock && !draftOver && <Button size="sm" onClick={() => setPausedRemote(!paused)}>{paused ? 'Resume' : 'Pause'}</Button>}
+          {isMock && !draftOver && <Button size="sm" onClick={async () => { await api(`/drafts/${id}/sim-to-end`, { method: 'POST' }); refetch(); }}>Sim to end</Button>}
+          {draft.picks.length > 0 && <Button size="sm" onClick={() => setRecapOpen(true)}>Recap</Button>}
+          <Button size="sm" variant="quiet" onClick={undo} disabled={draft.picks.length === 0} title={draft.picks.length === 0 ? 'No pick to undo yet' : 'Undo the last pick'}>Undo</Button>
+        </>} />
 
-      {/* ---- ON THE CLOCK banner ---- */}
+      {/* ---- the clock ---- */}
       {draftOver ? (
-        <div className="card p-4 mb-4 flex items-center justify-center gap-3">
-          <span className="text-slate-600 font-semibold">Draft complete — {myPicks.length} players on your roster.</span>
-          <button className="btn-primary" onClick={() => setRecapOpen(true)}>View recap &amp; grade</button>
-        </div>
+        <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 !p-4">
+          <span className="font-semibold">Draft complete: {myPicks.length} players on your roster.</span>
+          <Button variant="primary" onClick={() => setRecapOpen(true)}>View recap and grade</Button>
+        </Card>
       ) : myTurn ? (
-        <div className={`rounded-2xl mb-4 overflow-hidden border-2 ${urgent ? 'border-rose-500' : 'border-emerald-500'}`}>
-          <div className={`px-5 py-3 flex items-center gap-4 flex-wrap ${urgent ? 'bg-rose-600' : 'bg-emerald-600'}`}>
-            <span className="text-white font-black tracking-wide text-lg">YOU'RE ON THE CLOCK</span>
+        <section className={`dr-clock mb-4 ${urgent ? 'dr-clock-urgent' : ''}`} aria-live="polite" data-testid="on-the-clock">
+          <div className="dr-clock-bar">
+            <span className="dr-clock-t">You're on the clock</span>
             {secondsLeft != null && (
-              <span className={`font-mono tabular-nums text-3xl font-black text-white ${urgent ? 'animate-pulse' : ''}`}>
+              <span className={`dr-clock-time tabular-nums ${urgent ? 'animate-pulse' : ''}`}>
                 {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
               </span>
             )}
-            <span className="text-white/80 text-xs ml-auto">
-              Round {round}, pick {posInRound}{isMock ? ' · auto-picks the recommendation at 0:00' : ''}
-            </span>
+            <span className="dr-clock-s">Round {round}, pick {posInRound}{isMock ? ' · auto-picks the recommendation at 0:00' : ''}</span>
           </div>
           {rec?.recommendation && (
-            <div className="bg-white px-5 py-4">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Recommended</span>
+            <div className="dr-clock-body">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="ds-eyebrow !mb-0">Recommended</span>
                 <Headshot src={headshotUrl(rec.recommendation)} pos={rec.recommendation.position} size={40} />
                 <PosBadge pos={rec.recommendation.position} />
-                <div>
-                  <div className="font-bold text-slate-900 leading-tight">{rec.recommendation.name}</div>
-                  <div className="text-[11px] text-slate-500">
+                <div className="min-w-0">
+                  <div className="font-semibold leading-tight">{rec.recommendation.name}</div>
+                  <div className="ds-note">
                     {rec.recommendation.team_abbr} · market #{rec.recommendation.market_rank}
                     {rec.recommendation.projected_points != null && (
-                      <> · proj <strong className="text-slate-700">{Math.round(rec.recommendation.projected_points)}</strong>
+                      <> · proj <strong className="text-[var(--c-ink)]">{Math.round(rec.recommendation.projected_points)}</strong>
                         {rec.recommendation.projected_pos_rank && ` (${rec.recommendation.position}${rec.recommendation.projected_pos_rank})`}</>
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => pick(rec.recommendation.player_id)}
-                  className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base px-6 py-3 rounded-xl shadow-sm">
-                  ✓ DRAFT {lastName(rec.recommendation.name).toUpperCase()}
-                </button>
+                <Button variant="primary" size="lg" icon="check" className="ml-auto" onClick={() => pick(rec.recommendation.player_id)}>
+                  Draft {lastName(rec.recommendation.name)}
+                </Button>
               </div>
-              <p className="text-xs text-slate-600 mt-2">{rec.recommendation.why}</p>
+              <p className="ds-note mt-2">{rec.recommendation.why}</p>
               {rec.alternatives?.length > 0 && (
-                <div className="flex gap-2 mt-3 flex-wrap items-center">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wide">Or take:</span>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="ds-note">Or take</span>
                   {rec.alternatives.slice(0, 4).map((a: any) => (
-                    <button key={a.player_id} onClick={() => pick(a.player_id)}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-white border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 font-medium">
+                    <Button key={a.player_id} size="sm" onClick={() => pick(a.player_id)}>
                       <span className={`font-bold pos-${a.position}`}>{a.position}</span> {lastName(a.name)}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               )}
             </div>
           )}
-        </div>
+        </section>
       ) : (
-        <div className="card px-4 py-3 mb-4 flex items-center gap-3 overflow-hidden">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-          <span className="text-sm font-semibold text-slate-700 shrink-0">Team {onClockSlot} on the clock</span>
+        <Card className="mb-4 flex items-center gap-3 overflow-hidden !px-4 !py-3">
+          <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[var(--c-green)]" aria-hidden />
+          <span className="shrink-0 text-sm font-semibold">Team {onClockSlot} on the clock</span>
           {lastCpu && (
-            <div className="flex items-center gap-2.5 ml-4 min-w-0 transition-all ease-out duration-300"
+            <div className="ml-2 flex min-w-0 items-center gap-2.5 transition-all duration-300 ease-out"
               style={{ opacity: entering ? 1 : 0, transform: entering ? 'translateY(0)' : 'translateY(6px)' }}>
-              <span className="text-[10px] font-mono text-slate-400 shrink-0">
+              <span className="ds-note shrink-0 font-mono">
                 {lastCpu.round}.{String(((lastCpu.pick_number - 1) % draft.team_count) + 1).padStart(2, '0')}
               </span>
               <Headshot src={headshotUrl(lastCpu)} pos={lastCpu.position} size={30} />
-              <span className="font-bold text-slate-800 shrink-0">{lastCpu.name}</span>
-              <span className="text-xs text-slate-400 shrink-0">{lastCpu.team_abbr}</span>
-              {lastCpu.reason && <span className="text-xs text-slate-500 italic truncate">“{lastCpu.reason}”</span>}
+              <span className="shrink-0 font-semibold">{lastCpu.name}</span>
+              <span className="ds-note shrink-0">{lastCpu.team_abbr}</span>
+              {lastCpu.reason && <span className="ds-note truncate italic">“{lastCpu.reason}”</span>}
             </div>
           )}
-          {paused && <span className="ml-auto text-xs text-amber-600 font-medium shrink-0">paused</span>}
-        </div>
+        </Card>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr_210px] gap-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_1fr_210px]">
         {/* ---- available ---- */}
-        <div className="card overflow-hidden flex flex-col max-h-[68vh]">
-          <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-200 bg-slate-50">
-            <h3 className="text-sm font-bold text-slate-700 mr-auto">Best Available</h3>
-            {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
-              <button key={p} onClick={() => setFilter(p)}
-                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${filter === p ? 'bg-sky-100 text-sky-900' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>{p}</button>
-            ))}
+        <section className="dr-panel" aria-labelledby="dr-avail">
+          <div className="dr-panel-h">
+            <h2 id="dr-avail" className="ds-h mr-auto">Best available</h2>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Position">
+              {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => <Chip key={p} on={filter === p} onClick={() => setFilter(p)}>{p === 'ALL' ? 'All' : p}</Chip>)}
+            </div>
           </div>
-          <div className="overflow-y-auto divide-y divide-slate-100">
+          <div className="dr-panel-b divide-y divide-[var(--c-line)]">
             {available.slice(0, 80).map(a => (
               <PlayerRow
                 key={a.player_id}
@@ -289,64 +272,50 @@ export default function DraftRoom() {
                   return bits.length ? bits.join(' · ') : undefined;
                 })()}
                 action={
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button type="button"
                       onClick={e => { e.stopPropagation(); myQueue.has(a.player_id) ? myQueue.remove(a.player_id) : myQueue.add(a.player_id); }}
                       disabled={draftOver}
-                      title={myQueue.has(a.player_id) ? 'Remove from queue' : 'Add to queue'}
-                      className={`shrink-0 text-[9px] font-black w-5 h-5 rounded-md transition-colors
-                        ${myQueue.has(a.player_id)
-                          ? 'bg-sky-600 text-white hover:bg-sky-500'
-                          : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                      title={draftOver ? 'The draft is over' : myQueue.has(a.player_id) ? 'Remove from queue' : 'Add to queue'}
+                      aria-label={myQueue.has(a.player_id) ? `Remove ${a.name} from queue` : `Add ${a.name} to queue`}
+                      className={`dr-mini ${myQueue.has(a.player_id) ? 'dr-mini-on' : ''}`}>
                       {myQueue.has(a.player_id) ? '✓' : '+'}
                     </button>
-                    <button
+                    <button type="button"
                       onClick={e => { e.stopPropagation(); pick(a.player_id); }}
                       disabled={draftOver}
-                      title={myTurn ? 'Draft this player' : 'Mark as taken'}
-                      className={`shrink-0 text-[9px] font-black px-1.5 py-1 rounded-md transition-colors
-                        ${draftOver
-                          ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
-                          : myTurn
-                          ? 'bg-emerald-600 text-white hover:bg-emerald-500'
-                          : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'}`}>
-                      {draftOver ? 'DONE' : myTurn ? 'DRAFT' : 'TAKEN'}
+                      title={draftOver ? 'The draft is over' : myTurn ? 'Draft this player' : 'Mark as taken by another team'}
+                      className={`dr-pick ${myTurn && !draftOver ? 'dr-pick-go' : ''}`}>
+                      {draftOver ? 'Done' : myTurn ? 'Draft' : 'Taken'}
                     </button>
                   </div>
                 }
               />
             ))}
-            {available.length === 0 && <p className="p-4 text-xs text-slate-500">Board is empty — add players in Rankings.</p>}
+            {available.length === 0 && <p className="ds-note p-4">The board is empty. Add players in Players → Rankings.</p>}
           </div>
-        </div>
+        </section>
 
         {/* ---- board: compact cells, horizontal scroll, nothing overlaps ---- */}
-        <div className="card overflow-hidden flex flex-col max-h-[68vh]">
-          <div className="px-3 py-2 border-b border-slate-200 bg-slate-50 flex items-center">
-            <h3 className="text-sm font-bold text-slate-700">Draft Board</h3>
-            <div className="ml-auto flex items-center gap-1">
-              <button onClick={() => setZoom(z => Math.max(0.7, +(z - 0.15).toFixed(2)))}
-                className="w-6 h-6 rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 text-sm leading-none"
-                title="Zoom out">−</button>
-              <span className="text-[10px] text-slate-400 w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(z => Math.min(1.6, +(z + 0.15).toFixed(2)))}
-                className="w-6 h-6 rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 text-sm leading-none"
-                title="Zoom in">+</button>
-              <button onClick={() => setZoom(1)}
-                className="text-[10px] text-slate-400 hover:text-slate-700 ml-1">reset</button>
+        <section className="dr-panel" aria-labelledby="dr-board">
+          <div className="dr-panel-h">
+            <h2 id="dr-board" className="ds-h mr-auto">Draft board</h2>
+            <div className="flex items-center gap-1">
+              <button type="button" className="dr-mini" onClick={() => setZoom(z => Math.max(0.7, +(z - 0.15).toFixed(2)))} title="Zoom out" aria-label="Zoom out">−</button>
+              <span className="ds-note w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+              <button type="button" className="dr-mini" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.15).toFixed(2)))} title="Zoom in" aria-label="Zoom in">+</button>
+              <Button size="sm" variant="quiet" onClick={() => setZoom(1)} disabled={zoom === 1} title={zoom === 1 ? 'Already at 100%' : 'Back to 100%'}>Reset</Button>
             </div>
           </div>
-          <div className="overflow-auto p-2">
+          <div className="dr-panel-b overflow-auto p-2">
             <table className="border-separate" style={{ borderSpacing: '3px' }}>
               <thead>
                 <tr>
                   <th className="w-5" />
                   {Array.from({ length: draft.team_count }, (_, i) => (
-                    <th key={i}
-                      style={{ width: 74 * zoom, fontSize: 9 * zoom }}
-                      className={`font-bold py-0.5 rounded
-                        ${i + 1 === draft.my_slot ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
-                      {i + 1 === draft.my_slot ? 'YOU' : `T${i + 1}`}
+                    <th key={i} style={{ width: 74 * zoom, fontSize: 10 * zoom }}
+                      className={`rounded py-0.5 font-semibold ${i + 1 === draft.my_slot ? 'dr-you' : 'text-[var(--c-muted)]'}`}>
+                      {i + 1 === draft.my_slot ? 'You' : `T${i + 1}`}
                     </th>
                   ))}
                 </tr>
@@ -354,25 +323,25 @@ export default function DraftRoom() {
               <tbody>
                 {Array.from({ length: roundsToShow }, (_, r) => (
                   <tr key={r}>
-                    <td className="text-[9px] text-slate-400 font-mono text-right pr-0.5">{r + 1}</td>
+                    <td className="pr-0.5 text-right font-mono text-[10px] text-[var(--c-muted)]">{r + 1}</td>
                     {Array.from({ length: draft.team_count }, (_, i) => {
                       const slot = i + 1;
                       const p = pickByCell.get(`${r + 1}|${slot}`) ?? null;
                       const isLatest = p && p.pick_number === lastPickNo;
                       return (
                         <td key={slot} className="p-0 align-top">
-                          <div
-                            style={{ width: 74 * zoom, height: 34 * zoom }}
-                            className={`rounded-md border px-1 py-0.5 overflow-hidden transition-all duration-700 ease-out
-                              ${p ? (POS_TINT[p.position] ?? 'bg-slate-50 border-slate-200') : 'bg-slate-50/40 border-dashed border-slate-200'}
-                              ${isLatest ? 'ring-2 ring-emerald-400/70' : ''}
-                              ${slot === draft.my_slot && !p ? 'border-emerald-300' : ''}`}>
-                            {p ? (
+                          <div style={{ width: 74 * zoom, height: 34 * zoom }}
+                            className={`overflow-hidden rounded-md border px-1 py-0.5 transition-all duration-700 ease-out
+                              ${p ? (POS_TINT[p.position] ?? 'dr-cell') : 'dr-cell-empty'}
+                              ${isLatest ? 'ring-2 ring-[var(--c-accent-ring)]' : ''}
+                              ${slot === draft.my_slot && !p ? 'dr-cell-mine' : ''}`}
+                            aria-label={p ? `${p.position} ${p.name}` : `Round ${r + 1}, team ${slot}: not picked yet`}>
+                            {p && (
                               <>
-                                <div style={{ fontSize: 8 * zoom }} className="font-bold text-slate-500 leading-none">{p.position}</div>
-                                <div style={{ fontSize: 10.5 * zoom }} className="font-semibold text-slate-800 leading-tight truncate">{lastName(p.name)}</div>
+                                <div style={{ fontSize: 8 * zoom }} className="font-bold leading-none text-[var(--c-ink2)]">{p.position}</div>
+                                <div style={{ fontSize: 10.5 * zoom }} className="truncate font-semibold leading-tight text-[var(--c-ink)]">{lastName(p.name)}</div>
                               </>
-                            ) : <div className="text-[9px] text-slate-300 text-center leading-[26px]">—</div>}
+                            )}
                           </div>
                         </td>
                       );
@@ -382,37 +351,28 @@ export default function DraftRoom() {
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        {/* ---- my team ---- */}
-        <div className="card overflow-hidden flex flex-col max-h-[68vh]">
-          <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
-            <h3 className="text-sm font-bold text-slate-700">My Team ({myPicks.length})</h3>
-          </div>
-          <div className="overflow-y-auto p-2 space-y-1 flex-1 min-h-[8rem]">
+        {/* ---- my team and queue ---- */}
+        <section className="dr-panel" aria-labelledby="dr-mine">
+          <div className="dr-panel-h"><h2 id="dr-mine" className="ds-h">My team ({myPicks.length})</h2></div>
+          <div className="dr-panel-b min-h-[8rem] flex-1 space-y-1 p-2">
             {myPicks.map(p => (
-              <div key={p.pick_number} className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 overflow-hidden ${POS_TINT[p.position] ?? 'bg-slate-50 border-slate-200'}`}>
-                <span className="text-[10px] text-slate-400 font-mono w-5 shrink-0">{p.pick_number}</span>
-                <span className={`text-[10px] font-black w-6 shrink-0 pos-${p.position}`}>{p.position}</span>
-                <PlayerName id={p.player_id} className="text-xs font-medium truncate flex-1 min-w-0">{p.name}</PlayerName>
+              <div key={p.pick_number} className={`flex items-center gap-1.5 overflow-hidden rounded-lg border px-2 py-1.5 ${POS_TINT[p.position] ?? 'dr-cell'}`}>
+                <span className="w-5 shrink-0 font-mono text-[10px] text-[var(--c-ink2)]">{p.pick_number}</span>
+                <span className={`w-6 shrink-0 text-[10px] font-black pos-${p.position}`}>{p.position}</span>
+                <PlayerName id={p.player_id} className="min-w-0 flex-1 truncate text-xs font-medium">{p.name}</PlayerName>
               </div>
             ))}
-            {myPicks.length === 0 && <p className="text-xs text-slate-500 p-2">Your picks land here.</p>}
+            {myPicks.length === 0 && <p className="ds-note p-2">Your picks land here.</p>}
           </div>
-          <div className="border-t border-slate-200 mt-auto">
-            <div className="px-3 py-2 bg-slate-50 flex items-center">
-              <h3 className="text-sm font-bold text-slate-700">Queue ({myQueue.queue.length})</h3>
-            </div>
-            <div className="overflow-y-auto p-2 max-h-[24vh]">
-              <DraftQueue
-                queue={myQueue.queue}
-                players={playersById}
-                onReorder={myQueue.reorder}
-                onRemove={myQueue.remove}
-              />
+          <div className="mt-auto border-t border-[var(--c-line)]">
+            <div className="dr-panel-h !border-b-0"><h2 className="ds-h">Queue ({myQueue.queue.length})</h2></div>
+            <div className="max-h-[24vh] overflow-y-auto p-2">
+              <DraftQueue queue={myQueue.queue} players={playersById} onReorder={myQueue.reorder} onRemove={myQueue.remove} />
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

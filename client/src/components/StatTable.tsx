@@ -36,8 +36,10 @@ function derive(line: any) {
 }
 
 /** One row of the ranking stat table. */
-export function StatRow({ e, mode, cols, children }: {
+export function StatRow({ e, mode, cols, children, rowRef }: {
   e: any; mode: StatMode; cols: [string, string][]; children?: React.ReactNode;
+  /** A windowed list (lib/windowRows) measures a drawn row's height through this. */
+  rowRef?: (el: HTMLTableRowElement | null) => void;
 }) {
   const open = usePlayerCard();
   const st = e.stats ?? {};
@@ -46,7 +48,7 @@ export function StatRow({ e, mode, cols, children }: {
   const pts = mode === 'projected' ? st.projected_points : st.last_season_points;
 
   return (
-    <tr className="hover:bg-emerald-50/50 group">
+    <tr ref={rowRef} className="hover:bg-emerald-50/50 group">
       <td className="pl-3 pr-1 py-1.5 text-right text-xs font-mono text-slate-400 tabular-nums">{e.rank}</td>
       <td className="px-1 py-1.5">
         <div className="flex items-center gap-2 min-w-0">

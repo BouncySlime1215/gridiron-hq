@@ -44,6 +44,20 @@ const { scoreForRules } = await import('./fixtures/rule-gate.mjs');
 
 const AJ = '277';
 
+// The UI harness and every module load BEFORE any test is registered: node:test starts running
+// registered tests during a top-level await, and a root after() hook (the harness cleanup) could
+// delete the compiled dir while a later import is still pending (CI, #487).
+const { loadWarRoom, textOf } = await import('./helpers/warroom-tsx.mjs');
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const producer = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'ui-contract-plans.json'), 'utf8'));
+const { buildWarRoomView } = await import('../server/services/war-room-view.js');
+const wr = await loadWarRoom();
+const { default: NextMoveDeck } = await wr.mod('NextMoveDeck');
+const { AjAllowToggle, AjAllowedChip } = await wr.mod('AjPick');
+const { default: ScreenGoGet } = await wr.mod('ScreenGoGet');
+const { ajConfirm, postWarRoomRequest } = await wr.mod('requests');
+test.after(() => wr.cleanup());
+
 /* ------------------------------------------------------------ 1. requests */
 
 test('requests: aj.allow / aj.revoke / aj.confirm are Nick\'s alone', () => {
@@ -287,16 +301,6 @@ test('plans schema: a waiting A.J. card is never next_move and never ahead of a 
 
 /* ------------------------------------------------------------ 6. the UI */
 
-const { loadWarRoom, textOf } = await import('./helpers/warroom-tsx.mjs');
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const producer = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'ui-contract-plans.json'), 'utf8'));
-const { buildWarRoomView } = await import('../server/services/war-room-view.js');
-const wr = await loadWarRoom();
-test.after(() => wr.cleanup());
-const { default: NextMoveDeck } = await wr.mod('NextMoveDeck');
-const { AjAllowToggle, AjAllowedChip } = await wr.mod('AjPick');
-const { default: ScreenGoGet } = await wr.mod('ScreenGoGet');
-const { ajConfirm, postWarRoomRequest } = await wr.mod('requests');
 
 const viewWith = mutate => {
   const leagues = structuredClone(producer.leagues);

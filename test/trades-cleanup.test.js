@@ -33,7 +33,8 @@ test('2. one Go get: the planner\'s target cards, with "Someone else?" closing t
 });
 
 test('3. one context bar in the page header: values chip, untouchables chip + sheet, Trading as only when needed', () => {
-  assert.match(trades, /<PageHeader eyebrow="Trades" title="Trades" actions=\{<TradeDeskHeader desk=\{desk\} \/>\} \/>/);
+  // AJ-PICK adds its "A.J. allowed for" chip to the same bar (extra), only when A.J. is on Nick's roster.
+  assert.match(trades, /<PageHeader eyebrow="Trades" title="Trades" actions=\{<TradeDeskHeader desk=\{desk\}\s+extra=\{ajMine \? <AjAllowedChip [^}]*\} nameOf=\{[^}]*\} \/> : null\} \/>\} \/>/);
   assert.equal((trades.match(/<TradeDeskHeader /g) ?? []).length, 1, 'shown once, not per view');
   assert.match(lab, /<MarketAsOf asOf=\{rosters\?\.market_as_of\} compact \/>/);
   assert.match(lab, /Untouchables: \{locked\.length\}/);

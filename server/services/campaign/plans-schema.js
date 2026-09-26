@@ -192,6 +192,8 @@ const step = obj({
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
   p_yes_band: obj({ low: prob, high: prob }, { basis: oneOf(['no_information', 'heuristic_unanchored', 'heuristic_anchored']) }),
   counterpart: field(stepCounterpart),
+  // AJ-PICK: this step gives A.J. Brown and needs Nick's OK.
+  requires_nick_confirm: bool,
   // CAP-1C: the premium over the 0 cap on a depth-only 2-for-1, and the lineup / title gains that allowed it.
   depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
     { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num })),
@@ -213,6 +215,9 @@ const move = obj({
   delta_final: numF,
   expected: numF,
   reasoning: field(reasoning)
+}, {
+  // AJ-PICK: the card gives A.J. Brown for a player Nick picked (aj_for); it is never the next move until he OKs it.
+  requires_nick_confirm: bool, nick_confirmed: bool, aj_for: arr(pid, { min: 1 })
 });
 
 const destination = obj({
@@ -518,6 +523,16 @@ function crossCheck(entry, path, ctx) {
   const next = okValue(entry.next_move);
   if (next && Array.isArray(deck) && deck.length && next.move_id !== deck[0]?.move_id) {
     err('next_move.value.move_id', 'must be the head of the deck (alternatives.value[0].move_id)');
+  }
+  // AJ-PICK: a card that gives A.J. Brown is the next move only once Nick OK'd it; waiting cards sit after the deck.
+  if (next && next.requires_nick_confirm && !next.nick_confirmed) err('next_move.value', "gives A.J. Brown without Nick's OK");
+  if (Array.isArray(deck)) {
+    let seenWaiting = false;
+    deck.forEach((m, i) => {
+      const w = !!m?.requires_nick_confirm && !m?.nick_confirmed;
+      if (!w && seenWaiting) err(`alternatives.value[${i}]`, 'a card waiting on Nick\'s OK must come after every other card');
+      if (w) seenWaiting = true;
+    });
   }
   if (next && entry.alternatives?.status === 'ok' && Array.isArray(deck) && !deck.length) {
     err('next_move', 'is ok but the deck is empty');

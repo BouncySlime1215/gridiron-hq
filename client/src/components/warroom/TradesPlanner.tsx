@@ -15,6 +15,7 @@ import { useHeadshotMap, useNegotiations } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
 import { FIXED_QUESTIONS } from './coach/CoachDrawer';
 import { postWarRoomRequest, type WarRoomRequest } from './requests';
+import type { AjPicks } from './AjPick';
 
 /**
  * The War Room planner's content inside the Trades frame (like Today's TodayPanel): no War Room top
@@ -24,9 +25,11 @@ import { postWarRoomRequest, type WarRoomRequest } from './requests';
  *   'goget'   pick who to go get → paths → the offer; `someoneElse` closes the target list
  *   'market'  the flip map (buy from → sell to), shown inside Find deals
  */
-export default function TradesPlanner({ part, view, leagueId, onAsk, someoneElse }: {
+export default function TradesPlanner({ part, view, leagueId, onAsk, someoneElse, aj = null }: {
   part: 'next' | 'goget' | 'market'; view: WarRoomView; leagueId: number;
   onAsk: (question?: string) => void; someoneElse?: ReactNode;
+  /** AJ-PICK: Nick's picks for A.J. Brown (Go get's toggle). */
+  aj?: AjPicks | null;
 }) {
   setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const negotiations = useNegotiations(leagueId);
@@ -55,7 +58,7 @@ export default function TradesPlanner({ part, view, leagueId, onAsk, someoneElse
                 )}
               </>
             )}
-            {part === 'goget' && <ScreenGoGet view={view} leagueId={leagueId} current={null} onRequest={send} someoneElse={someoneElse} compact />}
+            {part === 'goget' && <ScreenGoGet view={view} leagueId={leagueId} current={null} onRequest={send} someoneElse={someoneElse} compact aj={aj} />}
             {part === 'market' && <ScreenMarket view={view} />}
           </PanelBoundary>
         </div>

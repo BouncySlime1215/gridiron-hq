@@ -14,6 +14,7 @@ import NoMoveHero from './NoMoveHero';
 import SwipeDeck from './SwipeDeck';
 import HeroCard from './HeroCard';
 import { CopyBlock, Ladder, messageLabel } from './cardParts';
+import { AjOkBanner, needsAjOk } from './AjPick';
 
 /** WAR-ROOM-UI v2: the card on screen, for the page's Details disclosure (MoveDetails). */
 export interface CurrentMove { move: Move; index: number; onReply?: (reply: ReplyKind) => void; negotiating: boolean }
@@ -119,7 +120,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
   }, [deck.asking]);
 
   const next = () => { if (move) dispatch({ type: 'next', total, card: move.move_id, at: Date.now() }); };
-  const doIt = () => { if (move) dispatch({ type: 'do_it', card: move.move_id, at: Date.now() }); };
+  const doIt = () => { if (move && !needsAjOk(move)) dispatch({ type: 'do_it', card: move.move_id, at: Date.now() }); };
   const back = () => {
     const prev = deck.skipped[deck.skipped.length - 1];
     if (prev != null) dispatch({ type: 'back', card: moves[prev]?.move_id ?? '', at: Date.now() });
@@ -197,22 +198,25 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     const buttons = (
       <div className="wr-acts">
         <button type="button" className={`wr-btn${big ? ' wr-big-btn' : ''}`} onClick={next} title="Left arrow or swipe left">Next →</button>
-        <button type="button" className={`wr-btn${big ? ' wr-big-btn' : ''} wr-primary`} onClick={doIt} title="Right arrow or swipe right">Do it</button>
+        {!needsAjOk(m) && <button type="button" className={`wr-btn${big ? ' wr-big-btn' : ''} wr-primary`} onClick={doIt} title="Right arrow or swipe right">Do it</button>}
       </div>
     );
     const dealLine = `Offer ${partner}: ${n.text(s.give)} for ${n.text(s.get)}`;
+    // AJ-PICK: a card giving A.J. Brown waits for Nick's own OK; until then it cannot be picked or sent.
+    const ajBanner = needsAjOk(m) ? <AjOkBanner move={m} leagueId={leagueId} forText={n.text(m.aj_for ?? [])} post={post} /> : null;
 
     if (hero) {
       return (
-        <HeroCard move={m} view={view} leagueId={leagueId} chosen={!thread && deck.chosen === i} isSent={isSent}
+        <HeroCard move={m} view={view} leagueId={leagueId} chosen={!thread && !ajBanner && deck.chosen === i} isSent={isSent}
           thread={thread ? <Negotiate thread={thread} onThread={onThread(m.move_id)} post={post} /> : null}
-          onPick={doIt} onMarkSent={markSent} onAskCoach={onAskCoach} />
+          onPick={doIt} onMarkSent={markSent} onAskCoach={onAskCoach} ajBanner={ajBanner} />
       );
     }
 
     if (!big) {
       return (
         <>
+          {ajBanner}
           <div className="wr-who wr-who-sm">Send to {partner}</div>
           {deal}
           <div className="wr-sub">
@@ -232,6 +236,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     const messageText = isOk(s.message) ? s.message.value : dealLine;
     return (
       <>
+        {ajBanner}
         <div className="wr-who">Send this to {partner}</div>
         {deal}
         {target && (
@@ -294,8 +299,11 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     </>
   ) : null;
 
+  // AJ-PICK: no move is served until Nick OKs one of these cards; the planner's reason says so.
+  const onlyAj = !isOk(view.next_move) && moves.every(needsAjOk);
   return (
     <div className="wr-deck">
+      {onlyAj && <div className="wr-hint" role="status" data-testid="aj-only-note">{view.next_move?.reason ?? 'No move is served yet: every card here gives A.J. Brown and needs your OK.'}</div>}
       <SwipeDeck cards={moves} index={idx} onNext={next} onOpen={doIt} onBack={back} canBack={deck.skipped.length > 0}
         renderCard={card} overlay={skipRow} end={end} bar={bar} arrows={hero} />
       {saveNote}

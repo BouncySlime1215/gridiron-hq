@@ -16,6 +16,8 @@ import { teamLabelIn } from '../components/warroom/types';
 import { isOk } from '../components/warroom/format';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import { FindDeals, MockTrade, TargetMany, TargetPlayer, TitleTrades, TradeDeskHeader, useTradeDesk } from './TradeLab';
+import { AjAllowedChip, ajOnMyRoster, useAjPicks } from '../components/warroom/AjPick';
+import { namer } from '../components/warroom/types';
 
 /**
  * Trades (docs/ui/CONSOLIDATION-MAP.md, area 7): one trade area.
@@ -57,6 +59,10 @@ export default function Trades() {
   const [goGetMany, setGoGetMany] = useState(false);
   const [rank, setRank] = useState<'best' | 'title' | 'flips'>(params.get('view') === 'title' ? 'title' : 'best');
   const desk = useTradeDesk();
+  // AJ-PICK: who Nick would take for A.J. Brown (Go get's toggles and the context bar's chip share one read).
+  const ajMine = warOn && !!warRoom.data && ajOnMyRoster(warRoom.data);
+  const aj = useAjPicks(ajMine ? activeId : null);
+  const ajNames = namer(warRoom.data?.names);
 
   // Two independent requests on the People view: the measured signal layer may not exist on this
   // server, and the hand-set tiers always work; neither holds the other hostage.
@@ -80,7 +86,8 @@ export default function Trades() {
   const ready = !!desk.active && !!desk.rosters?.teams?.length;
   return (
     <div className="mx-auto max-w-[1100px]">
-      <PageHeader eyebrow="Trades" title="Trades" actions={<TradeDeskHeader desk={desk} />} />
+      <PageHeader eyebrow="Trades" title="Trades" actions={<TradeDeskHeader desk={desk}
+        extra={ajMine ? <AjAllowedChip picks={aj} nameOf={id => ajNames.one(id).name} /> : null} />} />
       <div className="mb-5"><Tabs label="Trades views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
       {view === 'planner' && (warOn && activeId && warRoom.data
@@ -112,7 +119,7 @@ export default function Trades() {
             : <TargetPlayer leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />}
         </>;
         return warOn && activeId && warRoom.data
-          ? <TradesPlanner part="goget" view={warRoom.data} leagueId={activeId} onAsk={coach.open} someoneElse={someoneElse} />
+          ? <TradesPlanner part="goget" view={warRoom.data} leagueId={activeId} onAsk={coach.open} someoneElse={someoneElse} aj={ajMine ? aj : null} />
           : someoneElse;
       })()}
 

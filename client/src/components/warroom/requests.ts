@@ -5,13 +5,20 @@ import { api } from '../../api';
  * becomes one row in the request table via POST /api/warroom/:leagueId/requests.
  * The producer reads the rows (FIX-07); nothing here changes a plan or sends an offer.
  */
-export type RequestKind = 'deck.skip' | 'offer.sent' | 'offer.reply' | 'target.approve';
+export type RequestKind = 'deck.skip' | 'offer.sent' | 'offer.reply' | 'target.approve' | 'aj.allow' | 'aj.revoke' | 'aj.confirm';
 export interface WarRoomRequest { kind: RequestKind; payload: Record<string, unknown> }
 export type Poster = (path: string, init: RequestInit) => Promise<unknown>;
 
 /** Approve a suggested target: the producer's next run plans toward him. */
 export const targetApprove = (playerId: string): WarRoomRequest =>
   ({ kind: 'target.approve', payload: { player_id: playerId, source: 'suggested' } });
+
+/** AJ-PICK: allow (or stop allowing) A.J. Brown to be traded for this player. Nick's tap only. */
+export const ajAllow = (playerId: string, on: boolean): WarRoomRequest =>
+  ({ kind: on ? 'aj.allow' : 'aj.revoke', payload: { player_id: playerId } });
+
+/** AJ-PICK: Nick's OK on one exact card that gives A.J. Brown. */
+export const ajConfirm = (moveId: string): WarRoomRequest => ({ kind: 'aj.confirm', payload: { move_id: moveId } });
 
 export const requestPath = (leagueId: number) => `/warroom/${leagueId}/requests`;
 

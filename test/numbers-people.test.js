@@ -247,36 +247,36 @@ test('Ask Coach about this: the item goes into the thread focus, ids only', asyn
   assert.equal(activeThread(9911, 4, { create: false }).id, t.id, 'the same thread');
 });
 
-test('jevLane: Jev gets facts, Claude\'s read and signal labels (no chat text, no names), leads with its own take', async () => {
-  const { createJevLane, JEV_FEATURE, JEV_MODEL } = await import('../server/services/numbers-people/jev-lane.js');
+test('jevLane: the COACH-LANES Jev stage, fed Claude\'s read, facts and signal labels (no chat text, no names), leads with its take', async () => {
+  const { createJevLane, directJevAsk, JEV_FEATURE, JEV_MODEL } = await import('../server/services/numbers-people/jev-lane.js');
   const calls = [];
   const evaluate = async args => {
     calls.push(args);
-    return { answers: { stance: { type: 'choice', choice: 'wait', probabilities: { go: 0.2, wait: 0.7, avoid: 0.1 } },
-      basis: { type: 'choice', choice: 'willingness' }, backs_claude: { type: 'boolean', probability: 0.3 },
-      willing: { type: 'boolean', probability: 0.2 } }, usage: { inputTokens: 900, outputTokens: 0 } };
+    return { answers: { better_stance: { type: 'choice', choice: 'wait', probabilities: { go: 0.2, wait: 0.7, avoid: 0.1 } },
+      basis: { type: 'choice', choice: 'willingness', probabilities: { willingness: 0.6 } }, claude_call_right: { type: 'boolean', probability: 0.3 },
+      p_accept: { type: 'boolean', probability: 0.2 } }, usage: { inputTokens: 900, outputTokens: 0 } };
   };
-  const input = { item: { key: 'partner:3', kind: 'partner' }, facts: { p_responds: { value: 0.65, means: 'Chance he replies to an offer (a guess)' } },
+  const input = { item: { key: 'partner:3', kind: 'partner', players: [] }, facts: { p_responds: { value: 0.65, means: 'Chance he replies to an offer (a guess)' } },
     claude: { stance: 'go', basis: 'willingness', why: 'He replies often.' },
     signals: [{ ref: 's0', signal: 'profile', roster_id: '3', wants: 'P21 (WR)', p_open_to_trade: 0.7 }] };
-  const lane = createJevLane({ evaluate, env: { AI_GATEWAY_API_KEY: 'x' } });
+  const lane = createJevLane({ ask: directJevAsk({ evaluate, env: { AI_GATEWAY_API_KEY: 'x' } }) });
   const take = await lane(input);
   assert.equal(calls[0].model, JEV_MODEL);
-  assert.match(calls[0].state, /CLAUDE's call from the numbers alone: GO\. Claude: He replies often\./);
-  assert.doesNotMatch(calls[0].state, /decided on/, 'Jev picks its own basis');
-  assert.match(calls[0].state, /wants: P21 \(WR\)/);
-  assert.doesNotMatch(calls[0].state, /SENTINEL/);
+  assert.match(calls[0].state, /Claude's call on this partner: GO\. He replies often\./);
+  assert.match(calls[0].state, /P21 \(WR\)/);
+  assert.match(calls[0].state, /MANAGER M1/);
+  assert.doesNotMatch(calls[0].state, /SENTINEL|roster_id/);
   assert.deepEqual([take.lead, take.stance, take.basis], ['jev', 'wait', 'willingness']);
   assert.equal(take.probabilities.stance, 0.7);
-  assert.match(take.why, /^The chat read cuts against Claude's call; he does not read as ready to deal, so Jev says wait instead of go\.$/);
+  assert.match(take.why, /^The chat read cuts against Claude's call; he does not read as likely to accept, so Jev says wait instead of go\.$/);
   assert.doesNotMatch(take.why, /\d/);
   assert.ok(rows('SELECT 1 FROM ai_usage WHERE feature = ? AND model = ?', JEV_FEATURE, JEV_MODEL).length, 'Jev spend logged');
   // Not configured: no call, an honest skip.
-  const off = createJevLane({ evaluate, env: {} });
-  assert.deepEqual(await off(input), { skipped: 'jev_not_configured' });
+  const off = createJevLane({ ask: directJevAsk({ evaluate, env: {} }) });
+  assert.equal((await off(input)).skipped, 'jev_not_configured');
   // A failure is a skip that says so, not an exception.
-  const broken = createJevLane({ evaluate: async () => { throw Object.assign(new Error('gateway down'), { status: 503 }); }, env: { AI_GATEWAY_API_KEY: 'x' } });
-  assert.deepEqual(await broken(input), { skipped: 'jev_failed' });
+  const broken = createJevLane({ ask: directJevAsk({ evaluate: async () => { throw Object.assign(new Error('gateway down'), { status: 503 }); }, env: { AI_GATEWAY_API_KEY: 'x' } }) });
+  assert.equal((await broken(input)).skipped, 'jev_failed');
 });
 
 test('Coach: an answer about an item with a read carries that read (stored with the turn); flag off, none', async () => {

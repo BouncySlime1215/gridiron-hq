@@ -554,6 +554,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
 
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
+  // ROSTER-SPOT VALUE (consolidation.js): a list's starting-lineup points per game on ros_ppg, the same starters rule.
+  const lineupPpg = list => { const st = startersOf(list, slots); return list.filter(p => st.has(p.id)).reduce((s, p) => s + (Number(p.ros_ppg) || 0), 0); };
   const dl = deadlineWeek(svc, lg, payload);
   return {
     league: { id: leagueId, me, fetched_at: lg.fetched_at ?? '', week, deadline_week: dl,
@@ -563,7 +565,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       deadline_at: deadlineMs(payload) == null ? null : new Date(deadlineMs(payload)).toISOString(), review_hours: reviewHours(payload) },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock, chatInterest,
+    rosters, players, managers, starters, freeAgents, lineupPpg, priceStep, priceOf, sanity, tradeBlock, chatInterest,
     // FC-VALUE: which value Nick's rules read, and how many rostered players it could not price.
     valueSource: { status: fc.status, source: fc.source, fetched_at: fc.fetched_at, ...(fc.reason ? { reason: fc.reason } : {}),
       unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },

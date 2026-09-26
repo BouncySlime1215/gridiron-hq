@@ -99,6 +99,7 @@ import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { sellHighSummary } from '../../server/services/campaign/sell-high.js';
+import { playoffWeekSummary } from '../../server/services/campaign/playoff-week.js';
 import { buyLowPositions, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
@@ -316,6 +317,22 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  *         radarLedger (optional array): RADAR-WIRE's ledger rows (why-now.js#applyWhyNow) for each league that ships }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
+/**
+ * PLAYOFF-WEEK VALUE (shadow): the block for _run.inputs.playoff_week. Read after planning, so it can
+ * never constrain the search. A failed read is written as status 'error' with its reason and logged;
+ * the league's plan is unaffected.
+ */
+function playoffWeekBlock(adapter, entry, id, log) {
+  const me = adapter.league?.me;
+  const ids = [...(adapter.rosters?.get(me) ?? []), ...loveIdsOf(entry)];
+  try {
+    return playoffWeekSummary(adapter.playoffWeek(), { ids, targets: entry.targets ?? null });
+  } catch (e) {
+    log(`[warroom] league ${id}: playoff_week read failed: ${e.message}`);
+    return { lane: 'shadow', status: 'error', reason: String(e.message ?? e) };
+  }
+}
+
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
   flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
@@ -400,6 +417,9 @@ export async function buildPlansFile(leagues, {
           // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): Nick's players whose TD rate beats expected by > 1pp.
           // A label, weight 0, read after planning; nothing served reads it.
           ...(adapter.sellHigh ? { sell_high: sellHighSummary(adapter.sellHigh(), { untouchable: adapter.untouchable ?? [] }) } : {}),
+          // PLAYOFF-WEEK VALUE (shadow, GRIDIRON_PLAYOFF_WEEK_VALUE): same-season matchup read on the playoff weeks
+          // for Nick's roster and this entry's targets, and the tiebreak it WOULD make (logged, never applied).
+          ...(adapter.playoffWeek ? { playoff_week: playoffWeekBlock(adapter, entry, id, log) } : {}),
         };
       }
       if (buyLow) {

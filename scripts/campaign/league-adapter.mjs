@@ -24,6 +24,10 @@ import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { sellHighEnabled } from '../../server/services/campaign/sell-high.js';
 import { readSellHighInputs } from '../../server/services/campaign/sell-high-inputs.js';
+import { playoffWeekMode } from '../../server/services/campaign/playoff-week.js';
+import { readPlayoffWeekLines } from '../../server/services/campaign/playoff-week-inputs.js';
+import { matchupModel } from '../../server/services/matchups.js';
+import { scoringFor } from '../../server/services/scoring.js';
 import { buyLowEnabled } from '../../server/services/campaign/buy-low.js';
 import { readBuyLow } from '../../server/services/campaign/buy-low-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
@@ -346,6 +350,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
   rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env),
+  playoffWeek = playoffWeekMode(env) !== 'off',
   searchWide = searchWideFlag(env) } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
@@ -606,6 +611,13 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
     // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): TD rate vs expected TD rate on Nick's roster, weeks < this week.
     ...(sellHigh ? { sellHigh: () => readSellHighInputs(svc.db, { season, week, ids: rosters.get(me) ?? [] }) } : {}),
+    // PLAYOFF-WEEK VALUE (shadow, GRIDIRON_PLAYOFF_WEEK_VALUE): this season's lines before this week, and the base
+    // world's own playoff weeks and expected points per player-week (season-sim, the one producer of both).
+    ...(playoffWeek ? { playoffWeek: () => ({
+      ...readPlayoffWeekLines(svc.db, { season, toWeek: week, scoring: scoringFor(lg) }),
+      as_of_week: week, playoff_weeks: w0.prep.bracketWeeks.flat(), players: w0.prep.assets,
+      expected: new Map([...w0.prep.weekData].map(([wk, d]) => [wk, d.expected])), schedule: matchupModel().schedule,
+    }) } : {}),
     // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only): usage-up / points-down reads for ids, weeks < this week.
     ...(buyLow ? { buyLow: ids => readBuyLow(svc.db, { season, week, ids }) } : {}),
     now: () => Date.now(),

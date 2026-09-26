@@ -98,6 +98,17 @@ export function recordUsage(feature, model, usage) {
   return cost;
 }
 
+/** The API's refusal when the account has no credit left. */
+export const CREDIT_ERROR = /credit balance is too low/i;
+
+/** One refused call, at 0 cost, with its error code (migration 115); skipped on a database without the column. */
+export function recordFailure(feature, model, error) {
+  const hasError = rows('PRAGMA table_info(ai_usage)').some(c => c.name === 'error');
+  if (!hasError) { console.warn(`[ai] ${feature} on ${model} failed (${error}); ai_usage has no error column, so it is not logged`); return; }
+  run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, cost_usd, calls, error)
+       VALUES (date('now'), ?, ?, 0, 0, 0, 0, 0, 1, ?)`, feature, model, error);
+}
+
 const USAGE_COLUMNS = ['cost_usd', 'cache_read_input_tokens', 'cache_creation_input_tokens'];
 let usageSchemaReady = false;
 
@@ -210,7 +221,7 @@ function cacheBreakpoints({ system, messages, tools, cache_control: automatic })
 export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
   tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null,
   cacheSystem = false, cachedPrefix = undefined, cacheConversation = false, cacheTtl = '5m', effort = undefined,
-  outputSchema = undefined }) {
+  outputSchema = undefined, thinking = undefined }) {
   const key = getApiKey();
   if (!key) {
     const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
@@ -242,6 +253,8 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     // is how a caller bounds that, instead of a bigger cap alone.
     // `outputSchema` (structured outputs) constrains the final text to a JSON
     // schema, so a JSON-only answer cannot come back as prose, a fence or nothing.
+    // `thinking` is sent only when a caller sets it (COACH-V2: { type: 'disabled' } on fast Sonnet turns).
+    ...(thinking ? { thinking } : {}),
     ...(outputSchema ? {} : effort ? { output_config: { effort } } : {}),
     ...(outputSchema ? { output_config: { ...(effort ? { effort } : {}), format: { type: 'json_schema', schema: outputSchema } } } : {}),
     ...(cacheConversation ? { cache_control: cacheMark(cacheTtl) } : {})
@@ -260,6 +273,15 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     const cost = recordUsage(feature, model, msg.usage);
     return { ...msg, cost_usd: cost };
   } catch (e) {
+    // COACH-V2 (2026-09-26 outage): an account out of credits is refused before any work. Log it at 0 cost
+    // (ai_usage.error = 'credit') so the spend tracker and the hourly check see the outage, and say it plainly.
+    if (CREDIT_ERROR.test(e?.message ?? '')) {
+      recordFailure(feature, model, 'credit');
+      const err = new Error('The AI account is out of credits, so Coach cannot ask the model right now.');
+      err.status = 503;
+      err.code = 'ai_credit';
+      throw err;
+    }
     // This exact message means the key is Anthropic Console's newer
     // "identity-linked" type, which every other error here is not — surface
     // the fix instead of the raw API error, which just reads as "broken."

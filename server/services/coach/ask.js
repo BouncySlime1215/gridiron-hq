@@ -43,6 +43,7 @@ import { warRoomEnabled } from '../warroom-actions/store.js';
 import { routeIntent } from '../warroom-actions/intent.js';
 import { coachBriefFlag } from './brief.js';
 import { preloadContext, DEEP_QUESTION, PRELOAD_TOOL_ROUNDS } from './preload.js';
+import { SHAPED_SCHEMA, SHAPE_PROMPT, toAnswer, shapeCheck, shapeCorrection, enforceShape, devTextViolations, stripDevText, DEV_TEXT_CORRECTION } from './answer-shape.js';
 import { starterIntent, starterAnswer, starterActions, partnerAnswer } from './starter-answers.js';
 
 /**
@@ -104,7 +105,18 @@ const WAR_ROOM_PROMPT = `
 
 THE WAR ROOM. This question comes from the War Room dashboard, and you have War Room tools that change the screen (warroom_view, warroom_plug_in, warroom_plan_change, warroom_draft_message). Use them when Nick asks to see, arrange, filter, pin, chart or change something. They return actions the dashboard applies; you never state a number that only an engine field holds, and plan changes (goal, stops, risk mode, tolerances) only open a preview that waits for Nick's Confirm tap. You never send anything to a league-mate: if asked, refuse and say he sends it himself. When a tool did what was asked, "claims" may be empty; the dashboard describes the change and ends with the destination, stops left and the next move.`;
 
-function systemPrompt({ warRoom = false, preload = false } = {}) {
+const CLAIMS_OUTPUT = `YOUR OUTPUT. When you are ready to answer, reply with ONLY this JSON object and no other text:
+{
+  "claims": [ { "text": "one sentence a person can act on", "cites": ["r1#0.column", "d1"] } ],
+  "refusals": [ "what you could not answer, and why" ],
+  "as_of": "how old the hand-collected data behind this is, or null"
+}
+Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.`;
+
+/** COACH-V2: the answer format (answer-shape.js) replaces the claims list on chat turns. */
+const SHAPED_OUTPUT = `YOUR OUTPUT. When you are ready to answer, reply with ONLY the JSON object in the answer schema: a verdict, a stance, a basis, why bullets, risks and refusals. Every line that states a number carries the cites that support it (its own cites). Write the way a knowledgeable friend would say it out loud: the answer first, no hedging, no restating of the question.${SHAPE_PROMPT}`;
+
+function systemPrompt({ warRoom = false, preload = false, shaped = false } = {}) {
   return `You are Coach, the answering layer of a personal fantasy-football app. You answer from rows in this app's database and from its own services. You have no other source. Your training knowledge about players, teams, schedules, injuries and results is out of date and is not evidence here; if a fact is not in a tool result, you do not have it.
 
 WHAT YOU MAY READ. These tables, and nothing else. A question about anything absent from this list is answered by saying Coach does not read it.
@@ -121,13 +133,7 @@ REFUSING IS AN ANSWER. If the data is not there, say so plainly and specifically
 
 DATA AGE. Some tables are only as current as the last time a person ran something — they are marked (by_hand) above. If your answer stands on one, put the age in the "as_of" field in plain words. An answer built on stale data that reads as current is the failure this app cares most about.
 
-YOUR OUTPUT. When you are ready to answer, reply with ONLY this JSON object and no other text:
-{
-  "claims": [ { "text": "one sentence a person can act on", "cites": ["r1#0.column", "d1"] } ],
-  "refusals": [ "what you could not answer, and why" ],
-  "as_of": "how old the hand-collected data behind this is, or null"
-}
-Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.${warRoom ? WAR_ROOM_PROMPT : ''}${preload ? PRELOAD_PROMPT : ''}`;
+${shaped ? SHAPED_OUTPUT : CLAIMS_OUTPUT}${warRoom ? WAR_ROOM_PROMPT : ''}${preload ? PRELOAD_PROMPT : ''}`;
 }
 
 /**
@@ -204,7 +210,8 @@ function answerFrom(parsed) {
  * @returns {Promise<{question, answer, ledger, verification, plan, audit_id, cost_usd}>}
  */
 export async function askCoach({ question, context = null, leagueId = null,
-  onEvent = () => {}, model = COACH_MODEL, hasModel = true, conversation = null, feature = 'coach:answer', noModelRefusal = null } = {}) {
+  onEvent = () => {}, model = COACH_MODEL, hasModel = true, conversation = null, feature = 'coach:answer', noModelRefusal = null,
+  shaped = false, toolRounds: routedRounds = null, effort = null, thinking = null } = {}) {
   const asked = String(question ?? '').trim();
   if (!asked) {
     const err = new Error('Coach was asked nothing.');
@@ -272,10 +279,14 @@ export async function askCoach({ question, context = null, leagueId = null,
   // COACH-PRELOAD: the served context goes in first, so the rounds go to the question, not the catalog.
   const preload = preloadOn() && Number.isInteger(league)
     ? await preloadContext({ leagueId: league, focus: conversation?.focus ?? {}, ledger }) : null;
-  const toolRounds = preload && !DEEP_QUESTION.test(asked) ? PRELOAD_TOOL_ROUNDS : MAX_TOOL_ROUNDS - 1;
+  // With the bundle: the router's budget (2 by default); an "analyze" question keeps the full one.
+  const toolRounds = preload && !DEEP_QUESTION.test(asked) ? (routedRounds ?? PRELOAD_TOOL_ROUNDS) : MAX_TOOL_ROUNDS - 1;
   if (preload) emit({ t: 'preloaded', queries: preload.queries.length, tool_rounds: toolRounds });
   const messages = [{ role: 'user', content: userPrompt({ question: asked, context, leagueId: league, conversation, preload }) }];
   let retried = false;
+  let shapeRetried = false;
+  let devRetried = false;
+  let shapeDropped = [];
   let costUsd = 0;
   let answer = null;
   let verification = null;
@@ -286,11 +297,13 @@ export async function askCoach({ question, context = null, leagueId = null,
   for (let round = 1; round <= lastRound; round++) {
     const isFinalRound = round >= toolRounds + 1;
     const msg = await callClaude({
-      feature, model, maxTokens: MAX_OUTPUT_TOKENS, outputSchema: ANSWER_SCHEMA,
+      feature, model, maxTokens: MAX_OUTPUT_TOKENS, outputSchema: shaped ? SHAPED_SCHEMA : ANSWER_SCHEMA,
+      ...(effort ? { effort } : {}),
+      ...(thinking ? { thinking } : {}),
       // System (with the tools in front of it) is the stable breakpoint; the
       // conversation cache lets each round re-read the rounds before it, whose
       // tool results are most of what a later round sends.
-      system: systemPrompt({ warRoom, preload: !!preload }), cacheSystem: true, cacheConversation: true, messages,
+      system: systemPrompt({ warRoom, preload: !!preload, shaped }), cacheSystem: true, cacheConversation: true, messages,
       tools: toolDefinitions({ warRoom }),
       toolChoice: isFinalRound ? { type: 'none' } : undefined
     });
@@ -334,7 +347,7 @@ export async function askCoach({ question, context = null, leagueId = null,
       continue;
     }
 
-    answer = answerFrom(parsed);
+    answer = shaped ? toAnswer(parsed) : answerFrom(parsed);
     emit({ t: 'checking', numbers: answer.claims.length });
     verification = { ...verifyAnswer({ answer, ledger, question: asked }), retried };
     // A War Room turn whose whole answer was a screen change is not silence.
@@ -343,7 +356,35 @@ export async function askCoach({ question, context = null, leagueId = null,
       verification = { ...verification, ok: true, violations: [], answered_by_actions: actions.length };
     }
 
-    if (verification.ok) break;
+    if (verification.ok) {
+      // COACH-V2: the numbers stand; now the format. One correction round, then drop blocks, never the answer.
+      // CLAUDE.md 2b: no dev text on screen. One correction round, then the offending lines go.
+      const devBad = shaped ? devTextViolations(answer) : [];
+      if (devBad.length && !devRetried) {
+        devRetried = true;
+        if (round >= lastRound) lastRound = round + 1;
+        emit({ t: 'reshaping', violations: ['dev_text'] });
+        messages.push({ role: 'assistant', content: msg.content });
+        messages.push({ role: 'user', content: DEV_TEXT_CORRECTION });
+        continue;
+      }
+      if (devBad.length) { const st = stripDevText(answer); answer = st.answer; shapeDropped = [...shapeDropped, ...st.dropped.map(d => ({ block: d.block, rule: 'dev_text' }))]; }
+      const shapeViolations = shaped ? shapeCheck(answer) : [];
+      if (!shapeViolations.length) break;
+      // Only a broken verdict costs a round (it is the answer); long or extra lines are dropped, not re-asked.
+      if (!shapeRetried && shapeViolations.some(v => v.block === 'verdict')) {
+        shapeRetried = true;
+        if (round >= lastRound) lastRound = round + 1;
+        emit({ t: 'reshaping', violations: shapeViolations.map(x => x.rule) });
+        messages.push({ role: 'assistant', content: msg.content });
+        messages.push({ role: 'user', content: shapeCorrection(shapeViolations) });
+        continue;
+      }
+      const enforced = enforceShape(answer);
+      answer = enforced.answer;
+      shapeDropped = enforced.dropped;
+      break;
+    }
     if (retried) {
       emit({ t: 'rejected', violations: verification.violations, final: true });
       answer = { claims: [], refusals: [...answer.refusals, refusalFor(verification)], as_of: answer.as_of };
@@ -363,6 +404,12 @@ export async function askCoach({ question, context = null, leagueId = null,
     answer = { claims: [], refusals: [...answer.refusals, refusalFor(verification)], as_of: answer.as_of };
   }
 
+  // A shaped answer that became a refusal still leads with a verdict (the refusal replaces Why, never the verdict).
+  if (shaped && answer && !answer.claims.length && answer.refusals.length) {
+    answer = { ...answer, shape: { verdict: { text: answer.shape?.verdict && !/\d/.test(answer.shape.verdict.text) ? answer.shape.verdict.text
+      : 'No answer Coach can stand behind on this one.', cites: [] }, stance: 'none', basis: '', why: [], risks: [] } };
+  }
+
   if (!answer) {
     const err = new Error('Coach ran out of rounds without producing an answer.');
     err.status = 502;
@@ -377,8 +424,8 @@ export async function askCoach({ question, context = null, leagueId = null,
     answer, ledger: ledgerJson, plan, verification, costUsd
   });
 
-  return { question: asked, answer, actions, ledger: ledgerJson, verification, plan,
-    audit_id: auditId, cost_usd: costUsd, dropped_by_rule: counts.dropped_by_rule };
+  return { question: asked, answer, actions, ledger: ledgerJson, verification: { ...verification, shape_retried: shapeRetried, shape_dropped: shapeDropped },
+    plan, audit_id: auditId, cost_usd: costUsd, dropped_by_rule: counts.dropped_by_rule };
 }
 
 /**

@@ -33,7 +33,7 @@ fs.copyFileSync(new URL('./fixtures/warroom-contract/producer-plans.json', impor
 process.env.GRIDIRON_WARROOM_PLANS = PLANS_FILE;
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
-const { run, row } = await import('../server/db/index.js');
+const { run, row, rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 const { setAnthropicClientForTesting, parseJson } = await import('../server/services/claude.js');
 const { askCoach, ANSWER_SCHEMA, COACH_MODEL } = await import('../server/services/coach/ask.js');
@@ -120,35 +120,43 @@ test('two empty turns in a row are still a 502 that says what came back', async 
 
 /* ------------------------------------------------------ chat, model on */
 
-test('a chat turn carries the conversation, routes the model and logs cost under the Coach budget', async () => {
-  // Turn 1 is a starter (no model); turn 2 is free text answered by the model.
+const shaped = (verdict, extra = {}) => says({ verdict: { text: verdict, cites: [] }, stance: 'none', basis: '', why: [], risks: [],
+  refusals: [verdict], as_of: null, ...extra });
+const routed = intent => says({ intent });
+
+test('a chat turn carries the conversation, is routed, answers in the shaped format and logs cost under the Coach budget', async () => {
+  // Turn 1 is a starter (no model); turn 2 is free text: no rule matches, so Haiku routes it, then the model answers.
   setAnthropicClientForTesting(scripted());
   const first = await chatTurn({ userId: 9801, leagueId: 4, question: "What's my next move?", hasModel: true,
     context: { surface: 'war_room', league: 4 } });
   assert.equal(first.cost_usd, 0);
-  const client = scripted(says({ claims: [], refusals: ['Coach does not read his mood.'], as_of: null }));
+  const client = scripted(routed('ABOUT'), shaped('Coach does not read his mood.'));
   setAnthropicClientForTesting(client);
   const second = await chatTurn({ userId: 9801, leagueId: 4, question: 'is he in a good mood?', hasModel: true,
     context: { surface: 'war_room', league: 4 } });
   assert.deepEqual(second.answer.refusals, ['Coach does not read his mood.']);
-  const body = client.sent[0];
-  assert.equal(body.model, CHAT_MODELS.followup, 'a short follow-up with a focus goes to the cheap model');
-  const prompt = JSON.stringify(body.messages[0].content);
+  assert.equal(second.answer.shape.verdict.text, 'Coach does not read his mood.');
+  assert.equal(second.route.intent, 'ABOUT');
+  assert.equal(second.route.by, 'model');
+  assert.equal(client.sent[0].model, 'claude-haiku-4-5-20251001', 'the router is the cheap model');
+  assert.equal(client.sent[1].model, COACH_MODEL);
+  const prompt = JSON.stringify(client.sent[1].messages[0].content);
   assert.match(prompt, /THE CONVERSATION SO FAR/);
   assert.match(prompt, /What's my next move\?/);
   assert.match(prompt, /CURRENT FOCUS/);
   assert.match(prompt, new RegExp(first.thread.focus.move_id));
-  const logged = row(`SELECT feature, model FROM ai_usage ORDER BY id DESC LIMIT 1`);
-  assert.deepEqual({ ...logged }, { feature: 'coach:chat', model: CHAT_MODELS.followup });
+  const logged = rows(`SELECT feature, model FROM ai_usage ORDER BY id DESC LIMIT 2`).map(r => `${r.feature}|${r.model}`);
+  assert.deepEqual(logged, [`coach:chat|${COACH_MODEL}`, 'coach:route|claude-haiku-4-5-20251001']);
 });
 
-test('a trade analysis goes to the strongest model; a plain question to the Coach model', async () => {
-  const client = scripted(says({ claims: [], refusals: ['x'], as_of: null }), says({ claims: [], refusals: ['y'], as_of: null }));
+test('a trade DO question goes to the strongest model with no routing call; a plain question to the Coach model', async () => {
+  const client = scripted(shaped('No move clears.'), routed('ABOUT'), shaped('Coach does not read that.'));
   setAnthropicClientForTesting(client);
-  await chatTurn({ userId: 9801, leagueId: 4, question: 'analyze this trade for me in detail', hasModel: true, context: { league: 4 } });
+  await chatTurn({ userId: 9801, leagueId: 4, question: 'should I trade for a running back this week?', hasModel: true, context: { league: 4 } });
   await chatTurn({ userId: 9801, leagueId: 4, question: 'which of my league-mates has the deepest bench at running back right now?', hasModel: true, context: { league: 4 } });
-  assert.equal(client.sent[0].model, CHAT_MODELS.deep);
-  assert.equal(client.sent[1].model, COACH_MODEL);
+  assert.equal(client.sent[0].model, 'claude-opus-5-5', 'DO on a trade: Opus, routed by rule ($0)');
+  assert.equal(client.sent[1].model, 'claude-haiku-4-5-20251001', 'no rule: the cheap router');
+  assert.equal(client.sent[2].model, COACH_MODEL);
 });
 
 test("a spent Coach budget is a plain answer with chips, not an error, and no call is made", async () => {
@@ -163,4 +171,16 @@ test("a spent Coach budget is a plain answer with chips, not an error, and no ca
   assert.ok(out.thread.followups.length >= 2);
   assert.equal(client.sent.length, 0);
   setDailyBudget('coach', 1);
+});
+
+test('an account out of credits: a plain answer with chips, and the failure logged at 0 cost', async () => {
+  const credit = Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), { status: 400 });
+  setAnthropicClientForTesting({ messages: { create: async () => { throw credit; } } });
+  const out = await chatTurn({ userId: 9801, leagueId: 4, question: 'which of my league-mates has the deepest bench at running back right now?',
+    hasModel: true, context: { league: 4 } });
+  assert.equal(out.ai_unavailable, true);
+  assert.match(out.answer.refusals[0], /AI is unavailable right now/);
+  assert.ok(out.thread.followups.length >= 2);
+  const r = rows(`SELECT feature, cost_usd, error FROM ai_usage ORDER BY id DESC LIMIT 1`)[0];
+  assert.deepEqual({ ...r }, { feature: 'coach:route', cost_usd: 0, error: 'credit' });
 });

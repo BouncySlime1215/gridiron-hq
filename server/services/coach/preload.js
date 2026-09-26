@@ -15,8 +15,9 @@
  *   plan_moves       the next move and the deck: partner, gives, gets, title-odds
  *                    change +/- SE, P(yes) with its basis, expected, P(complete)
  *   plan_targets     the top targets: owner, gain if landed +/- SE, P(reach)
- *   my_roster        Nick's roster from the latest snapshot: slot, starter,
- *                    ESPN projection, the app's prediction and its 80% floor/ceiling
+ *   my_roster        Nick's roster from the latest snapshot: slot, starter, health (the
+ *                    latest injury report, or "no health update on file"), ESPN projection,
+ *                    the app's prediction and its 80% floor/ceiling
  *   partner_focus    the partner in focus: his read (P(responds), roster holes,
  *                    offers logged), the his-side line, P(yes) and its basis, and
  *                    his reply history on War Room records
@@ -67,6 +68,7 @@ function myRoster(leagueId) {
     leagueId, lg.season, Number(lg.my_team_id))?.p;
   if (period == null) return { rows: [], reason: 'no roster snapshot for your team yet' };
   const pred = tableIn('weekly_prediction_snapshots');
+  const injuries = tableIn('nfl_injuries') && rows(`SELECT name FROM pragma_table_info('players') WHERE name = 'gsis_id'`).length > 0;
   const out = rows(`SELECT r.player_id, r.player_name, r.position, r.lineup_slot, r.is_starter, r.injury_status, r.projected_points
                     FROM league_roster_snapshots r
                     WHERE r.league_id = ? AND r.season = ? AND r.team_id = ? AND r.scoring_period_id = ?
@@ -75,8 +77,15 @@ function myRoster(leagueId) {
     const p = pred && r.player_id != null
       ? row(`SELECT week, prediction, lower_80, upper_80 FROM weekly_prediction_snapshots WHERE season = ? AND player_id = ? ORDER BY week DESC LIMIT 1`,
         lg.season, r.player_id) : null;
+    // Health, so the model never goes looking for it: the latest injury report row for him, or a plain "none on file".
+    const inj = injuries && r.player_id != null
+      ? row(`SELECT i.week, i.report_status, i.practice_status, i.injury FROM nfl_injuries i JOIN players p ON p.gsis_id = i.gsis_id
+             WHERE p.id = ? AND i.season = ? ORDER BY i.week DESC LIMIT 1`, r.player_id, lg.season) : null;
+    const health = inj ? [inj.report_status, inj.practice_status ? `practice: ${inj.practice_status}` : null, inj.injury].filter(Boolean).join(', ') || 'listed, no status'
+      : r.injury_status === 'ACTIVE' ? 'active, no injury listed'
+        : r.injury_status ? r.injury_status.toLowerCase().replace(/_/g, ' ') : 'no health update on file';
     return { week: period, player: r.player_name, position: r.position, slot: r.lineup_slot, starter: r.is_starter === 1,
-      injury: r.injury_status ?? null, espn_projection: r.projected_points ?? null,
+      health, health_week: inj?.week ?? null, espn_projection: r.projected_points ?? null,
       prediction: p?.prediction ?? null, floor_80: p?.lower_80 ?? null, ceiling_80: p?.upper_80 ?? null, prediction_week: p?.week ?? null };
   });
   return { rows: out, reason: out.length ? null : 'the roster snapshot is empty' };

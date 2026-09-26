@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "note": "COACH-V2 judge set: 10 questions per intent, asked in leagues 4 and 1 (5 each). No names: the public repo carries none.",
+  "leagues": [4, 1],
+  "questions": {
+    "DO": [
+      "What's the one trade I should make this week?",
+      "Which target should I go after first?",
+      "Should I trade for a running back this week?",
+      "Who should I start at flex this week?",
+      "What should I do with my weakest starter?",
+      "Is there any trade that clears my rules right now?",
+      "Which manager should I work on this week, and with what?",
+      "Should I sell high on anyone right now?",
+      "What's the smartest move to raise my title odds?",
+      "Who should I target at wide receiver?"
+    ],
+    "WHY": [
+      "Why are my title odds so low?",
+      "Why does the plan say to keep my roster?",
+      "Why is that target first on the list?",
+      "Why can't I trade my best players?",
+      "Why is nothing clearing this week?",
+      "Why is my weakest starter in the lineup?",
+      "Why does the plan care about a floor score?",
+      "Why is my overpay cap zero?",
+      "Why do the targets have such low chances to land?",
+      "Why is the next move marked as a guess?"
+    ],
+    "WHAT_IF": [
+      "What if I stand pat all season?",
+      "What if I switch to the all-in mode?",
+      "What if my best running back gets hurt?",
+      "What about trading two players for one star instead?",
+      "What if the top target's manager says no?",
+      "What if I raise my overpay cap a little?",
+      "What about waiting a week before trading?",
+      "What if I target a tight end instead?",
+      "What if I only make small trades?",
+      "What if my top receiver has a bad week?"
+    ],
+    "ABOUT": [
+      "Tell me about my roster.",
+      "How is my team looking this week?",
+      "What is my biggest weakness right now?",
+      "Who is my best starter by projection?",
+      "What are my title odds and how sure is that?",
+      "Who are my untouchable players?",
+      "How deep is my bench?",
+      "What is my lineup floor this week?",
+      "Tell me about my top target.",
+      "How does my team compare to the league?"
+    ],
+    "EXPLAIN": [
+      "What do title odds mean?",
+      "What does the floor number mean?",
+      "What is the noise band?",
+      "What does a blue chip mean here?",
+      "What does P(yes) mean?",
+      "What does expected title odds mean?",
+      "What is the overpay cap?",
+      "What does SE mean next to a number?",
+      "What does it mean when a move clears the noise?",
+      "What is the depth premium?"
+    ],
+    "CHAT": [
+      "thanks",
+      "lol ok",
+      "cool",
+      "got it, thanks!",
+      "nice",
+      "sounds good",
+      "ok",
+      "haha",
+      "thank you",
+      "great"
+    ]
+  }
+}

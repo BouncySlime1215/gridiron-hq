@@ -112,6 +112,7 @@ function mulberry(seed) {
   return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+const NO_BLOCK = Object.freeze({ give: new Set(), get: new Set() });
 
 /** Acceptance (assumed): his screen % -> p. */
 export function acceptP(theyGetValue, theyGiveValue, a = ACCEPT) {
@@ -167,8 +168,12 @@ export function bracket(seeds, pt, score) {
 }
 
 // ---------------------------------------------------------------- one league
-/** Everything about one exported league-season that the arms and the grader need. */
-export function prepareLeague(L) {
+/**
+ * Everything about one exported league-season that the arms and the grader need.
+ * decisionWeek (SEASON-REPLAY, item 30): the week moves take effect; default DECISION_WEEK, so
+ * the Sleeper study is unchanged. Everything below reads it from C.dw.
+ */
+export function prepareLeague(L, { decisionWeek = DECISION_WEEK } = {}) {
   const teams = L.rids.map(String);
   const ix = new Map(teams.map((t, i) => [t, i]));
   const nReg = L.pws - 1;
@@ -177,7 +182,8 @@ export function prepareLeague(L) {
   const roster = (t, w) => L.tw[t][w - 1][2].map(String).filter(id => info(id));
   const actual = (t, w) => Number(L.tw[t][w - 1][0]) || 0;
   const opp = (t, w) => { const o = L.tw[t][w - 1][1]; return o == null ? null : String(o); };
-  const W0 = DECISION_WEEK - 1;
+  const dw = decisionWeek;
+  const W0 = dw - 1;
   // Real standings through week 6.
   const wins0 = new Float64Array(teams.length), pf0 = new Float64Array(teams.length);
   for (let w = 1; w <= W0; w++) for (const t of teams) {
@@ -199,7 +205,7 @@ export function prepareLeague(L) {
     repl[p] = vals[k] ?? vals.at(-1) ?? 0;
   }
   const value = id => { const p = info(id); return p ? Math.round(100 * Math.max(0, p.pred[W0] - repl[p.pos])) : 0; };
-  return { L, teams, ix, nReg, rounds, info, roster, actual, opp, W0, wins0, pf0, base, repl, value };
+  return { L, teams, ix, nReg, rounds, info, roster, actual, opp, dw, W0, wins0, pf0, base, repl, value };
 }
 
 /** The label-free format check: real scores through this file's standings reproduce the stored playoff set. */
@@ -220,21 +226,21 @@ export function formatCheck(C) {
 /** Projected (sim-mean) lineup points per regular week for a roster, by week-6 value. */
 function projected(C, ids) {
   let s = 0;
-  for (let w = DECISION_WEEK; w <= C.nReg; w++) {
+  for (let w = C.dw; w <= C.nReg; w++) {
     for (const id of lineup(ids, C.L.slots, C.info, w, x => C.info(x).pred[C.W0])) s += C.info(id).pred[C.W0];
   }
-  return s / Math.max(1, C.nReg - DECISION_WEEK + 1);
+  return s / Math.max(1, C.nReg - C.dw + 1);
 }
 
 /**
  * The simulator world for one seed: rescore(state, a, b) in the planner's shape.
- * Weeks simulated: DECISION_WEEK..nReg, then `rounds` playoff weeks.
+ * Weeks simulated: C.dw (DECISION_WEEK by default)..nReg, then `rounds` playoff weeks.
  */
 export function makeWorld(C, seed, { runs = RUNS, fit = FIT } = {}) {
-  const { teams, ix, nReg, rounds, info, L, W0 } = C;
+  const { teams, ix, nReg, rounds, info, L, W0, dw } = C;
   const weeks = [];
-  for (let w = DECISION_WEEK; w <= nReg + rounds; w++) weeks.push(w);
-  const nW = weeks.length, nRegW = nReg - DECISION_WEEK + 1;
+  for (let w = dw; w <= nReg + rounds; w++) weeks.push(w);
+  const nW = weeks.length, nRegW = nReg - dw + 1;
   const draws = new Map();
   const drawOf = id => {
     if (!draws.has(id)) {
@@ -349,9 +355,9 @@ export function makeAdapter(C, me, { runs = RUNS, fit = FIT, leagueKey } = {}) {
   const chat = { engagement: 'unknown', tone: 'unknown', open_to_trade: 'unknown', no_holds: 'unknown', loves: [], hates: [], messages: 0, source: 'chat', status: 'unknown' };
   const managers = new Map(teams.filter(t => t !== me).map(t => [t, { receptiveness: 1, tier: null, needs: null, blocked: false,
     checked_out: false, title_now: null, sent_this_week: 0, send_when: { when: 'now', why: 'replay' }, chat }]));
-  const starters = new Set(lineup(rosters.get(me), L.slots, info, DECISION_WEEK, x => info(x).pred[C.W0]));
+  const starters = new Set(lineup(rosters.get(me), L.slots, info, C.dw, x => info(x).pred[C.W0]));
   return {
-    league: { id: leagueKey, me, fetched_at: 'replay', week: DECISION_WEEK, deadline_week: null, days_left_in_week: 7, team_count: teams.length },
+    league: { id: leagueKey, me, fetched_at: 'replay', week: C.dw, deadline_week: null, days_left_in_week: 7, team_count: teams.length },
     seed, world, rosters, players, managers, starters, freeAgents: [],
     priceStep: (team, theyGive, theyGet) => { const p = acceptP(val(theyGet), val(theyGive)); return { p, band: { low: p, high: p }, basis: 'assumed curve' }; },
     priceOf: (team, id) => ({ mult: 1, price: players.get(id)?.value ?? 0 }),
@@ -359,7 +365,7 @@ export function makeAdapter(C, me, { runs = RUNS, fit = FIT, leagueKey } = {}) {
   };
 }
 
-const applyStep = (state, me, st) => {
+export const applyStep = (state, me, st) => {
   const s = new Map(state);
   const mine = s.get(me), theirs = s.get(String(st.team));
   const give = new Set(st.give.map(String)), get = new Set(st.get.map(String));
@@ -369,12 +375,13 @@ const applyStep = (state, me, st) => {
 };
 
 /**
- * Realized outcome for a week-6 roster state (Map team -> ids, every team): swap the moved players on
- * the real weekly rosters, rescore affected teams with the rule lineup on REAL points, replay standings and bracket.
- * Returns { champion, made: Set }.
+ * The counterfactual world of a roster state (Map team -> ids): which players moved, the rule
+ * lineup on REAL points (rule(ids, w)), and each team's real weekly roster with the moves applied
+ * (a player the owner no longer holds that week is not swapped). Shared by realized() and
+ * scripts/eval/season-replay.mjs#realizedPoints (SEASON-REPLAY, item 30).
  */
-export function realized(C, state) {
-  const { teams, ix, nReg, rounds, info, L, W0 } = C;
+export function counterfactual(C, state) {
+  const { teams, info, L } = C;
   const moved = new Map(); // id -> { from, to }
   for (const t of teams) {
     const before = new Set(C.base.get(t));
@@ -393,10 +400,21 @@ export function realized(C, state) {
     return ids;
   };
   const affected = new Set([...moved.values()].flatMap(m => [m.from, m.to]));
+  return { moved, rule, cfRoster, affected };
+}
+
+/**
+ * Realized outcome for a week-6 roster state (Map team -> ids, every team): swap the moved players on
+ * the real weekly rosters, rescore affected teams with the rule lineup on REAL points, replay standings and bracket.
+ * Returns { champion, made: Set }.
+ */
+export function realized(C, state) {
+  const { teams, ix, nReg, L } = C;
+  const { rule, cfRoster, affected } = counterfactual(C, state);
   const score = new Map();
   for (let w = 1; w <= nReg; w++) for (const t of teams) {
     let s = C.actual(t, w);
-    if (w >= DECISION_WEEK && affected.has(t)) s += rule(cfRoster(t, w), w) - rule(C.roster(t, w), w);
+    if (w >= C.dw && affected.has(t)) s += rule(cfRoster(t, w), w) - rule(C.roster(t, w), w);
     score.set(`${t}:${w}`, s);
   }
   const wins = new Float64Array(teams.length), pf = new Float64Array(teams.length);
@@ -438,18 +456,22 @@ export function realizedGain(C, me, steps, baseOut, cache = new Map()) {
   return { title: e.title, playoff: e.playoff, title_done: done.title, playoff_done: done.playoff, steps: steps.length, p_complete: reach };
 }
 
-/** Trade Lab finder proxy: best p x sim title delta over mutual, fair 1-for-1 / 2-for-1 deals. */
-export function finderMove(C, adapter, me, W) {
+/**
+ * Trade Lab finder proxy: best p x sim title delta over mutual, fair 1-for-1 / 2-for-1 deals.
+ * blocked (SEASON-REPLAY): { give: Set, get: Set } ids never offered / never taken (Nick's pinned
+ * rules, campaign/never-give.js); empty by default, so the Sleeper study is unchanged.
+ */
+export function finderMove(C, adapter, me, W, { blocked = NO_BLOCK } = {}) {
   const { players } = adapter;
   const v = ids => ids.reduce((s, id) => s + (players.get(id)?.value ?? 0), 0);
   const tradable = id => SK.includes(players.get(id)?.position) && (players.get(id)?.value ?? 0) > 0;
-  const mine = adapter.rosters.get(me).filter(tradable);
+  const mine = adapter.rosters.get(me).filter(id => tradable(id) && !blocked.give.has(String(id)));
   const myNow = projected(C, adapter.rosters.get(me));
   const cands = [];
   for (const [t, ids] of adapter.rosters) {
     if (t === me) continue;
     const theirNow = projected(C, ids);
-    for (const get of ids.filter(tradable)) {
+    for (const get of ids.filter(id => tradable(id) && !blocked.get.has(String(id)))) {
       for (const give of combosOf(mine, 2)) {
         const pct = (v(give) - v([get])) / v([get]) * 100;
         if (!(pct >= -12 && pct <= 18)) continue;
@@ -474,8 +496,8 @@ export function finderMove(C, adapter, me, W) {
   return { move: best && best.e > 0 ? [best] : [], candidates: cands.length };
 }
 
-/** Greedy: best fair 1-for-1 by Nick's projected lineup points (no simulator). */
-export function greedyMove(C, adapter, me) {
+/** Greedy: best fair 1-for-1 by Nick's projected lineup points (no simulator). blocked: as finderMove. */
+export function greedyMove(C, adapter, me, { blocked = NO_BLOCK } = {}) {
   const { players } = adapter;
   const v = id => players.get(id)?.value ?? 0;
   const tradable = id => SK.includes(players.get(id)?.position) && v(id) > 0;
@@ -484,7 +506,9 @@ export function greedyMove(C, adapter, me) {
   let best = null;
   for (const [t, ids] of adapter.rosters) {
     if (t === me) continue;
-    for (const get of ids.filter(tradable)) for (const give of myIds.filter(tradable)) {
+    const gets = ids.filter(id => tradable(id) && !blocked.get.has(String(id)));
+    const gives = myIds.filter(id => tradable(id) && !blocked.give.has(String(id)));
+    for (const get of gets) for (const give of gives) {
       const pct = (v(give) - v(get)) / v(get) * 100;
       if (!(pct >= -12 && pct <= 18)) continue;
       const g = projected(C, [...myIds.filter(x => x !== give), get]) - myNow;

@@ -97,6 +97,17 @@ test('B2: 56 real main commits, served lines carry no dev text and no "Nick"', (
   assert.deepEqual(rn.devTextHits(note.summary), []);
 });
 
+test('B2: the gate holds code names, the never-shown source and engine jargon', () => {
+  for (const t of ['The classic WarRoom is retired.', 'FantasyPros ranks now load.', 'With the O1 radar merged but off.',
+    'Search keeps the ledger basis on blended step bands.', 'UI test draws the live planner.', 'Costs $3 a day now.']) {
+    assert.notDeepEqual(rn.devTextHits(t), [], t);
+  }
+  for (const t of ["Every served War Room step passes your overpay rule at today's FantasyCalc prices.",
+    'Start/Sit counts a finished starter at his actual.', 'ESPN scores refresh every minute on game days.']) {
+    assert.deepEqual(rn.devTextHits(t), [], t);
+  }
+});
+
 test('B3: every shadow or flag-off unit in the real history is "switched off", never a line', () => {
   const note = build(HISTORY.commits);
   const offSubjects = new Set(note.off.map(o => o.sha));

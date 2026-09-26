@@ -24,7 +24,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { isTestPath } from './wiring-map.mjs';
 
 const ROOT = process.cwd();
@@ -166,38 +166,49 @@ function codeOnly(text) {
 const sitesCache = new Map();
 function callSites(name) {
   if (sitesCache.has(name)) return sitesCache.get(name);
-  let out = [];
+  // THE SEARCH IS -w -F, NOT -E '\bname\b'. git hands -E patterns to the platform's
+  // POSIX regex, and macOS's has no \b: it is a literal "b", so on a Mac every symbol
+  // had zero call sites and everything a dying route touched was reported as falling.
+  // -w is git's own word match and reads the same everywhere. The config overrides keep
+  // a user's color/column settings out of the `file:line:text` this parses.
+  // Exit 1 is "no match". Any other failure stops the report: an empty list here reads
+  // as "nothing else calls it", the most dangerous answer this script can give.
+  let raw = '';
   try {
-    // 'test' IS IN THIS LIST NOW, AND WAS NOT. Without it no call site could ever have
-    // a test path, which made the `!isTestPath(s.file)` filter in survivors() below a
-    // no-op that read as a deliberate decision. The blind spot was not partial: it was
-    // total. positionRequirements() was printed as "reached only through
-    // GET /brain/liquidity → positionLiquidity()" while test/pick-reasoning.test.js:9
-    // imports it and :114 calls it.
-    out = execSync(`git grep -n -E '\\b${name}\\b' -- 'server' 'scripts' 'client' 'test' || true`,
-      { encoding: 'utf8', maxBuffer: 1 << 26 }).trim().split('\n').filter(Boolean)
-      .map(l => { const i = l.indexOf(':'), j = l.indexOf(':', i + 1);
-        return { file: l.slice(0, i), line: +l.slice(i + 1, j), text: l.slice(j + 1) }; })
-      // a comment naming the function is somebody describing it, not calling it
-      .filter(s => !/^\s*(\/\/|\*|\/\*)/.test(s.text))
-      // AN IMPORT IS NOT A USE. Matching the bare name picked up
-      // `import { positionLiquidity } from './position-liquidity.js'` in the very file
-      // whose handler is dying, counted it as a surviving caller, and took the report
-      // from 36 falling symbols to 0 — a clean, confident, entirely wrong answer.
-      .filter(s => !/^\s*(import|export)\b/.test(s.text))
-      // a declaration is not a call site
-      .filter(s => !new RegExp(`(function|const|let|var)\\s+${name}\\s*[=(]`).test(s.text))
-      .filter(s => !new RegExp(`export\\s*\\{[^}]*\\b${name}\\b`).test(s.text))
-      // A NAME INSIDE A STRING IS NOT A CALL. This is the dial/mention distinction the
-      // verdict list makes, and leaving it out here produced three wrong rows on its
-      // first run with tests included: test/league-brain.test.js:57 lists 'brainState'
-      // in an array of expected export names, test/route-deletion-impact.test.js:64
-      // names positionLiquidity in an assertion message, and test/wiring-map.test.js
-      // holds "const t = trendExploits(...)" as fixture TEXT for the scanner to read.
-      // Every one of those would have told a reader that deleting the symbol deletes a
-      // test that never touches it.
-      .filter(s => new RegExp(`\\b${name}\\b`).test(codeOnly(s.text)));
-  } catch { }
+    raw = execFileSync('git', ['-c', 'color.grep=never', '-c', 'grep.column=false', '-c', 'grep.fullName=false',
+      'grep', '-n', '-w', '-F', '-e', name, '--', 'server', 'scripts', 'client', 'test'],
+    { encoding: 'utf8', maxBuffer: 1 << 26, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    if (err.status !== 1) throw new Error(`git grep for ${name} failed: ${err.stderr || err.message}`);
+  }
+  // 'test' IS IN THIS LIST NOW, AND WAS NOT. Without it no call site could ever have
+  // a test path, which made the `!isTestPath(s.file)` filter in survivors() below a
+  // no-op that read as a deliberate decision. The blind spot was not partial: it was
+  // total. positionRequirements() was printed as "reached only through
+  // GET /brain/liquidity → positionLiquidity()" while test/pick-reasoning.test.js:9
+  // imports it and :114 calls it.
+  const out = raw.trim().split('\n').filter(Boolean)
+    .map(l => { const i = l.indexOf(':'), j = l.indexOf(':', i + 1);
+      return { file: l.slice(0, i), line: +l.slice(i + 1, j), text: l.slice(j + 1) }; })
+    // a comment naming the function is somebody describing it, not calling it
+    .filter(s => !/^\s*(\/\/|\*|\/\*)/.test(s.text))
+    // AN IMPORT IS NOT A USE. Matching the bare name picked up
+    // `import { positionLiquidity } from './position-liquidity.js'` in the very file
+    // whose handler is dying, counted it as a surviving caller, and took the report
+    // from 36 falling symbols to 0 — a clean, confident, entirely wrong answer.
+    .filter(s => !/^\s*(import|export)\b/.test(s.text))
+    // a declaration is not a call site
+    .filter(s => !new RegExp(`(function|const|let|var)\\s+${name}\\s*[=(]`).test(s.text))
+    .filter(s => !new RegExp(`export\\s*\\{[^}]*\\b${name}\\b`).test(s.text))
+    // A NAME INSIDE A STRING IS NOT A CALL. This is the dial/mention distinction the
+    // verdict list makes, and leaving it out here produced three wrong rows on its
+    // first run with tests included: test/league-brain.test.js:57 lists 'brainState'
+    // in an array of expected export names, test/route-deletion-impact.test.js:64
+    // names positionLiquidity in an assertion message, and test/wiring-map.test.js
+    // holds "const t = trendExploits(...)" as fixture TEXT for the scanner to read.
+    // Every one of those would have told a reader that deleting the symbol deletes a
+    // test that never touches it.
+    .filter(s => new RegExp(`\\b${name}\\b`).test(codeOnly(s.text)));
   sitesCache.set(name, out);
   return out;
 }

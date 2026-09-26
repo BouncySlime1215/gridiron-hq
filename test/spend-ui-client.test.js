@@ -25,7 +25,7 @@ const SPEND = (over = {}) => ({
   empty: false,
   today: { spent_usd: 2.9, budget_usd: 3.5, all_sources_usd: 3.1, calls: 41, share: 0.829, level: 'warn', line: '$2.90 of $3.50 daily budget', resets: 'Resets at midnight ET', estimate: true },
   last_7: { days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, i) => ({ date: `2026-09-${20 + i}`, label, cost_usd: 0.1 * (i + 1), calls: i + 1, height: (i + 1) / 7 })),
-    avg_usd: 0.4, avg_height: 0.571, avg_line: '7-day average $0.40' },
+    avg_usd: 0.4, avg_height: 0.571, avg_line: 'Average of the previous 7 days: $0.40' },
   breakdown: { feature: [part('Coach', 2.5, 30, 0.8), part('News', 0.6, 11, 0.2)], model: [part('Sonnet 5', 2.2, 20, 0.7), part('Haiku 4.5', 0.9, 21, 0.3)],
     source: [part('App', 2.9, 38, 0.9), part('Tests & builds', 0.2, 3, 0.1)] },
   brief_line: 'Yesterday: $0.42 API, 31 calls',
@@ -57,7 +57,7 @@ test('order API spend > Daily budgets > API key; Today, 7-day bars with the aver
   assert.equal(one(ui.container, 'data-testid', 'spend-meter').getAttribute('data-level'), 'warn', 'amber at 80%');
   assert.equal(all(one(ui.container, 'data-testid', 'spend-bars'), e => e.getAttribute?.('class') === 'spend-bar').length, 7);
   assert.ok(one(ui.container, 'data-testid', 'spend-avg'), 'the dashed average line');
-  assert.match(text, /7-day average \$0\.40/);
+  assert.match(text, /Average of the previous 7 days: \$0\.40/);
   assert.equal(textOf(one(ui.container, 'data-testid', 'spend-brief-line')), 'Morning brief: Yesterday: $0.42 API, 31 calls.');
   assert.equal(textOf(one(ui.container, 'data-testid', 'spend-verified-note')), "Not yet verified against Anthropic's billing.");
   assert.match(text, /Sonnet 5.*Haiku 4\.5|Coach/);
@@ -103,10 +103,10 @@ test('empty and anomaly states', async () => {
   assert.equal(one(ui.container, 'data-testid', 'spend-meter'), null);
   assert.ok(one(ui.container, 'data-testid', 'spend-verified-note'), 'the note is always on');
   ui.unmount();
-  setSpend(SPEND({ anomaly: { line: 'AI spend today is 6x the 7-day average ($0.60 vs $0.10), mostly Coach.', tone: 'red' } }));
+  setSpend(SPEND({ anomaly: { line: 'AI spend today is 6.0\u00d7 the average of the previous 7 days ($0.60 vs $0.10), mostly Coach.', tone: 'red' } }));
   ui = render();
   const a = await waitFor(() => one(ui.container, 'data-testid', 'spend-anomaly'), 2000, 'anomaly');
-  assert.match(textOf(a), /6x the 7-day average/);
+  assert.match(textOf(a), /6\.0\u00d7 the average of the previous 7 days/);
   ui.unmount();
 });
 
@@ -147,7 +147,7 @@ test('API key: "Connected" and "Replace key", a password field, the key never sh
 
 test('cross-links: an anomaly is the first Watching row and opens Settings; the brief spend line and budget messages link there', () => {
   const view = { number_health: { status: 'ok', value: { checks: [{ check_id: 'x', status: 'warn', title: 'A warning', detail: '' }] } } };
-  const items = watchItems(view, null, { line: 'AI spend today is 3x the 7-day average ($0.90 vs $0.30), mostly Coach.', tone: 'amber' });
+  const items = watchItems(view, null, { line: 'AI spend today is 3.0\u00d7 the average of the previous 7 days ($0.90 vs $0.30), mostly Coach.', tone: 'amber' });
   assert.deepEqual([items[0].id, items[0].href, items[0].tone], ['ai-spend', '/settings?view=dev', 'amber']);
   assert.equal(watchItems(view, null, null).some(i => i.id === 'ai-spend'), false, 'no anomaly, no row');
   const read = p => fs.readFileSync(new URL(`../client/src/${p}`, import.meta.url), 'utf8');

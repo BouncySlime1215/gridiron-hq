@@ -34,6 +34,8 @@ export const sourceLabel = s => SOURCE_LABELS[s] ?? SOURCE_LABELS.app;
 
 const money = v => +v.toFixed(4);
 const usd = v => `$${v.toFixed(2)}`;
+/** A ratio for people: one decimal and a real multiplication sign ("11.7×"). */
+export const times = r => `${r.toFixed(1)}\u00d7`;
 const WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' });
 const weekday = date => WEEKDAY.format(new Date(`${date}T12:00:00Z`));
 
@@ -75,7 +77,8 @@ export function spendDisplay(s) {
   const share = tb.budget_usd > 0 ? tb.spent_usd / tb.budget_usd : null;
   const level = share == null ? 'none' : share >= METER.over ? 'over' : share >= METER.warn ? 'warn' : 'ok';
   const week = s.day_totals.slice(0, 7).reverse();
-  const avg = week.length ? week.reduce((t, d) => t + d.cost, 0) / week.length : 0;
+  // ONE average: the anomaly's avg_7d_usd (the previous 7 full days) is both the dashed line and the banner's.
+  const avg = s.anomaly.avg_7d_usd;
   const max = Math.max(avg, ...week.map(d => d.cost), 0);
   const a = s.anomaly;
   const top = a.top_driver ? featureLabel(a.top_driver.feature) : null;
@@ -91,7 +94,7 @@ export function spendDisplay(s) {
     },
     last_7: {
       days: week.map(d => ({ date: d.date, label: weekday(d.date), cost_usd: d.cost, calls: d.calls, height: max > 0 ? +(d.cost / max).toFixed(3) : 0 })),
-      avg_usd: money(avg), avg_height: max > 0 ? +(avg / max).toFixed(3) : 0, avg_line: `7-day average ${usd(avg)}`
+      avg_usd: avg, avg_height: max > 0 ? +(avg / max).toFixed(3) : 0, avg_line: `Average of the previous 7 days: ${usd(avg)}`
     },
     breakdown: {
       feature: byLabel(s.today_by_feature, r => featureLabel(r.feature)),
@@ -102,8 +105,9 @@ export function spendDisplay(s) {
     brief_line: `Yesterday: ${usd(s.yesterday.cost)} API, ${s.yesterday.calls} call${s.yesterday.calls === 1 ? '' : 's'}`,
     anomaly: a.anomaly ? {
       line: a.avg_7d_usd > 0
-        ? `AI spend today is ${a.ratio.toFixed(1)}x the 7-day average (${usd(a.today_usd)} vs ${usd(a.avg_7d_usd)})${top ? `, mostly ${top}` : ''}.`
-        : `AI spend today is ${usd(a.today_usd)} with none in the last 7 days${top ? `, mostly ${top}` : ''}.`,
+        ? `AI spend today is ${times(a.ratio)} the average of the previous 7 days (${usd(a.today_usd)} vs ${usd(a.avg_7d_usd)})${top ? `, mostly ${top}` : ''}.`
+        : `AI spend today is ${usd(a.today_usd)} with none in the previous 7 days${top ? `, mostly ${top}` : ''}.`,
+      avg_usd: a.avg_7d_usd,
       tone: a.ratio == null || a.ratio >= 3 ? 'red' : 'amber'
     } : null,
     budgets: s.budgets.map(budgetRow),

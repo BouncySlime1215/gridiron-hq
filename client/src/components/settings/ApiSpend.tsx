@@ -116,7 +116,7 @@ export function SpendSection({ spend }: { spend: SpendDisplay }) {
   );
 }
 
-/** Last 7 days: one bar per day (one series, the accent) and a dashed line at the 7-day average. */
+/** Last 7 days: one bar per day (one series, the accent) and a dashed line at the average of the previous 7 full days (the same served value as the anomaly banner). */
 function WeekBars({ week }: { week: SpendDisplay['last_7'] }) {
   return (
     <Card className="spend-week">

@@ -84,15 +84,34 @@ test('last 7 days: oldest to newest, heights and the dashed average from the ser
   assert.equal(w.days[0].date, '2026-09-20');
   assert.equal(w.days[0].label, 'Sun');
   assert.equal(w.days.at(-1).height, 1, 'the tallest bar is full height');
-  assert.equal(w.avg_usd, +((0.6 + 6 * 0.1) / 7).toFixed(4));
-  assert.equal(w.avg_line, '7-day average $0.17');
+  assert.equal(w.avg_usd, 0.1, 'the previous 7 full days, not the 7 bars (which include today)');
+  assert.equal(w.avg_line, 'Average of the previous 7 days: $0.10');
   assert.ok(w.avg_height > 0 && w.avg_height < 1);
+});
+
+test('one number: the dashed line and the anomaly banner are the same average, avg_7d_usd (the previous 7 full days)', () => {
+  seed();
+  // Make today large, so an average over the 7 bars (with today) and over the previous 7 days differ.
+  put('2026-09-26 15:30:00', 'coach:chat', 'claude-sonnet-5', 3.0);
+  const s = spendSummary(30, { now, ingest: false });
+  const d = s.display;
+  const barsMean = d.last_7.days.reduce((t, x) => t + x.cost_usd, 0) / 7;
+  assert.notEqual(+barsMean.toFixed(2), s.anomaly.avg_7d_usd, 'the two readings would differ');
+  assert.equal(d.last_7.avg_usd, s.anomaly.avg_7d_usd);
+  assert.equal(d.anomaly.avg_usd, s.anomaly.avg_7d_usd);
+  assert.ok(d.last_7.avg_line.endsWith(`$${s.anomaly.avg_7d_usd.toFixed(2)}`));
+  assert.ok(d.anomaly.line.includes(`vs $${s.anomaly.avg_7d_usd.toFixed(2)})`));
+});
+
+test('the ratio reads with one decimal and a real \u00d7', async () => {
+  const { times } = await import('../server/services/ai-spend-display.js');
+  assert.deepEqual([times(11.69), times(2), times(6.04)], ['11.7\u00d7', '2.0\u00d7', '6.0\u00d7']);
 });
 
 test('anomaly line and tone; the brief line; the always-on note; empty when nothing was ever called', () => {
   seed();
   const d = spendSummary(30, { now, ingest: false }).display;
-  assert.equal(d.anomaly.line, 'AI spend today is 6.0x the 7-day average ($0.60 vs $0.10), mostly Coach.');
+  assert.equal(d.anomaly.line, 'AI spend today is 6.0\u00d7 the average of the previous 7 days ($0.60 vs $0.10), mostly Coach.');
   assert.equal(d.anomaly.tone, 'red');
   assert.equal(d.brief_line, 'Yesterday: $0.10 API, 1 call');
   assert.equal(d.verified_note, "Not yet verified against Anthropic's billing.");

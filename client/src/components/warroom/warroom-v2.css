@@ -410,6 +410,9 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-action-btns .wr-btn-lg { padding: 6px 12px; font-size: 13px; }
 .wr-action-ok { margin: 0; font-size: 13px; font-weight: 600; color: var(--c-green); }
 .wr-action-err { margin: 0; font-size: 13px; color: var(--c-red); }
+.wr-lanes { margin-top: 6px; }
+.wr-lanes-dis { margin: 6px 0 0; padding: 8px 12px; border-radius: var(--r-badge); background: var(--c-amber-tint); color: var(--c-ink); font-size: 13px; overflow-wrap: anywhere; }
+.wr-lanes .wr-srcs-list ul { margin: 2px 0 8px; padding-left: 16px; }
 .wr-drawer-spend { margin: 0; padding: 0 16px 10px; font-size: 12px; color: var(--c-muted); }
 .wr-drawer-more > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--c-muted); }
 .wr-drawer .card { background: var(--c-soft); color: var(--c-ink); border: 0; border-radius: var(--r-tile); padding: 12px 14px; box-shadow: none; }

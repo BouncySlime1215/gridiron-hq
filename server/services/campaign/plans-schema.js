@@ -404,7 +404,9 @@ const run = obj({
 }, {
   dropped_by_reason: json, trade_memory: json,
   // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink). Optional: older files validate.
-  shrink: json
+  shrink: json,
+  // RB-DELTAS shadow (rb-shadow.js): every served step's title delta on both estimators. Optional.
+  rb_shadow: json
 });
 
 const league = obj(

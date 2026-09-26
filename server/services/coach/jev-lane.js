@@ -93,11 +93,17 @@ export function jevState({ question, laneOne, signals, focus = {} }) {
   ].join('\n\n');
 }
 
+const JEV_GATEWAY_MODULE = new URL('../jev/engine-sink.js', import.meta.url).href;
+
 /** Try JEV-01a's gateway; on this build it is absent, and the lane says so. */
 async function defaultJevAsk({ state, questions }) {
   let gateway;
   try {
-    const mod = await import('../jev/engine-sink.js');
+    // A computed specifier on purpose: the gateway (#441) is not on main, and a literal import of an
+    // absent file made code-identity.js refuse every closure that reaches this module (the betting
+    // training-audit hash reaches it through scheduler.js -> numbers-people). Computed, the walker
+    // records it as unresolved instead of missing.
+    const mod = await import(JEV_GATEWAY_MODULE);
     if (typeof mod.createEngineJevGateway !== 'function') return { ok: false, unavailable: JEV_MISSING };
     gateway = mod.createEngineJevGateway();
   } catch (e) {

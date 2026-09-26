@@ -30,7 +30,7 @@ export default function TargetPicker({ field, names, big, onRequest }: {
   const rows = field?.status === 'ok' && field.value ? field.value.filter(t => !isUntouchable(t)) : [];
   const hiddenUt = field?.status === 'ok' ? [
     ...(field.hidden_untouchable ?? []),
-    ...(field.value ?? []).filter(isUntouchable).map(t => ({ player: t.player, owner: t.owner, label: t.untouchable_label ?? 'on his untouchable list' })),
+    ...(field.value ?? []).filter(isUntouchable).map(t => ({ player: t.player, owner: t.owner, label: t.untouchable_label ?? 'on their untouchable list' })),
   ] : [];
   const pg = usePager(rows.length, big ? 8 : 3);
   const n = namer(names);

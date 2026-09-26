@@ -85,7 +85,7 @@ test("add_stop on a league with stop_tradeoffs['add:get:<id>'] renders the produ
   assert.match(text, /Costs: 0\.6 pts, 1 extra step\(s\)/);
   assert.match(text, /Gains: 0\.4 pts/);
   assert.match(text, /Net: -0\.2 pts: not worth it/);
-  assert.match(text, /Because he costs the tight end/);
+  assert.match(text, /Because they cost the tight end/);
   assert.match(text, /Next move stays the same/);
   assert.doesNotMatch(text, /not computed yet|NaN|undefined/);
   assert.match(text, /Confirm/);

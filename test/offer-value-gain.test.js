@@ -51,7 +51,7 @@ test('finder hint: added to every idea, info only; order changes only with sort=
   assert.deepEqual(kept.deals.map(d => d.partner_id), ['a', 'b', 'c']);
   assert.deepEqual(kept.deals.map(d => d.value_gain_hint.their_fc_gain), [-700, 2000, null]);
   assert.equal(kept.deals[0].value_gain_hint.info_only, true);
-  assert.match(kept.deals[0].value_gain_hint.note, /Not a chance he says yes/);
+  assert.match(kept.deals[0].value_gain_hint.note, /Not a chance they say yes/);
   assert.equal(kept.dropped_by_rule, 3, 'the rule-gate count rides along untouched');
   assert.equal(out.deals[0].value_gain_hint, undefined, 'the cached finder result is not mutated');
   const sorted = vg.withValueGainHint(out, { fc, sort: 'value_gain' });

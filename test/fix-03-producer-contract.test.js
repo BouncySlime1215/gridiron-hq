@@ -159,7 +159,8 @@ test('P17/P18: feasibility is the points contract or unknown; goal, risk mode an
   assert.equal(title.feasibility.status, 'unknown');
   assert.match(title.feasibility.reason, /points objective not set/);
   const who = plan({ kind: 'player', target: '21' }).entry;
-  assert.deepEqual(who.destination.value.goal.value, { kind: 'get_player', label: 'Get P21 (WR)', player_id: '21' });
+  assert.deepEqual(who.destination.value.goal.value,
+    { kind: 'get_player', label: 'Get P21 (WR)', metric: 'title', metric_label: 'Title odds', player_id: '21' });
   const until = plan({ risk_mode: 'safe', risk_until_week: 6 }).entry;
   assert.deepEqual(until.destination.value.risk_mode.value, { mode: 'safe', until_week: 6 });
   assert.equal(title.destination.value.eta_week.status, 'ok');

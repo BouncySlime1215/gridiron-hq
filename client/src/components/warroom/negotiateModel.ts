@@ -106,11 +106,11 @@ export const minutesUntil = (iso: string, now: number) => (Date.parse(iso) - now
 
 /** The countdown line for the thread's current phase. */
 export function countdownText(c: Countdown, now: number): string {
-  if (c.phase === 'answered') return 'He answered. The clock is stopped.';
+  if (c.phase === 'answered') return 'They answered. The clock is stopped.';
   const toFollow = minutesUntil(c.follow_up_at, now), toMove = minutesUntil(c.move_on_at, now);
-  if (toFollow > 0) return `Follow up in ${span(toFollow)} if he has not answered`;
+  if (toFollow > 0) return `Follow up in ${span(toFollow)} if they have not answered`;
   if (toMove > 0) return `Follow up now. Move on in ${span(toMove)}`;
-  return `Move on: ${span(-toMove)} past his window`;
+  return `Move on: ${span(-toMove)} past their window`;
 }
 
 /** Share of the waiting window gone, 0-1, for the countdown bar. */

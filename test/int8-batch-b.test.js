@@ -74,11 +74,11 @@ test('LIVE-BLEND labels: a blended P(yes) is never called "today\'s model" on a 
   const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }) });
   const entry = toEntry(res, { names: a.names(), as_of: '2026-10-01T00:00:00Z' });
   const lines = [];
-  const walk = v => { if (typeof v === 'string') { if (/^(Chance he says yes|The path lands|Both legs land)/.test(v)) lines.push(v); }
+  const walk = v => { if (typeof v === 'string') { if (/^(Chance they say yes|The path lands|Both legs land)/.test(v)) lines.push(v); }
     else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x); };
   walk(entry);
   assert.ok(lines.some(l => l.startsWith('The path lands')), 'a target confidence line is served');
-  assert.ok(lines.some(l => l.startsWith('Chance he says yes')), 'a card confidence line is served');
+  assert.ok(lines.some(l => l.startsWith('Chance they say yes')), 'a card confidence line is served');
   const wrong = lines.filter(l => l.includes(P_ACCEPT_LABEL));
   assert.deepEqual(wrong, [], 'blend-served numbers labelled as the clone band');
   assert.ok(lines.every(l => l.includes(BLEND_LABEL)), 'each line names the blend');

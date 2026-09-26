@@ -96,3 +96,6 @@ server/data/eval/
 
 # REASON-01 reasoning panels (offline output, rebuilt every refresh)
 server/data/reasoning/
+
+# RELEASE NOTES (item 60): Today's generated notes, local only
+server/data/release-notes.json

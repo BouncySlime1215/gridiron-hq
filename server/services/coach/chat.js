@@ -22,7 +22,8 @@
 import { askCoach, COACH_MODEL } from './ask.js';
 import { newLedger } from './ledger.js';
 import { recordCoachAnswer } from './audit.js';
-import { groundStarter, planEntry, identitiesFor, starterIntent } from './starter-answers.js';
+import { groundStarter, planEntry, identitiesFor, starterIntent, partnerAnswer } from './starter-answers.js';
+import { answerWithLanes, lanesOn } from './lanes.js';
 import { activeThread, appendTurn, recentTurns, summaryText, threadTurnLimit } from './threads.js';
 import { followupIntent, focusFor, focusedMove, moveById, partnerOnlyFocus } from './focus.js';
 import { whyClaims, ifNoClaims, otherOneClaims, partnerSwitchClaims, followupsFor, CHIP } from './followups.js';
@@ -179,9 +180,15 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
     const turns = recentTurns(thread.id, limit);
     const conversation = { turns, summary: summaryText(thread.summary), focus };
     const noModelRefusal = NO_MODEL;
+    const askArgs = { question: asked, context: ctx, leagueId, hasModel, onEvent, conversation,
+      model: routeModel(asked, { focus, turns: turns.length / 2 }), feature: 'coach:chat', noModelRefusal };
     try {
-      result = await askCoach({ question: asked, context: ctx, leagueId, hasModel, onEvent, conversation,
-        model: routeModel(asked, { focus, turns: turns.length / 2 }), feature: 'coach:chat', noModelRefusal });
+      // COACH-LANES: a question bound for the model (no command, starter or partner answer) runs both lanes.
+      const modelBound = hasModel && lanesOn() && !routeIntent(asked) && !starter
+        && !(await partnerAnswer({ question: asked, leagueId }));
+      result = modelBound
+        ? await answerWithLanes({ question: asked, askArgs, focus, leagueId, threadId: thread.id })
+        : await askCoach(askArgs);
     } catch (e) {
       if (!(e instanceof LlmBudgetError)) throw e;
       const ledger = newLedger().toJson();
@@ -199,7 +206,7 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   const proposals = proposalsFor(intent, nextFocus, entry);
   const replyText = [...result.answer.claims.map(c => c.text), ...result.answer.refusals].join(' ');
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
-    followups, proposals, cost_usd: result.cost_usd ?? 0 };
+    followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}) };
   appendTurn(thread.id, { question: asked, intent, reply, focus: nextFocus }, { limit });
   return { ...result, intent, thread: { id: thread.id, focus: nextFocus, followups, proposals } };
 }

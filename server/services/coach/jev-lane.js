@@ -33,8 +33,8 @@ export const JEV_TAKE_VERSION = 1;
 export const STANCES = Object.freeze(['go', 'wait', 'avoid']);
 export const BASES = Object.freeze(['willingness', 'price', 'timing', 'roster_fit', 'risk']);
 export const BASIS_WORDS = Object.freeze({ willingness: 'willingness', price: 'price', timing: 'timing', roster_fit: 'roster fit', risk: 'risk' });
-export const JEV_MISSING = 'Jev is not wired into the server on this build: JEV-01a (#441, server/services/jev/gateway.js) is not merged, '
-  + 'and coach_take is not registered in its question types.';
+export const JEV_MISSING = 'Jev is not wired for Coach on this build: coach_take is not registered in the Jev question types '
+  + '(server/services/jev/questions.js), or the Jev gateway (JEV-01a) is absent.';
 /** The one alias Jev ever sees for the manager in focus (COACH-V2: pseudonymised state, 0 names). */
 export const MANAGER_ALIAS = 'MANAGER M1';
 
@@ -99,7 +99,8 @@ async function defaultJevAsk({ state, questions }) {
   try {
     const mod = await import('../jev/engine-sink.js');
     if (typeof mod.createEngineJevGateway !== 'function') return { ok: false, unavailable: JEV_MISSING };
-    gateway = mod.createEngineJevGateway();
+    // createEngineJevGateway returns { sink, gateway } (jev/engine-sink.js); the client is `gateway`.
+    gateway = mod.createEngineJevGateway().gateway;
   } catch (e) {
     if (e?.code === 'ERR_MODULE_NOT_FOUND') return { ok: false, unavailable: JEV_MISSING };
     throw e;

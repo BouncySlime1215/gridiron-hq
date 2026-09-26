@@ -37,8 +37,10 @@ import { projectionAsOf } from './projection-asof.js';
 import { basis02Flag, applyBasis02, poolBasisFor } from './sim-basis.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
 import { rbTitleMode, conditionalTitle, RB_SE_BATCHES, batchOf, batchSe, batchPairedSe, batchInterval } from './rb-title.js';
+import { isTitleMode, isTitleRun } from './is-title.js';
 import { standingsCheckField } from './standings-reconcile.js';
 import { espnProjections } from './espn-league-projections.js';
+import { playoffPathCollector, playoffPathMode } from './playoff-path.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -347,7 +349,7 @@ function teamOffsets(world, ids, run, sd) {
   return new Map(ids.map(id => [id, sd * keyedNormal(keyedSeed(world, 'team-mean', id), run)]));
 }
 
-export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale, teamOffsets, playSeasons, gameShockFor };
+export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale, teamOffsets, playSeasons, gameShockFor, withIsTitle };
 // FIX-322-1: the E3-ESPN grader replays brackets with the sim's own rules (a named export, not __test).
 export { playBracket, addMedianResults };
 
@@ -592,7 +594,9 @@ function kdstPoints(lg, players, simWeeks, nflSchedule, flag) {
  */
 export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
-  keepRuns = false, universe = null, worldId = null
+  keepRuns = false, universe = null, worldId = null, playoffPath = false,
+  // IS-TITLE: whose title odds to importance-sample (Nick's roster id); `isTitle` 'off' | 'shadow' | 'on'.
+  isTitleFor = null, isTitle = isTitleMode(), isOpts = {}
 } = {}) {
   const prep = prepareSeason(lg, { requestedWeek, scoring, overrides, projections, universe, worldId });
   if (prep.fail) return prep.fail;
@@ -611,10 +615,34 @@ export function simulateSeason(lg, {
     cache.set(week, got);
     return got;
   };
-  return playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
+  const rawPointsFor = (t, run, week) => {
     const { drawn, expected, kdst } = drawnFor(run, week);
     return lineupPoints(t.players, prep.slots, drawn, expected, kdst);
+  };
+  const res = playSeasons(prep, prep.teams, runs, keepRuns, rawPointsFor, { playoffPath });
+  if (isTitle === 'off' || isTitleFor == null) return res;
+  return withIsTitle(res, isTitle, isTitleRun({
+    prep, teams: prep.teams, meId: String(isTitleFor), rawPointsFor, playSeasons, teamOffsets,
+    rbMode: prep.rbTitle ?? rbTitleMode(), opts: isOpts
+  }));
+}
+
+/**
+ * IS-TITLE: carry the estimate (`is_title`). Shadow adds `title_odds_is` / `_se` to that
+ * team's row; on serves it as the row's `title_odds` only when the unweighted check
+ * passed, and otherwise leaves the direct number served and says why.
+ */
+function withIsTitle(res, mode, st) {
+  const is_title = { mode, ...st, served: mode === 'on' && st.status === 'ok' };
+  const teams = res.teams.map(t => {
+    if (t.roster_id !== st.roster_id || st.estimate == null) return t;
+    if (is_title.served) {
+      return { ...t, title_odds: +st.estimate.toFixed(4), title_odds_95: st.ci, title_odds_direct: t.title_odds,
+        title_odds_se: +st.se.toFixed(4), title_estimator: 'importance' };
+    }
+    return { ...t, title_odds_is: +st.estimate.toFixed(4), title_odds_is_se: +st.se.toFixed(4) };
   });
+  return { ...res, teams, is_title };
 }
 
 /**
@@ -798,16 +826,18 @@ function applyOverrides(teams, overrides, assets) {
  * full simulation (lineups set from fresh draws) and a trade rescore (lineups
  * read from a prebuilt world), so both give the same numbers.
  */
-function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
+function playSeasons(prep, teams, runs, keepRuns, rawPointsFor, { playoffPath = false } = {}) {
   const { lg, rules, fromWeek, sched, weeks, bracketWeeks, playoffTeams, medianGame } = prep;
   const ids = teams.map(t => t.roster_id);
   // AVAIL-HORIZON-2 change B: each run draws each team's strength offset once and adds it
   // to every week that team plays (regular season and bracket).
   const sd = prep.teamMeanSd ?? 0;
+  // IS-TITLE: `prep.offsetsOf` replaces one team's offset with a tilted draw (is-title.js).
+  const offsetsOf = prep.offsetsOf ?? (run => teamOffsets(prep.world, ids, run, sd));
   let offRun = -1, offsets = null;
   const pointsFor = sd > 0
     ? (t, run, week) => {
-      if (run !== offRun) { offRun = run; offsets = teamOffsets(prep.world, ids, run, sd); }
+      if (run !== offRun) { offRun = run; offsets = offsetsOf(run); }
       return rawPointsFor(t, run, week) + offsets.get(t.roster_id);
     }
     : rawPointsFor;
@@ -824,6 +854,12 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
   // RB-TITLE: each run's title as the probability of winning its bracket (rb-title.js).
   const rbMode = prep.rbTitle ?? rbTitleMode();
   const rb = rbMode === 'off' ? null : rbTitleState(prep, teams, runs, rawPointsFor, perRun);
+  // PLAYOFF-SEEDING (shadow, playoff-path.js): seed values, win targets and must-win weeks off these same runs.
+  const pp = playoffPath ? playoffPathCollector({
+    ids, runs, weeks, sched, startingRecords, playoffTeams, rounds: rules.schedule.playoff_weeks.length,
+    seed: standings => seedStandings(standings, rules),
+    bracket: (field, scoreFor) => playBracket(field, rules.schedule, scoreFor)
+  }) : null;
 
   for (let run = 0; run < runs; run++) {
     const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
@@ -839,6 +875,7 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
       }
       for (const [id, s] of weekScore) record.get(id).pf += s;
       if (medianGame) addMedianResults(weekScore, record);
+      if (pp) pp.week(week, weekScore);
     }
 
     // Seed by the league's rule (division winners first where there are
@@ -853,15 +890,17 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     }
 
     /* --- playoff bracket: the league's own format (playBracket) --- */
-    const bracket = playBracket(field, rules.schedule, (id, roundWeeks) =>
-      roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0));
+    const bracketScore = (id, roundWeeks) =>
+      roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0);
+    const bracket = playBracket(field, rules.schedule, bracketScore);
     for (const id of bracket.byes) stats.get(id).byes++;
     for (const id of bracket.finalists) stats.get(id).finals++;
     if (bracket.champion) {
       stats.get(bracket.champion).title++;
       if (perRun) perRun.get(bracket.champion).title[run] = 1;
     }
-    if (rb) rb.add(run, field, sd > 0 ? teamOffsets(prep.world, ids, run, sd) : null);
+    if (rb) rb.add(run, field, sd > 0 ? offsetsOf(run) : null);
+    if (pp) pp.add(record, field, bracket.champion, bracketScore);
   }
 
   const out = [...stats.values()].map(s => {
@@ -900,7 +939,8 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     // Both on only under preview: name both reasons, not just the last one.
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),
-    ...(perRun ? { per_run: perRun } : {})
+    ...(perRun ? { per_run: perRun } : {}),
+    ...(pp ? { playoff_path: pp.result() } : {})
   };
 }
 
@@ -1087,7 +1127,8 @@ export function tradeImpactWorld(lg, {
   // PRODUCER-FAST: `fastLineups` scores every lineup of this world (base and deals) with teamPointsFast.
   if (fastLineups) w.teamPoints = teamPointsFast;
   w.points = new Map(prep.teams.map(t => [t.roster_id, (w.teamPoints ?? teamPoints)(w, t.players)]));
-  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points));
+  // PLAYOFF-SEEDING (shadow): only the base season carries it; a deal's rescore never does.
+  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points), { playoffPath: playoffPathMode() !== 'off' });
   return w;
 }
 

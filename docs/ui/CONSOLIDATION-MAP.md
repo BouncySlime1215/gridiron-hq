@@ -43,7 +43,7 @@ Rules for execution:
 |---|---|---|
 | `Rankings.tsx` | The editor for ranking sets | The ranking sets it edits are still used by the draft room, SidePanel and the player card, so this is a **broken** loop, not dead code. |
 | `Projections.tsx` | Consensus market board | |
-| `Model.tsx` | Accuracy, championship odds, correlation, game script, availability, handcuffs | |
+| `Model.tsx` | Accuracy, championship odds, correlation, game script, availability, handcuffs | **Deleted** (batch D 8c): its six /model/* routes 404, nothing imported it. Title odds are on My team. |
 | `Edge.tsx` | Value board, breakouts, boom/bust, efficiency, playoff schedule, season simulator | |
 
 **Always in the shell:** QuickJump (Cmd+K), RefreshAll, DevHub, the page explainer, EspnConnectGate, DataFreshnessBanner, the number-health nav dot, and the data-credit footer.

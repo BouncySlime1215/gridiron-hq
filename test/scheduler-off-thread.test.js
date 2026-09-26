@@ -99,10 +99,15 @@ test('the same job off-thread leaves the event loop responsive', async () => {
   assert.equal(result.ran, true);
   assert.equal(result.error, undefined, `off-thread job should succeed: ${result.error}`);
   assert.equal(result.detail?.burned_ms, BURN_MS, 'the worker must return the job result to the main thread');
-  // Spawning a thread costs a little, and CI runners are shared, so this is a
-  // deliberately loose bound. It is still an order of magnitude below the
-  // control, which is the claim being made.
-  assert.ok(peak < 300, `expected a responsive loop while the worker burned, got ${peak}ms of lag`);
+  // The bar is the control's own, from the other side: an inline burn of BURN_MS
+  // blocks the loop for about BURN_MS and the control requires more than half
+  // of it, so anything under half cannot be the burn running on this thread.
+  // It used to be a flat 300 ms, which a starved shared CI runner crossed once
+  // with the worker doing its job (346 ms on #421, passing on the re-run; 8-51 ms
+  // locally, even pinned to one busy core). A regression still fails either way:
+  // the job's main-thread `run` throws if the worker is ever skipped.
+  assert.ok(peak < BURN_MS / 2,
+    `expected a responsive loop while the worker burned, got ${peak}ms of lag (an inline burn is ~${BURN_MS}ms)`);
 });
 
 test('the heavy tier is off-thread by default, so a new heavy job cannot reintroduce the outage', () => {

@@ -43,6 +43,9 @@ export function normaliseObjective(raw = {}, { leagueGoal = 'title' } = {}) {
     arrive_by: Number.isInteger(arrive) && arrive > 0 ? arrive : null,
     stops: Array.isArray(raw.stops) ? raw.stops.filter(s => s && typeof s.kind === 'string') : [],
     untouchables: Array.isArray(raw.untouchables) ? raw.untouchables.map(String) : [],
+    // PER-LEAGUE RULES: the row's rules block, carried as written; never-give.js#resolveLeagueRules reads it
+    // (tighten-only, fails closed). Absent -> no key, so an objective without one is unchanged.
+    ...(raw.rules != null ? { rules: raw.rules } : {}),
     version: Number.isInteger(raw.version) ? raw.version : 0,
     source: raw && Object.keys(raw).length ? 'objectives_file' : 'default',
   };

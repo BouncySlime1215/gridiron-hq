@@ -15,8 +15,8 @@
  *     the producer's, and the no-decided-week cause never appears on the
  *     mixed-ratio path.
  *  2. the component alone: null renders, true/false/undefined render nothing.
- *  3. page level: Model.tsx (Championship-odds tab) and MyTeam.tsx (title-odds
- *     card) are compiled with the repo's own TypeScript, their data hooks
+ *  3. page level: MyTeam.tsx (title-odds card; Model.tsx, the orphan page that also
+ *     drew it, was retired in batch D 8c) is compiled with the repo's own TypeScript, their data hooks
  *     stubbed with a /simulate response, and rendered with react-dom/server.
  *     The notice appears for median_game:null and not for median_game:true, so
  *     a call site that is present in the source but can never render (e.g.
@@ -130,13 +130,6 @@ const routerUrl = write('router.mjs', nullComp('Link') + '\nexport function useS
 // UX-08b/08c route alert() through the real errorSanitize (pure; compiled, not stubbed).
 const errorSanitizeUrl = compile('client/src/lib/errorSanitize.ts', 'errorSanitize.mjs', {});
 
-const modelUrl = compile('client/src/pages/Model.tsx', 'Model.mjs', {
-  "'../api'": apiUrl, "'../state/league'": leagueUrl, "'../copy-constants'": copyUrl,
-  "'../components/PlayerCard'": write('PlayerCard.mjs', 'export function usePlayerCard() { return { open() {}, card: null }; }'),
-  "'../components/PageState'": stubUrl('PageState.mjs', ['EmptyState', 'PageError', 'PageLoading'], false),
-  "'../components/MedianGameNotice'": noticeUrl,
-  "'../lib/errorSanitize'": errorSanitizeUrl,
-});
 // My team draws its tabs with the design system (compiled for real) and hosts Start/Sit (stubbed).
 const iconsUrl = compile('client/src/components/warroom/icons.tsx', 'icons.mjs', {});
 const designUrl = compile('client/src/components/ui/DesignSystem.tsx', 'DesignSystem.mjs', { "'../warroom/icons'": iconsUrl });
@@ -154,7 +147,6 @@ const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
   "'../components/MedianGameNotice'": noticeUrl,
   "'../lib/errorSanitize'": errorSanitizeUrl,
 });
-const { default: Model } = await import(modelUrl);
 const { default: MyTeam } = await import(myTeamUrl);
 // Registered here, after the last top-level await: node:test starts running the tests
 // already registered above while this module is still awaiting these imports, so a
@@ -175,12 +167,12 @@ function page(which, simResponse) {
     '/model/7/simulate': simResponse,
     '/leagues/7/data': { platform: 'espn', payload: { teams: [{ id: 1, name: 'T1' }, { id: 2, name: 'T2' }], schedule: [] } },
   };
-  const el = which === 'Model' ? React.createElement(Model, { tab: 'odds', embedded: true }) : React.createElement(MyTeam);
+  const el = React.createElement(MyTeam);
   const html = renderToStaticMarkup(el);
   return { html, text: text(html) };
 }
 
-for (const [which, anchor] of [['Model', /Championship odds/], ['MyTeam', /Your title odds right now/]]) {
+for (const [which, anchor] of [['MyTeam', /Your title odds right now/]]) {
   test(`${which} page renders the notice (with the sim's reason) for median_game:null and not for true`, () => {
     const unknown = page(which, sim({ median_game: null, rules_unknown: [MIXED_REASON] }));
     assert.match(unknown.text, anchor, `control: the odds section itself did not render on ${which}: ${unknown.text.slice(0, 300)}`);

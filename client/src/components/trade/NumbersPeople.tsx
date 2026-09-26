@@ -4,6 +4,7 @@ import { Button, Card, EmptyState, ErrorState, Section, Skeleton } from '../ui/D
 import { useHeadshotMap } from '../warroom/useWarRoom';
 import NumbersPeopleCard, { type NPItem } from './NumbersPeopleCard';
 import { Scoreboard, Timeline, type NPScoreboard } from './numbersPeopleParts';
+import { BudgetLink } from '../settings/spendLinks';
 
 /**
  * Trades → Numbers & People (NUMBERS-PEOPLE): what Coach's two lanes think of the plan's key items
@@ -109,7 +110,8 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
         {(busy || view.refreshing) && <div className="mt-3"><Thinking label="Claude and Jev are reading the plan" /></div>}
       </Card>
 
-      {view.notice && <Card tone="warn"><p className="text-sm" data-testid="np-notice">{view.notice.text}</p></Card>}
+      {view.notice && <Card tone="warn"><p className="text-sm" data-testid="np-notice">{view.notice.text}
+        {view.notice.kind === 'budget' && <> <BudgetLink budgetKey="numbers_people" /></>}</p></Card>}
       {error && <ErrorState title="Refresh did not finish" message={error} />}
 
       {view.status === 'empty' && !busy && !view.refreshing && (

@@ -16,38 +16,16 @@ const ago = (iso?: string | null) => {
 };
 
 /**
- * Settings → AI & developer: the Anthropic API key, the workspace id, usage (today and 30 days, by
- * feature) and the player identity audit. The key is shown masked only (server `masked`), and the
- * key field is a password input.
+ * Settings → AI & developer, below API spend / Daily budgets / API key (settings/ApiSpend.tsx):
+ * the workspace id, live data and the player identity audit.
  */
 export function DevPanel() {
   const { data, refetch } = useApi<any>('/dev/status');
-  const [keyInput, setKeyInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [repair, setRepair] = useState<any>(null);
   const [workspaceInput, setWorkspaceInput] = useState('');
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [workspaceMsg, setWorkspaceMsg] = useState<string | null>(null);
 
-
-  const saveKey = async () => {
-    setBusy(true); setMsg(null);
-    try {
-      const r = await api('/dev/key', { method: 'PUT', body: JSON.stringify({ key: keyInput }) });
-      setMsg(r.persisted ? 'Saved to .env — AI features are live.' : 'Saved for this session.');
-      setKeyInput('');
-      refetch();
-    } catch (e: any) { setMsg(e.message); }
-    finally { setBusy(false); }
-  };
-
-  const removeKey = async () => {
-    if (!confirm('Remove the stored API key? AI features will stop working.')) return;
-    await api('/dev/key', { method: 'DELETE' });
-    setMsg('Key removed.');
-    refetch();
-  };
 
   const saveWorkspace = async () => {
     setWorkspaceBusy(true); setWorkspaceMsg(null);
@@ -66,42 +44,10 @@ export function DevPanel() {
     refetch();
   };
 
-  const configured = data?.api_key?.configured;
   const workspaceConfigured = data?.workspace_id?.configured;
-  const today = data?.usage?.today;
 
   return (
     <div className="space-y-5" data-testid="dev-panel">
-      {/* API key */}
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Anthropic API key</h3>
-        {configured ? (
-          <div className="flex items-center gap-2">
-            <code className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-600">
-              {data.api_key.masked}
-            </code>
-            <button onClick={removeKey} className="text-xs text-rose-600 hover:underline ml-auto">remove</button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <input
-              type="password"
-              value={keyInput}
-              onChange={e => setKeyInput(e.target.value)}
-              placeholder="sk-ant-…"
-              className="input flex-1 font-mono text-xs" />
-            <button className="btn-primary" onClick={saveKey} disabled={busy || !keyInput}>
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        )}
-        {msg && <p className="text-xs text-amber-600 mt-2">{msg}</p>}
-        <p className="text-[11px] text-slate-400 mt-2">
-          Stored locally in <code className="font-mono">.env</code> (gitignored). Powers buy/sell verdicts,
-          news explanations, the camp roundup and team-outlook refreshes.
-        </p>
-      </div>
-
       {/* Workspace ID — only needed for identity-linked keys */}
       <div>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
@@ -135,68 +81,6 @@ export function DevPanel() {
           the workspace's name. A plain API key never needs this — leave it blank.
         </p>
       </div>
-
-      {/* usage */}
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Usage</h3>
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          {[
-            ['Today', money(today?.cost), `${today?.calls ?? 0} calls`],
-            ['30 days', money(data?.usage?.period_cost), `${fmt(data?.usage?.daily?.reduce((s: number, d: any) => s + d.calls, 0))} calls`],
-            ['Model', 'Haiku 4.5', `$${data?.pricing?.in}/$${data?.pricing?.out} per Mtok`]
-          ].map(([label, big, sub], i) => (
-            <div key={i} className="rounded-lg border border-slate-200 p-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
-              <div className="text-sm font-bold text-slate-800 truncate">{big}</div>
-              <div className="text-[10px] text-slate-400 truncate">{sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {data?.usage?.by_feature?.length > 0 ? (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                <th className="text-left font-medium pb-1">Feature</th>
-                <th className="text-right font-medium pb-1">Calls</th>
-                <th className="text-right font-medium pb-1">Tokens</th>
-                <th className="text-right font-medium pb-1">Cost</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.usage.by_feature.map((f: any) => (
-                <tr key={f.feature}>
-                  <td className="py-1 text-slate-700">{f.feature}</td>
-                  <td className="py-1 text-right tabular-nums text-slate-500">{f.calls}</td>
-                  <td className="py-1 text-right tabular-nums text-slate-500">{fmt(f.input_tokens + f.output_tokens)}</td>
-                  <td className="py-1 text-right tabular-nums font-medium text-slate-700">{money(f.cost)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="text-xs text-slate-500">No AI calls yet.</p>
-        )}
-      </div>
-
-      {/* COACH-CHAT: Coach's AI spend today against its daily limit (llm-budget.js, the `coach` budget). */}
-      {(() => {
-        const coach = (data?.usage?.budgets ?? []).find((b: any) => b.key === 'coach');
-        if (!coach) return null;
-        return (
-          <div data-testid="dev-coach-spend">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Coach AI</h3>
-            <p className="text-xs text-slate-600">
-              {configured ? 'On: questions Coach cannot answer from the plan go to the AI model.' : 'Off: Coach answers from your plan only (no key).'}
-            </p>
-            <p className="text-xs text-slate-600 mt-1">
-              Spent today: <b className="tabular-nums">{money(coach.spent_usd)}</b>
-              {coach.budget_usd != null && <> of a <b className="tabular-nums">{money(coach.budget_usd)}</b> daily limit</>}.
-              {' '}Follow-ups answered from the plan cost nothing.
-            </p>
-          </div>
-        );
-      })()}
 
       {/* data freshness */}
       <div>

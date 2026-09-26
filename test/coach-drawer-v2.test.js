@@ -157,6 +157,17 @@ test('banner: the AI off shows one line; plan starters still work', async () => 
   } finally { spend = { model_on: true, spent_today_usd: 0.12, daily_budget_usd: 5 }; }
 });
 
+test('banner: today\'s limit used links to Coach\'s row in Settings -> AI & developer (SPEND-UI)', async () => {
+  spend = { model_on: true, spent_today_usd: 5, daily_budget_usd: 5 };
+  try {
+    const ui = render(coachWith());
+    const banner = await waitFor(() => one(ui.container, 'data-testid', 'coach-ai-banner'), 2000, 'the banner');
+    assert.match(textOf(banner), /^Today's AI limit is used\. Answers from your plan still work\. Change the budget$/);
+    assert.equal(one(banner, 'data-testid', 'budget-link').getAttribute('href'), '/settings?view=dev&budget=coach');
+    ui.unmount();
+  } finally { spend = { model_on: true, spent_today_usd: 0.12, daily_budget_usd: 5 }; }
+});
+
 /* ------------------------------------------------------------ the hook */
 
 function mountHook() {

@@ -5,6 +5,7 @@ import App from './App';
 import './index.css';
 import { ToastProvider } from './components/ui/DesignSystem';
 import { ThemeProvider } from './state/theme';
+import { initPwa } from './pwa';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -19,3 +20,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+
+initPwa();

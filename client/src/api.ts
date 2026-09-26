@@ -76,8 +76,10 @@ export async function api<T = any>(path: string, opts?: RequestInit, retried = f
     // UX-08c: carry the HTTP status so a caller can tell a route's own plain 4xx
     // copy (safe to show) from a 5xx, whose `error` is the global handler's raw
     // err.message (server/index.js error middleware) — sqlite/table text.
-    const err: Error & { status?: number } = new Error(body.error || `${res.status} ${res.statusText}`);
+    const err: Error & { status?: number; budgetKey?: string } = new Error(body.error || `${res.status} ${res.statusText}`);
     err.status = res.status;
+    // SPEND-UI: a budget-used error names its budget (server error handler), so the message can link to its row.
+    if (typeof body.budget_key === 'string') err.budgetKey = body.budget_key;
     throw err;
   }
   return res.json();

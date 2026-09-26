@@ -16,6 +16,7 @@ import { rows } from '../db/index.js';
 import { rowCostUsd, listBudgets, budgetKeyFor } from './llm-budget.js';
 import { ingestShared } from './ai-ledger.js';
 import { SPEND_TZ, etDay, dayBefore } from './et-day.js';
+import { spendDisplay } from './ai-spend-display.js';
 
 export { SPEND_TZ, etDay, dayBefore };
 export const ANOMALY = Object.freeze({ ratio: 2, min_usd: 0.25, prior_days: 7 });
@@ -48,7 +49,13 @@ function groupBy(list, keyOf, seed) {
  * The summary. `days`: how many New York days `daily` and the period totals cover.
  * `ingest`: false skips reading the shared ledger (tests of the arithmetic).
  */
-export function spendSummary(days = 30, { now = new Date(), ingest = true } = {}) {
+export function spendSummary(days = 30, opts = {}) {
+  const s = spendData(days, opts);
+  // SPEND-UI: what Settings -> AI & developer draws, built from these same numbers (the screen computes nothing).
+  return { ...s, display: spendDisplay(s) };
+}
+
+function spendData(days = 30, { now = new Date(), ingest = true } = {}) {
   const shared = ingest ? ingestShared() : { status: 'skipped' };
   const cols = new Set(rows('PRAGMA table_info(ai_usage)').map(c => c.name));
   const since = new Date(now.getTime() - (Math.max(days, ANOMALY.prior_days + 1) + 2) * 864e5).toISOString().replace('T', ' ').slice(0, 19);

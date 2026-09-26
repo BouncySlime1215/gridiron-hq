@@ -120,6 +120,8 @@ export interface ProposalsResponse {
   source: 'none' | 'cache' | 'model';
   /** True means "we could not ask", which is not the same as "nothing to ask about". */
   refused?: boolean;
+  /** SPEND-UI: the budget that refused the call, when it was a budget (links to its row in Settings). */
+  budget_key?: string;
 }
 
 /**

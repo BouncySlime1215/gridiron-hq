@@ -6,17 +6,19 @@ import LeagueChatPull from '../components/LeagueChatPull';
 import NumberHealthCard from '../components/NumberHealth';
 import { DataFreshnessDetail } from '../components/DataFreshnessBanner';
 import { DevPanel } from '../components/DevHub';
+import ApiSpend from '../components/settings/ApiSpend';
 import ManagerDataSources from '../components/brain/ManagerDataSources';
 import { COST_NOTE } from '../components/brain/ProposalSlate';
 import { api } from '../api';
 import { sanitizedMessage } from '../lib/errorSanitize';
-import { Button, Card, PageHeader, Tabs } from '../components/ui/DesignSystem';
+import { Button, Card, Fold, PageHeader, Tabs } from '../components/ui/DesignSystem';
 import { useCoach } from '../state/coach';
 
 /**
  * The Settings area (docs/ui/CONSOLIDATION-MAP.md): Connections (sign-in, the one ESPN flow, phone
  * access, league chat, the player database), Health (number health and data freshness, one view),
- * and AI & developer (API key, workspace, usage, identity audit).
+ * and AI & developer (API spend, daily budgets and the API key first, then workspace, live data and the
+ * identity audit).
  *
  * Model diagnostics (the map's fourth view) is retired (batch D 8c): the server no longer served the
  * routes Model.tsx read (/model/status, /accuracy, /correlations, /gamescript, /availability,
@@ -39,8 +41,8 @@ export default function Settings() {
   const setView = (v: View) => setParams(() => (v === 'connections' ? new URLSearchParams() : new URLSearchParams(`view=${v}`)), { replace: true });
 
   return (
-    <div className="max-w-3xl">
-      <PageHeader eyebrow="Settings" title="Settings" description="Connections, the health of every number, and AI and developer settings." />
+    <div className={view === 'dev' ? 'max-w-6xl' : 'max-w-3xl'}>
+      <PageHeader title="Settings" description="Connections, the health of every number, and AI and developer settings." />
       <div className="mb-5"><Tabs label="Settings views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
       {view === 'connections' && <div className="space-y-4">
@@ -63,13 +65,20 @@ export default function Settings() {
         </Card>
       </div>}
 
-      {view === 'dev' && <div className="space-y-4">
-        <Card><DevPanel /></Card>
-        <Card className="!p-4">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Write proposals (Trades → People)</h3>
-          <p className="ds-note mt-1">{COST_NOTE}</p>
-        </Card>
-        <Card className="!p-4"><ManagerDataSources /></Card>
+      {/* SPEND-UI: API spend > Daily budgets > API key first; ?budget=<key> lands on that budget's row. */}
+      {view === 'dev' && <div className="space-y-6">
+        <ApiSpend focusBudget={params.get('budget')} />
+        {/* The developer tools below the three spend sections, folded so the page stays short on a phone. */}
+        <Fold title="Developer details" hint="Workspace, live data, identity audit, data sources" testid="dev-details">
+          <div className="space-y-4">
+            <Card><DevPanel /></Card>
+            <Card className="!p-4">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Write proposals (Trades → People)</h3>
+              <p className="ds-note mt-1">{COST_NOTE}</p>
+            </Card>
+            <Card className="!p-4"><ManagerDataSources /></Card>
+          </div>
+        </Fold>
       </div>}
 
     </div>

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
 import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
+import { createPwa } from './platform/pwa.js';
 // FP-GUARD: FantasyPros is never displayed, so no fp_* / FantasyPros key leaves in any API response.
 import { fantasyProsGuard } from './services/fantasypros-guard.js';
 
@@ -215,9 +216,13 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   // only index.html (which points at the current hashes) must be revalidated.
   // Over a tunnel to a phone this turns three ~300ms round trips into zero.
   app.use('/assets', express.static(path.join(DIST, 'assets'), { immutable: true, maxAge: '1y' }));
+  // MOBILE-PWA (GRIDIRON_PWA): manifest + shell-only service worker, and index.html with the
+  // manifest link when on. Off, index.html is sent exactly as built (platform/pwa.js).
+  const pwa = createPwa({ distDir: DIST });
+  app.use(pwa.router);
   app.use(express.static(DIST, { index: false, maxAge: 0 }));
   // SPA fallback — client-side routes like /trade-lab must not 404 on refresh.
-  app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
+  app.get(/^(?!\/api\/).*/, pwa.sendIndex);
 }
 
 // Loopback-only by default (see the note at scripts/start.mjs's URL constant

@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SECTIONS, OPTIONAL_SECTIONS, SOURCE_IDS } from '../server/services/campaign/plans-schema.js';
+import { PREVIEW_ENV } from '../server/services/preview-mode.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REGISTRY_PATH = path.join(ROOT, 'docs', 'architecture', 'registry.json');
@@ -172,7 +173,7 @@ export function renderArchitecture({ registry = readRegistry(), root = ROOT } = 
     L.push('');
   };
   table('switch', 'Flags: switches',
-    'A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UNCONFIRMED`. An unproven unit stays off or in shadow until its pre-registered bar passes. "preview-aware file" means a file naming the flag also reads preview mode; read that file before assuming preview leaves it off.');
+    `A unit switches on only through its own flag, never through \`${PREVIEW_ENV}\`. An unproven unit stays off or in shadow until its pre-registered bar passes. "preview-aware file" means a file naming the flag also reads preview mode; read that file before assuming preview leaves it off.`);
   table('setting', 'Settings', 'Paths, hosts, budgets and limits. Not switches.');
   table('secret', 'Secrets', 'Names only. Values live in the environment, never in the repo, a log or a message.');
   return L.join('\n');

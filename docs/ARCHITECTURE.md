@@ -148,7 +148,7 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_PLAYER_SCORE` | `scripts/campaign/league-adapter.mjs`, `server/services/campaign/plans-schema.js`, `server/services/campaign/view.js` +1 more | yes |
 | `GRIDIRON_PLAYOFF_SEEDING` | `server/services/campaign/planner.js`, `server/services/playoff-path.js` |  |
 | `GRIDIRON_POINTS_FEASIBILITY` | `server/services/campaign/feasibility.js`, `server/services/campaign/view.js` | yes |
-| `GRIDIRON_PREVIEW_UNCONFIRMED` | `scripts/architecture-map.mjs`, `server/services/preview-mode.js` | yes |
+| `GRIDIRON_PREVIEW_UNCONFIRMED` | `server/services/preview-mode.js` | yes |
 | `GRIDIRON_PRICE_BAND_V2` | `server/services/preview-mode.js`, `server/services/price-band.js`, `server/services/trade-engine.js` | yes |
 | `GRIDIRON_PRODUCER_FAST` | `scripts/campaign/bench-producer.mjs`, `scripts/campaign/league-adapter.mjs`, `server/services/preview-mode.js` | yes |
 | `GRIDIRON_PROJ_ESPN` | `server/services/espn-week-projection.js`, `server/services/lineup-week-range.js`, `server/services/number-audit.js` +2 more | yes |

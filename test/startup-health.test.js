@@ -252,15 +252,14 @@ test('B2: through express, a broken probe answers 503 before the router runs', a
   } finally { server.close(); }
 });
 
-test('B8: every trade-card mount in server/index.js carries the gate', () => {
+test('B8: the gate is mounted once, ahead of every trade-card router, and the banner route is authenticated', () => {
   const src = fs.readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
-  for (const mount of ['/api/edge', '/api/tradelab', '/api/trades', '/api/execution-slate']) {
-    const lines = src.split('\n').filter(l => l.startsWith(`app.use('${mount}'`));
-    assert.ok(lines.length >= 1, mount);
-    for (const l of lines) assert.match(l, /tradeSafety\.gate/, l);
+  const gateAt = src.indexOf('app.use(tradeSafety.gate);');
+  assert.ok(gateAt > 0, 'gate mounted');
+  assert.equal(src.split('app.use(tradeSafety.gate);').length, 2, 'mounted exactly once');
+  for (const mount of ['/api/edge', '/api/tradelab', '/api/trades', '/api/execution-slate', '/api/warroom']) {
+    const at = src.indexOf(`app.use('${mount}'`);
+    assert.ok(at > gateAt, `${mount} is mounted after the gate`);
   }
-  const war = src.split('\n').filter(l => l.startsWith("app.use('/api/warroom'"));
-  assert.equal(war.length, 2);
-  for (const l of war) assert.match(l, /tradeSafety\.gate/, l);
   assert.match(src, /app\.get\('\/api\/trade-safety', \.\.\.legacyAuthenticated/);
 });

@@ -105,7 +105,7 @@ test('the fixpoint looks at every module a dying handler imports, not only files
  * actually reachable by the parser. Written down rather than fixed, because it
  * under-reports and the three above over-report.
  */
-const runOnFixture = (files) => {
+const runOnFixture = (files, { pathPrefix } = {}) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-impact-'));
   for (const [name, text] of Object.entries(files)) {
     fs.mkdirSync(path.join(dir, path.dirname(name)), { recursive: true });
@@ -123,8 +123,9 @@ const runOnFixture = (files) => {
   // The guard is about the SUITE reaching the network; this child reads files and runs
   // git in a temporary directory.
   const { NODE_OPTIONS, ...env } = process.env;
+  const PATH = pathPrefix ? `${pathPrefix}${path.delimiter}${env.PATH}` : env.PATH;
   execFileSync(process.execPath, [path.resolve('scripts/route-deletion-impact.mjs')],
-    { cwd: dir, env: { ...env, OUT: out }, stdio: 'pipe' });
+    { cwd: dir, env: { ...env, PATH, OUT: out }, stdio: 'pipe' });
   const report = fs.readFileSync(out, 'utf8');
   fs.rmSync(dir, { recursive: true, force: true });
   return report;
@@ -218,4 +219,64 @@ test('a closure declared inside a function is not a symbol of its module', () =>
   assert.match(report, /\bouter\(\)/, 'outer itself falls, and must still be reported');
   assert.doesNotMatch(report, /localClosure/,
     'a closure inside the function being deleted goes with it and is not a row');
+});
+
+
+/*
+ * 9. THE ANSWER DEPENDED ON WHICH COMPUTER RAN IT. Test 6 above failed on Nick's Mac
+ *    and passed on CI and in the cloud, and three TDD records wrote it down as
+ *    "pre-existing, not touched" (2026-09-23 ux-11, s19). The cause: call sites were
+ *    found with `git grep -E '\bname\b'`, and git hands -E patterns to the platform's
+ *    POSIX regex. glibc reads \b as a word boundary; macOS's regex does not (it is a
+ *    literal "b"), so on a Mac every symbol had ZERO call sites, and everything a dying
+ *    route touched was reported as falling with it. A deletion report that is only
+ *    right on Linux is wrong on the one machine people delete from.
+ *
+ *    The shim below is that regex: it rewrites \b to b before handing the call to the
+ *    real git, which is exactly what BSD regcomp does with it. With it on PATH this
+ *    reproduces the Mac failure on Linux (test 6 goes 7/8, the recorded signature).
+ */
+const shimDir = (body) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-git-shim-'));
+  const realPath = process.env.PATH;
+  fs.writeFileSync(path.join(dir, 'git'), `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const PATH = ${JSON.stringify(realPath)};
+let args = process.argv.slice(2);
+${body}
+const r = spawnSync('git', args, { stdio: 'inherit', env: { ...process.env, PATH } });
+process.exit(r.status ?? 1);
+`, { mode: 0o755 });
+  return dir;
+};
+
+const survivorFixture = {
+  'docs/wiring/wiring-map.json': mapOf(['GET /api/thing/dead', 'server/routes/app.js:3']),
+  'docs/wiring/route-verdicts.json': VERDICTS,
+  'server/routes/app.js': `import { helper } from '../services/svc.js';\n`
+    + `export const router = {};\n`
+    + `router.get('/api/thing/dead', (req, res) => {\n  res.json({ n: helper() });\n});\n`,
+  'server/services/svc.js': `export function keptButUnreached() {\n  return helper() + 1;\n}\n`
+    + `export function helper() {\n  return 1;\n}\n`,
+};
+
+test('call sites are found the same way on macOS, whose regex has no word boundary', () => {
+  const shim = shimDir(`args = args.map(a => a.replace(/\\\\b/g, 'b'));`);
+  try {
+    const report = runOnFixture(survivorFixture, { pathPrefix: shim });
+    assert.doesNotMatch(fallsSection(report), /\bhelper\(\)/,
+      'with BSD regex the old grep found no call sites at all, so helper "fell"');
+    assert.match(report, /keptButUnreached\(\)/, 'the surviving caller is still named');
+  } finally { fs.rmSync(shim, { recursive: true, force: true }); }
+});
+
+test('a git grep that fails is an error, not "no call sites"', () => {
+  // `|| true` and a bare catch turned every git failure into an empty list, which this
+  // report reads as "nothing else calls it" — the most dangerous answer it can give.
+  // Exit 1 from git grep means no match; anything else must stop the report.
+  const shim = shimDir(`if (args.includes('grep')) { process.stderr.write('fatal: simulated\\n'); process.exit(128); }`);
+  try {
+    assert.throws(() => runOnFixture(survivorFixture, { pathPrefix: shim }),
+      'a report built on a failed search must not be written');
+  } finally { fs.rmSync(shim, { recursive: true, force: true }); }
 });

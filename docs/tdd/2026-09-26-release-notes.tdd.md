@@ -58,8 +58,33 @@ The Today card is not in this PR (Trades/Today UI is wired by the coordinator); 
 
 ## RED
 
-(filled in after the RED commit)
+`test/release-notes.test.js` committed first (`1e2098e4`); run on the RED commit:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/services/release-notes.js'
+# tests 1
+# pass 0
+# fail 1
+```
 
 ## GREEN
 
-(filled in after the GREEN commit)
+`node --test test/release-notes.test.js`: 10 tests, 10 pass. One test was added after RED (the gate
+holds PascalCase code names, FantasyPros, "O1"-style codes and engine words such as ledger, radar,
+estimator, test), after a dry run over 104 real commits showed lines like "UI test draws the live
+Trades planner, not the retired classic WarRoom" getting through. It only tightens the gate.
+
+| Bar | Result |
+| --- | --- |
+| B1 flag off | GET/POST answer `{ enabled: false, reason }` over a corrupt file (proves no read); preview alone stays off; `--apply` exits 2, writes nothing. Pass. |
+| B2 real history | 56 commits: 10 lines served, 0 dev-text hits, 0 "Nick"; overpay, finished starter, News edge, Rankings all served. Pass. |
+| B3 shadow honesty | 10/10 named shadow/off units in `off`, none a line. Pass. |
+| B4 accounting | 10 items + 0 duplicates + 13 off + 20 behind + 13 held = 56. Pass. |
+| B5 names | 2 planted names held, neither string in the note JSON; no denylist -> `held`, 0 items. Pass. |
+| B6 trailer | 3/3. Pass. |
+| B7 shown once | 6/6. Pass. |
+| B8 visible failure | GET -> `unknown` + logged; `--apply` over a corrupt file exits 1, file byte-equal. Pass. |
+
+Dry run over the last 104 non-merge commits on `main` (`4d6b3b83..f2a5eb41`): 17 lines, 23 switched
+off, 34 behind the scenes, 30 held for wording. The held count is the honest cost of cleaning subjects
+by rule: a `Release-note:` trailer in future PR bodies turns those into exact lines.

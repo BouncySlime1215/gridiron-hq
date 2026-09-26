@@ -32,6 +32,9 @@ import { withIdentityTeams } from './partner.js';
 import { routeIntent } from '../warroom-actions/intent.js';
 import { holdToRules, coachRules, hiddenFlipsLine } from './rules-check.js';
 import { LlmBudgetError } from '../llm-budget.js';
+import { routeQuestion, ruleIntent } from './router.js';
+import { explainTerm, chatReply } from './explain.js';
+import { shapeDeterministic, stripDevText } from './answer-shape.js';
 
 /** Models per message (COACH-CHAT model routing). All three are priced in llm-budget.js. */
 export const CHAT_MODELS = Object.freeze({
@@ -53,6 +56,7 @@ export function routeModel(question, { focus = {}, turns = 0 } = {}) {
 }
 
 const NO_MODEL = 'That one needs the AI model, which is off here, so Coach is not guessing. It can answer the questions below from your plan right now.';
+const AI_UNAVAILABLE = "Coach's AI is unavailable right now, so this one waits. It can answer the questions below from your plan.";
 const OVER_BUDGET = "Today's AI limit for Coach is used up, so this one waits until tomorrow. It can answer the questions below from your plan right now.";
 
 const deterministic = (question, intent, extra = {}) => ({ ok: true, violations: [], warnings: [], deterministic: true, intent, question, ...extra });
@@ -167,6 +171,11 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   const starter = starterIntent(asked);
   const plan = [];
   const emit = e => { plan.push(e); onEvent(e); };
+  const byRule = ruleIntent(asked);
+  const defining = /^(what('?s| is| are| does| do)|explain|define)\b/i.test(asked);
+  const quick = follow || starter || refuseSend ? null
+    : byRule === 'CHAT' ? chatReply({ question: asked })
+      : (byRule === 'EXPLAIN' || defining) && entry ? await explainTerm({ question: asked, leagueId }) : null;
   if (follow && !(starter && follow.intent !== 'partner_switch' && follow.intent !== 'other_one')) {
     emit({ t: 'understood', question: asked });
     const out = followupAnswer({ question: asked, ...follow, entry, file: read.file, focus, identities });
@@ -175,6 +184,14 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
       answer: out.answer, ledger: out.ledger, plan, verification: out.verification, costUsd: 0 });
     result = { question: asked, answer: out.answer, actions: [], ledger: out.ledger, verification: out.verification, dropped: out.dropped,
       plan, audit_id: auditId, cost_usd: 0, dropped_by_rule: 0, intent: follow.intent, nextFocus: out.focus };
+  } else if (quick) {
+    // COACH-V2 $0 paths: small talk, and a definition of a term the app serves (its value from the bundle).
+    emit({ t: 'understood', question: asked });
+    emit({ t: 'answer', claims: quick.answer.claims.length, refusals: 0, deterministic: true });
+    const auditId = recordCoachAnswer({ question: asked, route: context?.route ?? null, leagueId, model: `none:${quick.verification.intent}`,
+      answer: quick.answer, ledger: quick.ledger, plan, verification: quick.verification, costUsd: 0 });
+    result = { question: asked, answer: quick.answer, actions: [], ledger: quick.ledger, verification: quick.verification, dropped: quick.dropped ?? [],
+      plan, audit_id: auditId, cost_usd: 0, dropped_by_rule: 0, intent: quick.verification.intent, nextFocus: focus };
   } else {
     const ctx = { ...(context ?? {}), league: context?.league ?? leagueId };
     if (ctx.move_id == null && ctx.deck_index == null && focus.move_id) ctx.move_id = focus.move_id;
@@ -184,24 +201,36 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
     const askArgs = { question: asked, context: ctx, leagueId, hasModel, onEvent, conversation,
       model: routeModel(asked, { focus, turns: turns.length / 2 }), feature: 'coach:chat', noModelRefusal };
     try {
+      // COACH-V2 [0]: the router picks the intent, model, effort and lookup budget; the answer comes back shaped.
+      const route = hasModel && !starter && !routeIntent(asked) ? await routeQuestion(asked, { hasModel }) : null;
+      if (route) onEvent({ t: 'routed', intent: route.intent, by: route.by });
+      const routed = { ...askArgs, model: route?.model ?? askArgs.model, shaped: true, toolRounds: route?.toolRounds ?? null,
+        effort: route?.effort ?? null, thinking: route?.thinking ?? null };
       // COACH-LANES: a question bound for the model (no command, starter or partner answer) runs both lanes.
       const modelBound = hasModel && lanesOn() && !routeIntent(asked) && !starter
         && !(await partnerAnswer({ question: asked, leagueId }));
       result = modelBound
-        ? await answerWithLanes({ question: asked, askArgs, focus, leagueId, threadId: thread.id })
-        : await askCoach(askArgs);
+        ? await answerWithLanes({ question: asked, askArgs: routed, focus, leagueId, threadId: thread.id })
+        : await askCoach(routed);
+      if (route) { result.route = route; result.cost_usd = (result.cost_usd ?? 0) + route.cost_usd; }
     } catch (e) {
-      if (!(e instanceof LlmBudgetError)) throw e;
+      const credit = e?.code === 'ai_credit';
+      if (!(e instanceof LlmBudgetError) && !credit) throw e;
       const ledger = newLedger().toJson();
-      result = { question: asked, answer: { claims: [], refusals: [OVER_BUDGET], as_of: null },
+      result = { question: asked, answer: { claims: [], refusals: [credit ? AI_UNAVAILABLE : OVER_BUDGET], as_of: null },
         actions: [], ledger, verification: deterministic(asked, null, { numbers_checked: 0 }), plan: [], audit_id: null, cost_usd: 0,
-        dropped_by_rule: 0, over_budget: true };
+        dropped_by_rule: 0, over_budget: !credit, ai_unavailable: credit };
     }
     result.nextFocus = focusAfter(result, { entry, focus });
   }
 
   const nextFocus = result.nextFocus;
   delete result.nextFocus;
+  // COACH-V2 section 2: plan answers come back in the same format as model answers (verdict, why, risks).
+  if (!result.answer.shape) result.answer = shapeDeterministic(result.answer);
+  // CLAUDE.md 2b, whatever path answered: no table, column or snake_case name reaches the drawer.
+  const clean = stripDevText(result.answer);
+  if (clean.dropped.length) { result.answer = clean.answer; result.dev_text_dropped = clean.dropped.length; }
   const intent = result.intent ?? result.verification?.intent ?? null;
   const followups = followupsFor(intent, nextFocus, entry);
   let proposals = proposalsFor(intent, nextFocus, entry);
@@ -225,7 +254,8 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   }
   const replyText = [...result.answer.claims.map(c => c.text), ...result.answer.refusals].join(' ');
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
-    followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}) };
+    followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}),
+    ...(result.answer.shape ? { shape: result.answer.shape } : {}), ...(result.route ? { route: result.route.intent } : {}) };
   appendTurn(thread.id, { question: asked, intent, reply, focus: nextFocus }, { limit });
   return { ...result, intent, thread: { id: thread.id, focus: nextFocus, followups, proposals } };
 }

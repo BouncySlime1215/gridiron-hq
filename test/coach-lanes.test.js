@@ -24,6 +24,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_ANTHROPIC_API_KEY = 'test-key-not-a-real-one';
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 delete process.env.GRIDIRON_COACH_LANES;
+process.env.GRIDIRON_COACH_PRELOAD = '0'; // lane 1's ledger ids stay r1.. here; the bundle has its own test (coach-preload)
 process.env.GRIDIRON_COACH_BRIEF_ENABLED = '1';
 process.env.GRIDIRON_WARROOM_ENABLED = '1';
 const PLANS_FILE = path.join(temp, 'plans.json');
@@ -68,6 +69,7 @@ const laneOf = body => {
   const sys = JSON.stringify(body.system ?? '');
   if (sys.includes('people lane of Coach')) return 'people';
   if (sys.includes("write Coach's one reply")) return 'synth';
+  if (sys.includes('Classify a fantasy-football')) return 'route';
   return 'numbers';
 };
 
@@ -89,7 +91,10 @@ function lanesClient({ synth, gateBoth = false }) {
       await Promise.race([both, new Promise((_, no) => setTimeout(() => no(new Error('lanes did not run in parallel')), 1000))]);
     }
     let out;
-    if (lane === 'numbers') out = numbersTurn++ === 0 ? tool() : text({ claims: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'] }], refusals: [], as_of: null });
+    // Lane 1 answers in the COACH-V2 answer format (a verdict and a cited why line); the router picks ABOUT.
+    if (lane === 'route') out = text({ intent: 'ABOUT' });
+    else if (lane === 'numbers') out = numbersTurn++ === 0 ? tool() : text({ verdict: { text: 'Watch him closely this week.', cites: [] }, stance: 'none',
+      basis: 'his read', why: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'] }], risks: [], refusals: [], as_of: null });
     else if (lane === 'people') out = text({ claims: [{ text: 'His profile lists P21 (WR) as a player he wants.', cites: ['r1#0.wants'] }], refusals: [], as_of: null });
     else out = text(synth);
     events.push(`end:${lane}`);
@@ -142,7 +147,7 @@ test('lane 2 is Claude -> Jev: Jev reads lane 1 and leads; the reply compares th
     assert.match(out.lanes.disagreement, /^Numbers say .*; Jev reads /);
     assert.equal(out.verification.ok, true);
     assert.ok(out.answer.claims.find(c => c.lane === 'people').text.includes(PEOPLE_LABEL), 'a Jev claim is labelled');
-    assert.deepEqual([...new Set(client.sent.map(x => x.lane))].sort(), ['numbers', 'synth'], 'no Claude people call when Jev leads');
+    assert.deepEqual([...new Set(client.sent.map(x => x.lane))].sort(), ['numbers', 'route', 'synth'], 'no Claude people call when Jev leads');
     const stored = rows(`SELECT payload_json FROM coach_messages WHERE role = 'coach' ORDER BY id DESC LIMIT 1`)[0];
     assert.equal(JSON.parse(stored.payload_json).lanes.people.source, 'jev', 'the lanes are kept with the reply');
   } finally { setJevAsk(null); }
@@ -191,7 +196,7 @@ test('nobody in focus: lane B and the synthesis are skipped', async () => {
   setAnthropicClientForTesting(client);
   const out = await chatTurn({ userId: newUser(), leagueId: 4, question: 'which manager has the deepest bench at running back right now?',
     hasModel: true, context: { league: 4 } });
-  assert.deepEqual([...new Set(client.sent.map(s => s.lane))], ['numbers']);
+  assert.deepEqual([...new Set(client.sent.map(s => s.lane))].filter(l => l !== 'route'), ['numbers']);
   assert.match(out.lanes.people.skipped, /nobody in focus/);
 });
 
@@ -206,6 +211,6 @@ test('GRIDIRON_COACH_LANES=0 turns the lanes off: the old single answer', async 
     setAnthropicClientForTesting(client);
     const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
     assert.equal(out.lanes, undefined);
-    assert.deepEqual([...new Set(client.sent.map(s => s.lane))], ['numbers']);
+    assert.deepEqual([...new Set(client.sent.map(s => s.lane))].filter(l => l !== 'route'), ['numbers']);
   } finally { delete process.env.GRIDIRON_COACH_LANES; }
 });

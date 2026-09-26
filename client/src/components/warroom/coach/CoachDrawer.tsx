@@ -209,6 +209,26 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
   const claims = (slot.claims ?? []).filter(c => !c.footer && !FOOTER_LINE.test(c.text));
   const cites = [...new Set(claims.flatMap(c => c.cites))];
   const extra = (slot.outcomes ?? []).map(o => o.message).filter(Boolean).map(plainNote);
+  // COACH-V2: the answer format. The verdict leads, then the why bullets and at most two risk lines.
+  const shape = slot.shape;
+  if (shape?.verdict) {
+    return (
+      <div className="wr-answer" data-testid="coach-answer">
+        <p className="wr-verdict" data-testid="coach-verdict">{shape.verdict.text}</p>
+        {shape.why.length > 0 && <ul className="wr-why" data-testid="coach-why">{shape.why.map((w, i) => <li key={i}>{w.text}</li>)}</ul>}
+        {shape.risks.map((r, i) => <p key={`k${i}`} className="wr-muted">{r.text}</p>)}
+        {shape.more && shape.more.length > 0 && (
+          <details className="wr-more" data-testid="coach-more">
+            <summary>More from your plan ({shape.more.length})</summary>
+            {shape.more.map((m, i) => <p key={`m${i}`}>{m.text}</p>)}
+          </details>
+        )}
+        {extra.map((t, i) => <p key={`o${i}`} className="wr-muted">{t}</p>)}
+        {slot.refusals?.filter(r => r !== shape.verdict?.text).map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
+        <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />
+      </div>
+    );
+  }
   return (
     <div className="wr-answer" data-testid="coach-answer">
       {claims.length ? claims.map((c, i) => <p key={i}>{c.text}</p>)

@@ -397,6 +397,11 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-msg-me { align-self: flex-end; max-width: 85%; background: var(--c-accent-tint); color: var(--c-ink); border-radius: var(--r-tile); padding: 8px 12px; font-size: 14px; overflow-wrap: anywhere; }
 .wr-msg-coach { align-self: stretch; min-width: 0; background: var(--c-soft); border-radius: var(--r-tile); padding: 10px 14px; }
 .wr-msg-coach .wr-answer { padding: 0; }
+/* COACH-V2: the answer format. */
+.wr-answer .wr-verdict { margin: 0 0 6px; font-weight: 600; color: var(--c-ink); }
+.wr-answer .wr-why { margin: 0 0 8px; padding-left: 18px; }
+.wr-answer .wr-why li { margin: 0 0 4px; }
+.wr-answer .wr-more > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--c-muted); margin-bottom: 4px; }
 .wr-msg-coach .wr-answer p:last-of-type { margin-bottom: 4px; }
 /* COACH-CHAT: follow-up chips and action cards under the newest answer. */
 .wr-chat-chips { display: flex; flex-wrap: wrap; gap: 6px; }

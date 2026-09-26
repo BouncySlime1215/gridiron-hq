@@ -113,7 +113,8 @@ const leagueParam = req => {
 /** A stored message as the drawer shows it: Nick's text, or Coach's grounded reply. */
 const shownMessage = m => (m.role === 'nick' ? { id: m.id, who: 'nick', text: m.text, at: m.created_at }
   : { id: m.id, who: 'coach', text: m.text, intent: m.intent, at: m.created_at, claims: m.payload.claims ?? [], refusals: m.payload.refusals ?? [],
-    ledger: m.payload.ledger ?? null, followups: m.payload.followups ?? [], proposals: m.payload.proposals ?? [], lanes: m.payload.lanes ?? null });
+    ledger: m.payload.ledger ?? null, followups: m.payload.followups ?? [], proposals: m.payload.proposals ?? [], lanes: m.payload.lanes ?? null,
+    shape: m.payload.shape ?? null });
 
 function threadView(userId, leagueId, thread) {
   const t = thread ?? activeThread(userId, leagueId, { create: false });

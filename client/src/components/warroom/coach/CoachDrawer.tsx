@@ -156,7 +156,9 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
               ))}
             </div>
           )}
-          {coach.ui.cards.map(card => <PlugInCard key={card.id} card={card} plans={plans} />)}
+          {/* One card per field and view: asking the same question twice does not stack the same number twice. */}
+          {[...new Map(coach.ui.cards.map(card => [`${card.field}|${card.view}`, card])).values()]
+            .map(card => <PlugInCard key={card.id} card={card} plans={plans} />)}
           <details className="wr-drawer-more">
             <summary>Morning brief</summary>
             <CoachBrief leagueId={plans?.league_id} citeStyle="sources" />

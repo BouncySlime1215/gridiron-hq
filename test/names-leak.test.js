@@ -108,3 +108,37 @@ test('CLI with no plans file says it has no denylist and fails closed (exit 2)',
   assert.equal(code, 2);
   assert.match(out, /no denylist/i);
 });
+
+// Plan item 38: CI has no plans.json, so its denylist comes from a repository secret (one name per
+// line) handed to the script through an environment variable. The terms are never printed.
+const runCli = (args, env = {}) => {
+  let code = 0; let out = '';
+  try { out = execFileSync(process.execPath, ['scripts/check-names-leak.mjs', ...args], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, ...env } }); } catch (e) { code = e.status; out = `${e.stdout}${e.stderr}`; }
+  return { code, out };
+};
+
+test('CI: --denylist-env reads names from an env var, finds a hit, prints no name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'names-leak-env-'));
+  const f = path.join(dir, 'notes.md');
+  fs.writeFileSync(f, 'clean line\nask Zedquill about WR depth\n');
+  const { code, out } = runCli(['--denylist-env', 'TEST_NAMES', '--files', f], { TEST_NAMES: 'Zedquill\nMarmot Mayhem\n# comment\nAl\n' });
+  assert.equal(code, 1, out);
+  assert.match(out, /denylist: 2 terms/);
+  assert.match(out, /notes\.md:2: .*env:1/);
+  assert.ok(!out.includes('Zedquill') && !out.includes('Marmot'));
+});
+
+test('CI: --denylist-env over every tracked file passes when no name is committed', () => {
+  const { code, out } = runCli(['--denylist-env', 'TEST_NAMES', '--tracked'], { TEST_NAMES: 'Zedquill-not-in-repo-7f3a' });
+  assert.equal(code, 0, out);
+  assert.match(out, /PASS files/);
+});
+
+test('CI: with the env var unset, --skip-if-none exits 0 but says SKIPPED loudly; without it, exit 2', () => {
+  const skipped = runCli(['--denylist-env', 'TEST_NAMES_UNSET', '--skip-if-none', '--tracked'], { TEST_NAMES_UNSET: '' });
+  assert.equal(skipped.code, 0);
+  assert.match(skipped.out, /::warning::.*SKIPPED/);
+  const closed = runCli(['--denylist-env', 'TEST_NAMES_UNSET', '--tracked'], { TEST_NAMES_UNSET: '' });
+  assert.equal(closed.code, 2);
+  assert.match(closed.out, /no denylist/i);
+});

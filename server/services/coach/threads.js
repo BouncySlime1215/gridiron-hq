@@ -175,3 +175,23 @@ export function recentTurns(threadId, turns = threadTurnLimit()) {
   const msgs = threadMessages(threadId);
   return msgs.slice(-turns * 2).map(m => ({ role: m.role, text: m.text }));
 }
+
+const FOCUS_ID = /^[A-Za-z0-9:_-]{1,64}$/;
+const focusId = v => (v == null ? null : FOCUS_ID.test(String(v)) ? String(v) : (() => { throw Object.assign(new Error('a focus id is letters, digits, ":", "_" or "-"'), { status: 400 }); })());
+
+/**
+ * NUMBERS-PEOPLE "Ask Coach about this": put one item in the thread's focus, so
+ * the next question is about it ("why?", "what if he says no?"). Ids only; the
+ * move discussed before it is kept as prev_move_id, like a served move sets it.
+ */
+export function setThreadFocus(userId, leagueId, { move_id = null, partner = null, players = [] } = {}) {
+  const t = activeThread(userId, leagueId);
+  const prev = t.focus ?? {};
+  const moveId = focusId(move_id);
+  const list = (Array.isArray(players) ? players : []).slice(0, 12).map(focusId).filter(Boolean);
+  const before = prev.move_id != null && String(prev.move_id) !== moveId ? String(prev.move_id) : (prev.prev_move_id ?? null);
+  const focus = { move_id: moveId, step: moveId ? 0 : null, partner: focusId(partner), players: list,
+    prev_move_id: before === moveId ? null : before };
+  run(`UPDATE coach_threads SET focus_json = ?, updated_at = datetime('now') WHERE id = ?`, JSON.stringify(focus), t.id);
+  return activeThread(userId, leagueId, { create: false });
+}

@@ -777,6 +777,18 @@ async function refreshDecayWatch() {
  * and waiver), from player_week_usage scored by each league's own rules.
  * Grades only; it never writes a recommendation and never deletes one.
  */
+/**
+ * NUMBERS-PEOPLE: both Coach lanes' reads of each league's key plan items. The
+ * job ticks every 30 minutes but the producer runs a league only when it is due
+ * (6 hours since its last reads, or the plan's key items changed), so the model
+ * is asked at most four times a day per league plus on plan change. Budget-gated
+ * (numbers_people). GRIDIRON_NUMBERS_PEOPLE=0 turns it off.
+ */
+async function refreshNumbersPeopleReads() {
+  const { refreshNumbersPeople } = await import('./numbers-people/producer.js');
+  return refreshNumbersPeople();
+}
+
 async function refreshRecLedgerGrades() {
   const { gradeDue } = await import('./rec-ledger.js');
   return gradeDue();
@@ -1713,6 +1725,9 @@ export const JOBS = {
    * 'growth' so it runs on the default timer; off-thread because a season's
    * actuals() read is the whole player_week_usage season.
    */
+  numbers_people_reads: { run: refreshNumbersPeopleReads, maxAgeMinutes: 30, tier: 'growth', offThread: true,
+    timeoutMs: 10 * 60_000,
+    label: 'Numbers & People: both Coach lanes read the plan\'s key items (at most every 6 hours per league, plus on plan change)' },
   rec_ledger_grade: { run: refreshRecLedgerGrades, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'Recommendation ledger: grade calls whose horizon weeks have been played (+1 lineup, +2/+5 trade and waiver)' },
   /*

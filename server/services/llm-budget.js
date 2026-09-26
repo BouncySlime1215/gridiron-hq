@@ -48,8 +48,9 @@ export const PRICING = Object.freeze({
   'typesafe-ai/jev': Object.freeze({ in: 0.042, out: 0, cache_write_5m: 0, cache_write_1h: 0, cache_read: 0 })
 });
 
-export const DEFAULT_DAILY_BUDGETS_USD = Object.freeze({ coach: 1.00, trade_proposals: 0.50 });
-const LABELS = Object.freeze({ coach: 'Coach', trade_proposals: 'trade proposals' });
+// NUMBERS-PEOPLE: two lane calls per league per run, at most four runs a day plus plan changes (measured per run in the PR).
+export const DEFAULT_DAILY_BUDGETS_USD = Object.freeze({ coach: 1.00, trade_proposals: 0.50, numbers_people: 2.00 });
+const LABELS = Object.freeze({ coach: 'Coach', trade_proposals: 'trade proposals', numbers_people: 'Numbers & People reads' });
 const SETTING_PREFIX = 'llm_daily_budget_usd:';
 /** A typo guard for the settings hook, not a policy: no feature here needs more than this a day. */
 export const MAX_DAILY_BUDGET_USD = 100;

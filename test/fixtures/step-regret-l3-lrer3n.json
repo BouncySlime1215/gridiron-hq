@@ -1,0 +1,58 @@
+{
+ "note": "Regression fixture (2026-09-26): league 3 alternative L3-lrer3n as served by the 02:40Z plans file. Step 2 gains -0.0017 title odds (does not beat doing nothing). Ids and numbers only.",
+ "league": 3,
+ "next_move": {
+  "status": "unknown",
+  "source": "plan.path",
+  "reason": "fixture: no next move"
+ },
+ "alternatives": {
+  "status": "ok",
+  "source": "plan.path",
+  "value": [
+   {
+    "move_id": "L3-lrer3n",
+    "rank": 4,
+    "chained": true,
+    "steps": [
+     {
+      "partner": "5",
+      "give": [
+       "379",
+       "30"
+      ],
+      "get": [
+       "134"
+      ],
+      "title_odds_delta": {
+       "status": "ok",
+       "value": 0.085,
+       "source": "sim.title",
+       "se": 0.0097,
+       "clears_2se": true,
+       "unit": "title_odds"
+      }
+     },
+     {
+      "partner": "4",
+      "give": [
+       "291",
+       "134"
+      ],
+      "get": [
+       "132"
+      ],
+      "title_odds_delta": {
+       "status": "ok",
+       "value": -0.001700000000000007,
+       "source": "sim.title",
+       "se": 0.0101,
+       "clears_2se": true,
+       "unit": "title_odds"
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

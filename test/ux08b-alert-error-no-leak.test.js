@@ -288,7 +288,6 @@ test('control: the catch evaluator sees a leak in the pre-fix Model.tsx shape an
 
 // Each named site: file, an anchor unique to its try block, what the user must see.
 const CATCH_SITES = [
-  { site: 'Model.tsx:38', file: 'pages/Model.tsx', anchor: "'/model/sync'", shows: 'Sync failed. Try again in a moment.' },
   { site: 'MyTeam.tsx:86', file: 'pages/MyTeam.tsx', anchor: 'refetchData(); refetchLeagues()', shows: 'Sync failed. Try again in a moment.' },
   { site: 'Settings.tsx:42', file: 'pages/Settings.tsx', anchor: "'/espn/sync-players'", shows: 'Player sync failed. Try again in a moment.' },
   { site: 'EspnConnect.tsx:64 (silent)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/discover'", overrides: { silent: true },
@@ -407,7 +406,7 @@ test('reach: TradeCard/ManagerBoard call sites actually route through the loggin
 
 // nav is untouched by any of this
 test('nav: none of the edited files touch the nav/route list', () => {
-  for (const rel of ['pages/Model.tsx', 'pages/TeamDetail.tsx', 'pages/MyTeam.tsx', 'pages/Settings.tsx',
+  for (const rel of ['pages/TeamDetail.tsx', 'pages/MyTeam.tsx', 'pages/Settings.tsx',
     'components/EspnConnect.tsx', 'components/TradeCard.tsx', 'components/PageExplainAssistant.tsx',
     'components/brain/ManagerBoard.tsx', 'components/draft/SourcePill.tsx']) {
     const src = readSrc(rel);

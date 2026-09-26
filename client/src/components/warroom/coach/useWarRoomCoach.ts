@@ -44,6 +44,8 @@ export interface CoachMessage {
   lanes?: CoachLanes | null;
   /** NUMBERS-PEOPLE: the stored Numbers & People read of the item this answer is about (shared card, compact). */
   numbersPeople?: NPItem | null;
+  /** COACH-V2: the answer in the answer format (verdict, why, risks); claims still carry the cites. */
+  shape?: CoachShape | null;
 }
 
 export interface CoachLanes {
@@ -53,6 +55,17 @@ export interface CoachLanes {
   people?: { claims?: string[]; refusals?: string[]; skipped?: string; label?: string; source?: 'jev' | 'claude_people' };
   disagreement?: string | null;
   action?: string | null;
+}
+
+/** COACH-V2 answer format (see CoachMessage.shape). */
+export interface CoachShape {
+  verdict: { text: string; cites: string[] } | null;
+  stance: 'go' | 'wait' | 'avoid' | 'none';
+  basis: string;
+  why: { text: string; cites: string[] }[];
+  risks: { text: string; cites: string[] }[];
+  /** Plan answers: the grounded lines past the format's limits, shown folded. */
+  more?: { text: string; cites: string[] }[];
 }
 
 /** An action Coach proposes: a War Room record Nick confirms with a tap (offer.sent, deck.skip). */
@@ -69,14 +82,15 @@ export interface CoachProposal {
 /** A stored thread message as GET /coach/thread/:league returns it. */
 interface StoredMessage {
   who: 'nick' | 'coach'; text: string; claims?: CoachMessage['claims']; refusals?: string[];
-  ledger?: CoachMessage['ledger'] | null; followups?: string[]; proposals?: CoachProposal[]; lanes?: CoachLanes | null;
+  ledger?: CoachMessage['ledger'] | null; followups?: string[]; proposals?: CoachProposal[]; lanes?: CoachLanes | null; shape?: CoachShape | null;
   numbers_people?: NPItem | null;
 }
 interface ThreadView { messages: StoredMessage[]; starters: string[] }
 
 const fromStored = (m: StoredMessage, question?: string): CoachMessage => (m.who === 'nick' ? { who: 'nick', text: m.text }
   : { who: 'coach', text: m.text, claims: m.claims ?? [], refusals: m.refusals ?? [], ledger: m.ledger ?? undefined,
-    followups: m.followups ?? [], proposals: m.proposals ?? [], lanes: m.lanes ?? null, numbersPeople: m.numbers_people ?? null, question });
+    followups: m.followups ?? [], proposals: m.proposals ?? [], lanes: m.lanes ?? null, shape: m.shape ?? null,
+    numbersPeople: m.numbers_people ?? null, question });
 
 interface Options {
   leagueId: number | null;          // the app's league id, for the write routes
@@ -258,7 +272,8 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
         claims: grounded, ledger: res.ledger ?? undefined, question: q,
         followups: Array.isArray(res.thread?.followups) ? res.thread.followups : [],
         proposals: Array.isArray(res.thread?.proposals) ? res.thread.proposals : [],
-        lanes: res.lanes ?? null, numbersPeople: res.numbers_people ?? null };
+        lanes: res.lanes ?? null,
+        shape: res.answer?.shape ?? null, numbersPeople: res.numbers_people ?? null };
       say(reply);
       return reply;
     } catch (e) {

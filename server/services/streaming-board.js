@@ -30,6 +30,9 @@ import { PRO_TEAM } from './espn-draft.js';
 import { canonicalTeamCode } from './team-codes.js';
 import { nflKickoffDate } from './date-util.js';
 import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
+import { scoringFor, ESPN_DST_SLOT } from './scoring.js';
+// Plan item 13 (c): D/ST streaming reads points allowed (shadow, own flag).
+import { paTier, perishableEnabled } from './waiver-perishable.js';
 
 /** ESPN ids: defaultPositionId and lineup slot for D/ST, the IR slot, the bench. */
 const DST_POSITION = 16;
@@ -225,10 +228,29 @@ export function streamingBoard(lg, { myTeamId = null, season, week, now = new Da
   const gatedSuggestion = !on ? { action: null, add: null, drop: null, edge: null, why: null }
     : preview && suggestion.why ? { ...suggestion, why: previewText(suggestion.why) } : suggestion;
 
+  // Plan item 13 (c), shadow: the market's expected points allowed and what this
+  // league pays for that tier. Labels only; the ranking and the suggestion above
+  // are computed before this and do not read it.
+  let paFields = {};
+  let outCandidates = candidates;
+  let outMine = mine;
+  if (perishableEnabled()) {
+    const sc = scoringFor(lg, { slot: ESPN_DST_SLOT }).espn;
+    const withPa = d => {
+      const t = paTier(d.opp_implied, sc.points);
+      return { ...d, expected_points_allowed: d.opp_implied ?? null, pa_tier: t?.tier ?? null, pa_points: t?.points ?? null };
+    };
+    outCandidates = candidates.map(withPa);
+    outMine = mine.map(withPa);
+    paFields = { points_allowed: { shadow: true, scoring_source: sc.source,
+      note: 'Expected points allowed is the betting market\'s implied score for the opponent; the tier points are what this league pays at that score. Shown for reference; the ranking does not use it yet.' } };
+  }
+
   return {
     ...base,
-    candidates,
-    my_defenses: mine,
+    candidates: outCandidates,
+    my_defenses: outMine,
+    ...paFields,
     suggestion: gatedSuggestion,
     unconfirmed_forward: on,
     ...(preview ? previewFields(WV01_UNCONFIRMED) : {}),

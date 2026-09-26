@@ -13,7 +13,8 @@
  * Membership first, then the flag (warroom-flag.js#negotiateFlag, off by default, on
  * in preview). Opening a thread reads the step from the served War Room view, never
  * from the request body, so the stored branches are the producer's. Nothing here
- * sends an offer.
+ * sends an offer. LAST-GOOD: with GRIDIRON_LAST_GOOD=1, opening a thread answers 409 while
+ * a refresh step has failed (campaign/last-good.js).
  *
  * "I sent it" has ONE store: opening a thread records it through the War Room's own
  * request path (warroom-actions/store.js#recordRequest, kind offer.sent ->
@@ -43,6 +44,7 @@ import {
 } from '../services/warroom-negotiate.js';
 import { negotiatorSafetyOn } from '../services/campaign/negotiator-safety.js';
 import { dealNews } from '../services/campaign/deal-news.js';
+import { currentLastGood } from '../services/campaign/last-good.js';
 
 const bad = (res, error) => { res.status(400).json({ error }); };
 const previewed = (flag, text) => (flag.preview && text ? previewText(text) : text);
@@ -90,7 +92,8 @@ export function gateThreadView(gate, v) {
 const idList = v => (Array.isArray(v) && v.every(x => /^[A-Za-z0-9_.:-]{1,64}$/.test(String(x))) ? v.map(String) : null);
 
 export function negotiateRouter({
-  engine = negotiateEngine, view = warRoomView, plans = loadPlans, times = replyTimes, clock = () => Date.now()
+  engine = negotiateEngine, view = warRoomView, plans = loadPlans, times = replyTimes, clock = () => Date.now(),
+  lastGood = currentLastGood
 } = {}) {
   const r = Router();
 
@@ -147,6 +150,9 @@ export function negotiateRouter({
       const moveId = String(req.body?.move_id ?? '');
       const stepIndex = Number(req.body?.step_index ?? 0);
       if (!moveId || !Number.isInteger(stepIndex) || stepIndex < 0) return bad(res, 'move_id and a step_index are required');
+      // LAST-GOOD: no new "I sent it" thread while a refresh step has failed (GRIDIRON_LAST_GOOD=1).
+      const lg = await lastGood({ now: clock(), plansAsOf: async () => { const p = await plans(); return p?.status === 'ok' ? p.as_of : null; } });
+      if (lg?.send_blocked) return res.status(409).json({ ...meta(L.flag), error: lg.reason, last_good: lg });
       const v = await view(L.lg.id);
       const found = findStep(v, moveId, stepIndex);
       if (!found) return res.status(409).json({ error: 'That move is not on the current plan any more; refresh the War Room.' });

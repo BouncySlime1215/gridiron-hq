@@ -19,6 +19,16 @@ export function useAjState(leagueId: number | null) {
   return useApi<AjState>(leagueId ? `/warroom/${leagueId}/aj` : null);
 }
 
+/** PROTECTED-UPGRADE: Nick's setting per protected player in this league (GET /warroom/:id/protected). */
+export interface ProtectState {
+  enabled: boolean; status?: string;
+  modes?: { mode: 'locked' | 'blue_chips_only'; label: string }[];
+  players?: { player: string; name: string | null; mode: 'locked' | 'blue_chips_only'; default: 'locked' | 'blue_chips_only'; set_by_nick: boolean }[];
+}
+export function useProtectState(leagueId: number | null) {
+  return useApi<ProtectState>(leagueId ? `/warroom/${leagueId}/protected` : null);
+}
+
 /** Negotiation mode's read: this league's open threads (NEGOTIATE-UI). */
 /** SPEND-UI: today's spend anomaly, as the server words it (ai-spend-display.js), for one Today > Watching row. */
 export function useSpendAnomaly(): SpendAnomaly | null {

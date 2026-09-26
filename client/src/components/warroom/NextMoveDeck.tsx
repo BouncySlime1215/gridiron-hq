@@ -204,6 +204,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     const dealLine = `Offer ${partner}: ${n.text(s.give)} for ${n.text(s.get)}`;
     // AJ-PICK: a card giving A.J. Brown waits for Nick's own OK; until then it cannot be picked or sent.
     const ajBanner = needsAjOk(m) ? <AjOkBanner move={m} leagueId={leagueId} forText={n.text(m.aj_for ?? [])} post={post} /> : null;
+    // PROTECTED-UPGRADE: an OK'd card that uses a protected player keeps its "Uses …, Blue chips only" label.
+    const protLabel = m.protected_label && !ajBanner ? <div className="wr-hint" data-testid="protected-label">{m.protected_label}</div> : null;
 
     if (hero) {
       return (
@@ -216,7 +218,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     if (!big) {
       return (
         <>
-          {ajBanner}
+          {ajBanner}{protLabel}
           <div className="wr-who wr-who-sm">Send to {partner}</div>
           {deal}
           <div className="wr-sub">
@@ -236,7 +238,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     const messageText = isOk(s.message) ? s.message.value : dealLine;
     return (
       <>
-        {ajBanner}
+        {ajBanner}{protLabel}
         <div className="wr-who">Send this to {partner}</div>
         {deal}
         {target && (

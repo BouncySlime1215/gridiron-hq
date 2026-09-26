@@ -5,7 +5,15 @@
  * every offer Nick could see that breaks a rule.
  *
  * Rules (ids are test/fixtures/rule-fuzz-league.mjs's):
- *   never_give     Nico Collins (160) and Chase Brown (80) are never in a give.
+ *   never_give     Nico Collins (160) and Chase Brown (80) are never in a give, EXCEPT (PROTECTED-UPGRADE, Nick
+ *                  2026-09-26) a player in opts.protectUpgrade ('Blue chips only') in a planned step whose gets
+ *                  hold a Blue chip (83+) scoring AND valued strictly above him, and whose own confirmed rise in
+ *                  lineup points and playoff odds (step.protected_upgrade.confirmed) is > 0 on both. The other
+ *                  rules (overpay at cap 0, floor, buy-backs, 290) apply to that step as to any other, and
+ *                  the path keeps that tier-up player to its end (never a stepping stone traded on).
+ *   protected_ok   PROTECTED-UPGRADE: a card that gives a protected player needs Nick's OK exactly like an
+ *                  A.J. card (the aj_needs_ok checks below, with "gives 277" read as "gives 277 or a
+ *                  protected player").
  *   aj_brown       AJ-PICK (Nick 2026-09-25): A.J. Brown (277) is given only in a step whose get holds a
  *                  player on Nick's aj.allow list (opts.ajAllow) who is a Blue chip (83+) now.
  *   aj_needs_ok    AJ-PICK: a card that gives 277 carries requires_nick_confirm (deck[j].aj); one Nick has
@@ -195,7 +203,7 @@ export const pathKey = steps => steps.map(stepKey).join('>');
  * Every rule break in one planner result: [{ rule, surface, detail }].
  * opts: { ajAllow: Set<id> (Nick's picks for A.J. Brown), ajConfirmedPaths: Set<pathKey> (the cards he OK'd) }.
  */
-export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedPaths = new Set() } = {}) {
+export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedPaths = new Set(), protectUpgrade = new Set() } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const player = id => P.get(Number(id)) ?? P.get(id);
@@ -203,7 +211,18 @@ export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedP
   const score = id => Number(adapter.scoreOf(id)?.score);
   const blue = id => score(id) >= BLUE_CHIP;
   const picked = id => ajAllow.has(S(id));
-  const givesAj = st => (st?.give ?? []).map(S).includes(S(AJ_BROWN));
+  const protIds = [NICO_COLLINS, CHASE_BROWN].map(S);
+  const givesAj = st => (st?.give ?? []).map(S).some(id => id === S(AJ_BROWN) || protIds.includes(id));
+  // PROTECTED-UPGRADE: giving `id` is allowed only as a true tier up with a confirmed rise on this step.
+  // A reply-table next move carries no step of its own: it is read as the planned step it names, if any.
+  const planned = new Map();
+  for (const x of [res.best, ...(res.deck ?? []).map(c => c?.plan)]) for (const st of x?.steps ?? []) if (st.protected_upgrade) planned.set(stepKey(st), st);
+  const tierUpOk = (id, get, step, o) => {
+    if (!protectUpgrade.has(S(id))) return false;
+    const c = (step ?? planned.get(stepKey({ team: o?.team, give: o?.give ?? [], get })))?.protected_upgrade?.confirmed;
+    if (!(c && Number(c.points_delta) > 0 && Number(c.playoff_delta) > 0)) return false;
+    return get.some(g => blue(g) && score(g) > score(id) && val(g) > val(id));
+  };
   const okdSteps = new Set([...ajConfirmedPaths].flatMap(k => k.split('>')));
   const okd = st => !givesAj(st) || okdSteps.has(stepKey(st));
   const okdPath = steps => !steps.some(givesAj) || ajConfirmedPaths.has(pathKey(steps));
@@ -225,7 +244,7 @@ export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedP
   for (const o of offers) {
     const give = o.give.map(S), get = o.get.map(S);
     const tag = `${give.join('+')} for ${get.join('+')} (team ${o.team})`;
-    if (give.includes(S(NICO_COLLINS)) || give.includes(S(CHASE_BROWN))) bad('never_give', o.surface, tag);
+    for (const id of protIds) if (give.includes(id) && !tierUpOk(id, get, o.step, o)) bad('never_give', o.surface, tag);
     if (give.includes(S(AJ_BROWN)) && !get.some(id => blue(id) && picked(id))) bad('aj_brown', o.surface, tag);
     const gv = sum(give), tv = sum(get);
     if (gv > tv * (1 + EPS)) {
@@ -259,6 +278,18 @@ export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedP
     else if (waitingSeen) bad('aj_needs_ok', `deck[${j}]`, 'a served card after a card waiting on Nick\'s OK');
   }
   const start = adapter.rosters.get(me);
+  // PROTECTED-UPGRADE: the tier up must be what Nick keeps: a path that gives 160 / 80 holds at least one of
+  // that step's tier-up gets at the end (never a stepping stone traded on).
+  for (const [name, p] of plans) {
+    const held = new Set();
+    for (const st of p.steps) { for (const id of st.give.map(S)) held.delete(id); for (const id of st.get.map(S)) held.add(id); }
+    for (const [i, st] of p.steps.entries()) {
+      for (const id of protIds.filter(x => st.give.map(S).includes(x))) {
+        const ups = st.get.map(S).filter(g => blue(g) && score(g) > score(id) && val(g) > val(id));
+        if (!ups.some(g => held.has(g))) bad('never_give', `${name}.step[${i}]`, `gives ${id}; its tier up is not kept at the end`);
+      }
+    }
+  }
   for (const [name, p] of plans) for (const id of finalGets(p, start)) if (!blue(id)) bad('final_get', name, `${id} scores ${score(id)}`);
   const stranded = (surface, steps) => {
     for (const h of strandedAfterLegs(steps, start)) if (!blue(h.player)) bad('stranded_hold', surface, `after leg ${h.leg + 1}: ${h.player} scores ${score(h.player)}`);

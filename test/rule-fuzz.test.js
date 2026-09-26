@@ -327,6 +327,59 @@ for (const mode of AJ_MODES) {
   });
 }
 
+/**
+ * PROTECTED-UPGRADE (Nick 2026-09-26): 160 and 80 set to "Blue chips only". Every rule above must hold, and
+ * the oracle allows a give of 160 / 80 only in a step that is a true tier up (a Blue chip scoring AND valued
+ * above him) with a confirmed rise in lineup points and playoff odds; every such card needs Nick's OK (the
+ * aj_needs_ok checks read "gives 277" as "gives 277 or a protected player"). Nick then OKs the first card.
+ */
+const PROT_SEEDS = SEEDS.slice(0, envInt('RULE_FUZZ_PROTECT_N', 60));
+const protRuns = new Map();
+function runProtect(mode) {
+  if (protRuns.has(mode)) return protRuns.get(mode);
+  const out = [];
+  const upgrade = new Set(['160', '80']);
+  for (const seed of PROT_SEEDS) {
+    const a = makeFuzzLeague(seed);
+    const objective = normaliseObjective({ risk_mode: mode });
+    const res = planLeague(a, { objective, env: SERVED_ENV, protect: { upgrade } });
+    const card = res.deck.find(c => c.aj?.uses);
+    const okd = card ? planLeague(makeFuzzLeague(seed), { objective, env: SERVED_ENV, protect: { upgrade },
+      aj: { allow: new Set(), confirmed: new Set([moveId(a.league.id, card.plan)]) } }) : null;
+    out.push({ seed, a, res, card, okd, v: [
+      ...ruleViolations(a, res, { protectUpgrade: upgrade }),
+      ...(okd ? ruleViolations(a, okd, { protectUpgrade: upgrade, ajConfirmedPaths: new Set([pathKey(card.plan.steps)]) }) : []),
+    ] });
+  }
+  protRuns.set(mode, out);
+  return out;
+}
+for (const mode of AJ_MODES) {
+  test(`fuzz PROTECTED-UPGRADE ${mode}: 160 / 80 only for a true tier up that raises both, always behind Nick's OK`, t => {
+    const rs = runProtect(mode);
+    const bad = rs.flatMap(r => r.v.map(v => ({ seed: r.seed, ...v })));
+    const cards = rs.filter(r => r.card).length;
+    const served = rs.filter(r => r.okd?.deck.some(c => c.aj?.uses && c.aj.nick_confirmed)).length;
+    const gated = rs.reduce((n, r) => n + Object.values(r.res.protected_upgrade?.gated_out ?? {}).reduce((a, b) => a + b, 0), 0);
+    t.diagnostic(`${rs.length} leagues; ${cards} built a "Uses …, Blue chips only" card; ${served} served it once OK'd; ${gated} paths refused by the rule; ${bad.length} violations`);
+    assert.equal(bad.length, 0, report(`PROTECT ${mode}`, bad));
+    const gives = st => st.give.map(String).some(id => id === '160' || id === '80');
+    assert.ok(rs.every(r => !r.res.best?.steps.some(gives)), 'an unconfirmed protected card was the next move');
+    assert.ok(rs.every(r => r.res.deck.every(c => !c.plan.steps.some(gives) || (c.aj?.uses && c.aj.requires_nick_confirm))), 'a card gives 160 / 80 without the label');
+    // Non-vacuous: the sweep builds protected cards and serves some once OK'd.
+    assert.ok(cards > 0, `${mode}: no protected card in ${rs.length} leagues`);
+    assert.ok(served > 0, `${mode}: no OK'd protected card was served`);
+  });
+}
+test('fuzz PROTECTED-UPGRADE: with no setting (locked) the planner never gives 160 / 80, as before', () => {
+  for (const seed of PROT_SEEDS.slice(0, 20)) {
+    const a = makeFuzzLeague(seed);
+    const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: SERVED_ENV, protect: { upgrade: new Set() } });
+    assert.equal(res.protected_upgrade.status, 'all_locked');
+    assert.deepEqual(ruleViolations(a, res).filter(v => v.rule === 'never_give'), []);
+  }
+});
+
 /** The mode's own row on the risk-mode sheet picks keeping the roster (#398 NO-TRADE-SHRINK's no_trade row). */
 function noTradePick(res, mode) {
   return (res.risk_modes ?? []).find(m => m.mode === mode)?.no_trade?.pick === 'no_trade';

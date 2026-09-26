@@ -5,6 +5,8 @@
  *                                                 "I sent it", reply + decline reason, skip reason,
  *                                                 risk mode, tolerance, add/remove stop, retract)
  *   GET  /api/warroom/:leagueId/requests          this user's recent requests for the league
+ *   GET  /api/warroom/:leagueId/protected         PROTECTED-UPGRADE: Nick's Locked / Blue chips only setting per
+ *                                                 protected player (set with a protect.mode request)
  *   GET  /api/warroom/:leagueId/aj                AJ-PICK: the players Nick would take for A.J. Brown, and
  *                                                 the A.J. cards he OK'd (aj.allow / aj.revoke / aj.confirm)
  *   GET  /api/warroom/layout                      this user's latest saved layout (null = default)
@@ -24,6 +26,7 @@ import {
 } from '../services/warroom-actions/store.js';
 import { loadPlans } from '../services/war-room-view.js';
 import { ajState } from '../services/campaign/aj-pick.js';
+import { protectState, PROTECTED_IDS, PROTECTED_DEFAULTS, MODE_LABEL, PROTECT_MODES } from '../services/campaign/protected-upgrade.js';
 import { rows } from '../db/index.js';
 
 const r = Router();
@@ -82,6 +85,17 @@ r.get('/:leagueId/aj', (req, res, next) => {
     const leagueId = leagueOf(req);
     const s = ajState({ rows }, leagueId);
     res.json({ enabled: true, ...warRoomPreview(), status: s.status, allow: [...s.allow], confirmed: [...s.confirmed] });
+  } catch (e) { fail(res, e, next); }
+});
+
+r.get('/:leagueId/protected', (req, res, next) => {
+  try {
+    const leagueId = leagueOf(req);
+    const s = protectState({ rows }, leagueId);
+    const names = new Map(rows(`SELECT id, name FROM players WHERE id IN (${PROTECTED_IDS.map(() => '?').join(', ')})`, ...PROTECTED_IDS.map(Number))
+      .map(p => [String(p.id), p.name]));
+    res.json({ enabled: true, ...warRoomPreview(), status: s.status, modes: PROTECT_MODES.map(m => ({ mode: m, label: MODE_LABEL[m] })),
+      players: PROTECTED_IDS.map(id => ({ player: id, name: names.get(id) ?? null, mode: s.modes.get(id), default: PROTECTED_DEFAULTS[id], set_by_nick: s.set.has(id) })) });
   } catch (e) { fail(res, e, next); }
 });
 

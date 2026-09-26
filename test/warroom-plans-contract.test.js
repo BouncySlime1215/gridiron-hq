@@ -78,6 +78,8 @@ const PENDING = [
     path: /^leagues\[\]\.planned_at$/ },
   { unit: 'AJ-PICK', why: 'A.J. Brown cards exist only when Nick picked players for him (aj.allow); the fixture league has no picks and no 277 (test/aj-pick.test.js validates the served shape)',
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.(requires_nick_confirm|nick_confirmed|aj_for(\[\])?|steps\[\]\.requires_nick_confirm)$/ },
+  { unit: 'PROTECTED-UPGRADE', why: 'cards that use 160 / 80 exist only when they are on Nick\'s roster with a true tier up on the board; the fixture league has neither (test/protected-upgrade.test.js validates the served shape)',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.(protected_uses(\[\])?|protected_label|steps\[\]\.protected_upgrade(\..*)?)$/ },
   { unit: 'NEGOTIATOR-SAFETY (flag)', why: 'the safety block is served only with GRIDIRON_NEGOTIATOR_SAFETY on; the fixture producer runs flag-off (test/campaign-negotiator-safety.test.js validates the served shape)',
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.safety(\..*)?$/ }
 ];

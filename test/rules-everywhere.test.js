@@ -93,7 +93,7 @@ const idsIn = list => list.map(d => `${(d.i_give ?? []).map(p => p.id).join('+')
 test('ruleVerdict: each rule, and the +12% depth-only 2-for-1 exception only with both rises', () => {
   const g = NG.ruleGate(DB, { leagueId: L });
   assert.equal(g.me, ME);
-  assert.deepEqual(g.rules.sources, { fc_value: 'ok', ledger: 'ok', scores: 'ok', aj_pick: 'ok' });
+  assert.deepEqual(g.rules.sources, { fc_value: 'ok', ledger: 'ok', scores: 'ok', aj_pick: 'ok', protected_upgrade: 'ok' });
   assert.ok(g.rules.sold.has('105'), 'the ledger reader finds the sale');
   const r = t => g.check(t).reasons;
   assert.deepEqual(r({ give: [80], get: [101] }), ['never_give', 'overpay']);

@@ -32,6 +32,7 @@ import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpay
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
 import { makeGetsFloor, heldAtEnd, makeStranded, floorRead, DEFAULT_GET_FLOOR } from './gets-floor.js';
 import { AJ_ID, AJ_CARDS_MAX, ajPickOn, givesAj } from './aj-pick.js';
+import { PROTECTED_IDS, MODE_LABEL, tierUpGets, upgradeRises, protectedGiven } from './protected-upgrade.js';
 import { moveId } from './view.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive, perLeagueRulesOn, resolveLeagueRules } from './never-give.js';
@@ -153,7 +154,9 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
 /**
  * adapter: see scripts/campaign/league-adapter.mjs (the real one) and test/fixtures (the fake one).
  * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget, env,
- *   aj? ({ allow: Set<id>, confirmed: Set<move_id> }, campaign/aj-pick.js: AJ-PICK; absent -> 277 stays locked) }
+ *   aj? ({ allow: Set<id>, confirmed: Set<move_id> }, campaign/aj-pick.js: AJ-PICK; absent -> 277 stays locked),
+ *   protect? ({ upgrade: Set<id> }, campaign/protected-upgrade.js: the protected players in 'blue_chips_only';
+ *     absent -> 160 and 80 stay locked, exactly as before) }
  */
 export function planLeague(adapter, settings) {
   // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
@@ -412,6 +415,99 @@ export function planLeague(adapter, settings) {
       }
     }
   }
+  // PROTECTED-UPGRADE (Nick 2026-09-26): a protected player (160, 80) whose setting is 'blue_chips_only' may be
+  // given only for a true tier up. The Blue chips whose score AND FantasyCalc value both beat his are searched
+  // once more with him on the table; a path is kept only when EVERY step that gives him (a) gets such a player,
+  // (b) gives no more market value than it gets (cap 0: a protected star is never depth) with every get 83+, and
+  // (c) raises Nick's playoff odds and lineup points on its own, and (coordinator's addition) Nick still holds that
+  // tier-up player at the end of the path (never a stepping stone flipped on). The paths then go through every rule below
+  // like any other (FC value, the held floor, FLIP-STRANDED, trade memory, the confirm dice, STEP-REGRET), and
+  // each is a "Needs your OK" card (AJ-PICK's slot, marked aj.uses) until Nick OKs that exact card.
+  const protIn = settings.protect ?? null;
+  const protSink = { status: 'off', players: [], targets: [], refused: [], paths: 0,
+    gated_out: { not_tier_up: 0, overpay: 0, below_floor: 0, lineup_points: 0, playoff_odds: 0, unread: 0, upgrade_not_kept: 0 }, waiting: 0, confirm_failed: 0 };
+  const hardLocked = new Set((objective.untouchables ?? []).map(String));
+  const protIds = protIn?.upgrade instanceof Set
+    ? [...protIn.upgrade].map(String).filter(id => PROTECTED_IDS.includes(id) && myIds.some(m => String(m) === id)) : [];
+  for (const id of protIds.filter(x => hardLocked.has(x))) protSink.refused.push({ player: id, why: 'objective_untouchable' });
+  const protOn = protIds.filter(id => !hardLocked.has(id));
+  if (!protIn) protSink.status = 'off';
+  else if (!protOn.length) protSink.status = 'all_locked';
+  else if (ledgerMissing) protSink.status = 'trade_ledger_missing';
+  else {
+    protSink.status = 'on';
+    protSink.players = [...protOn];
+    const scoreRow = typeof adapter.scoreOf === 'function' ? adapter.scoreOf : null;
+    const scoreNum = id => { const x = scoreRow?.(id); const v = x != null && typeof x === 'object' ? x.score : x; return v == null || !Number.isFinite(Number(v)) ? null : Number(v); };
+    const fcOf = id => { const v = adapter.players.get(id)?.value ?? adapter.players.get(Number(id))?.value; return Number.isFinite(v) ? v : null; };
+    const protFloor = Math.max(DEFAULT_GET_FLOOR, floor.sink.floor);
+    const protSet = new Set(protOn);
+    // Targets: a tier up over at least one unlocked protected player, on another roster, dealable, not sold.
+    const tiers = new Map();
+    for (const [t, ids] of adapter.rosters) {
+      if (String(t) === String(me) || adapter.managers.get(t)?.blocked) continue;
+      for (const pid of ids) {
+        if (untouchable.has(String(pid)) || TM?.excluded(pid)) continue;
+        const over = protOn.filter(id => tierUpGets(id, [pid], { scoreOf: scoreNum, fcOf, floor: protFloor }).length);
+        if (over.length) tiers.set(pid, over);
+      }
+    }
+    const targets = [...tiers.keys()].sort((a, b) => (scoreNum(b) - scoreNum(a)) || (fcOf(b) - fcOf(a)))
+      .slice(0, Math.max(1, budget.targets ?? 4));
+    protSink.targets = targets.map(String);
+    if (targets.length) {
+      const lossN = new Map(vals.lossN);
+      for (const id of protOn) {
+        const num = myIds.find(m => String(m) === id);
+        const without = new Map([[me, adapter.rosters.get(me).filter(m => String(m) !== id)]]);
+        lossN.set(num, metricOf(S.rescore(without, me).me, objective).delta);
+      }
+      const tradable = id => vals.tradable(id) || (protSet.has(String(id)) && (Number(adapter.players.get(id)?.value) || 0) > 0);
+      const protAdapter = { ...adapter, untouchable: new Set([...untouchable].filter(id => !protSet.has(String(id)))), searchStats: null };
+      const protVals = { ...vals, lossN, tradable };
+      // Each step that gives a protected player, checked on (a), (b) and (c); the stamp carries the rise.
+      const checkPath = p => {
+        let prevMe = null, why = null;
+        const steps = p.steps.map(st => {
+          const r = S.rescore(st.state, me).me;
+          const given = protectedGiven(st, protOn);
+          let out = st;
+          if (given.length && !why) {
+            const fors = given.map(id => tierUpGets(id, st.get, { scoreOf: scoreNum, fcOf, floor: protFloor }));
+            const gv = st.give.reduce((a, id) => a + (fcOf(id) ?? Infinity), 0);
+            const tv = st.get.reduce((a, id) => a + (fcOf(id) ?? 0), 0);
+            const h = upgradeRises(r, prevMe);
+            if (fors.some(f => !f.length)) why = 'not_tier_up';
+            else if (nickOverpays(gv, tv, 0)) why = 'overpay';
+            else if (st.get.some(id => !((scoreNum(id) ?? -1) >= protFloor))) why = 'below_floor';
+            else if (!h.ok) why = h.why;
+            else out = { ...st, protected_upgrade: { players: given, for: [...new Set(fors.flat())], points_delta: h.points_delta, playoff_delta: h.playoff_delta, confirmed: null } };
+          }
+          prevMe = r;
+          return out;
+        });
+        if (why) return { why };
+        // Coordinator's addition (labelled in the PR): the upgrade is what Nick keeps. A path that gives a
+        // protected player and then trades every one of his tier-up gets on (a stepping stone) is refused.
+        const held = heldAtEnd(steps);
+        if (steps.some(st => st.protected_upgrade && !st.protected_upgrade.for.some(id => held.has(String(id))))) return { why: 'upgrade_not_kept' };
+        return { plan: { ...p, steps } };
+      };
+      for (const target of targets) {
+        const found = searchTarget(S, protAdapter, protVals, objective, target, { maxOverpay, overpaySink: null, getOk, chainGive,
+          depthPremium: 0, board: null, premiumSink: null, untouchables: objective.untouchables, wide: null })
+          .filter(p => p.steps.some(st => protectedGiven(st, protOn).length));
+        for (const p of found) {
+          const c = checkPath(p);
+          if (c.why) { protSink.gated_out[c.why] = (protSink.gated_out[c.why] ?? 0) + 1; continue; }
+          const uses = [...new Set(c.plan.steps.flatMap(st => protectedGiven(st, protOn)))];
+          const fors = [...new Set(c.plan.steps.flatMap(st => st.protected_upgrade?.for ?? []))];
+          protSink.paths += 1;
+          plans.push({ ...c.plan, aj: { for: fors, uses, mode: 'blue_chips_only' } });
+        }
+      }
+    }
+  }
   // FLIP-CLAIMS: every claim path passes the one claim rule (search-wide.js#claimRule) or is dropped by reason.
   const claimDrops = wideSink?.claims.dropped_by_reason;
   const hasClaim = p => p.steps.some(isClaim);
@@ -518,6 +614,14 @@ export function planLeague(adapter, settings) {
       return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
     });
     if (v.premium_failed && active) premium.confirm_failed++;
+    // PROTECTED-UPGRADE: a step that gives a protected player must still raise playoff odds and lineup points on fresh dice.
+    re.steps = re.steps.map((st, i) => {
+      if (!st.protected_upgrade) return st;
+      const h = upgradeRises(freshMe[i], i ? freshMe[i - 1] : null);
+      if (!h.ok) v = { ...v, verdict: 'failed', protected_failed: h.why };
+      return { ...st, protected_upgrade: { ...st.protected_upgrade, confirmed: h.ok ? { points_delta: h.points_delta, playoff_delta: h.playoff_delta } : null } };
+    });
+    if (v.protected_failed && active) protSink.confirm_failed++;
     const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0];
     // LIVE-BLEND: "beats doing nothing" is Nick's rule, so it is decided on the gate p too (the served p ranks).
     const onGate = re.steps.some(st => st.p_gate != null)
@@ -583,7 +687,8 @@ export function planLeague(adapter, settings) {
   const ajOkdOut = ajSlot(plans.filter(p => p.aj && !inDeck.has(idOfPlan(p))), AJ_CARDS_MAX);
   const ajWaitingCards = ajSlot(ajWaiting, AJ_CARDS_MAX - ajOkdOut.length);
   const ajCards = [...ajOkdOut.map(p => ({ plan: p, waiting: false })), ...ajWaitingCards.map(p => ({ plan: p, waiting: true }))];
-  ajSink.waiting = ajWaitingCards.length;
+  ajSink.waiting = ajWaitingCards.filter(c => !c.aj?.uses).length;
+  protSink.waiting = ajWaitingCards.filter(c => c.aj?.uses).length;
   for (let i = deck.length - 1; i >= 1 && deck.length + ajCards.length > DECK_SIZE; i--) if (!deck[i].aj) deck.splice(i, 1);
   ajSink.confirmed_served = deck.filter(p => p.aj).length + ajOkdOut.length;
   // Each mode's pick on the same fresh dice; the active mode's is the served deck itself.
@@ -895,8 +1000,10 @@ export function planLeague(adapter, settings) {
     confirm_checked: confirmChecked.filter(p => p.steps.some(st => st.title_pair)).map(p => ({ target: p.target ?? null,
       steps: p.steps.map(st => ({ team: st.team, give: st.give, get: st.get, delta: st.delta, title_pair: st.title_pair ?? null })) })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}),
-      ...(c.plan.aj ? { aj: { for: c.plan.aj.for, requires_nick_confirm: true, nick_confirmed: !c.aj_waiting } } : {}) })),
+      ...(c.plan.aj ? { aj: { for: c.plan.aj.for, requires_nick_confirm: true, nick_confirmed: !c.aj_waiting,
+        ...(c.plan.aj.uses ? { uses: c.plan.aj.uses, mode: c.plan.aj.mode, label: `Uses ${c.plan.aj.uses.map(id => adapter.players.get(id)?.name ?? adapter.players.get(Number(id))?.name ?? id).join(' and ')}, ${MODE_LABEL[c.plan.aj.mode]}` } : {}) } } : {}) })),
     aj_pick: ajSink,
+    protected_upgrade: protSink,
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,

@@ -6,6 +6,11 @@
  * (#483), so 277 moves only for a player Nick picked himself (aj.allow, campaign/aj-pick.js) who is a
  * Blue chip (83+) at serve time, and every such card needs Nick's OK before it can be the next move.
  * Applies to Nick's own roster only: these ids are never a give, walk-away or flip leg otherwise.
+ * PROTECTED-UPGRADE (Nick 2026-09-26, approved hard-rule change): 160 and 80 stay pinned here, but each
+ * has a per-league setting (campaign/protected-upgrade.js): 'locked' is the rule above exactly;
+ * 'blue_chips_only' (their default) lets a step give one only for a true tier up (a Blue chip whose score
+ * AND FantasyCalc value both beat his) that raises playoff odds and lineup points, and every such card
+ * needs Nick's OK like an A.J. card. ruleVerdict below decides it; nothing else may.
  *
  * RULES-EVERYWHERE: this file is also the ONE rule gate every other trade-suggesting surface calls
  * (trade finder, post-draft plan, proposals, offers, sequences, Trade Lab, edge, execution slate,
@@ -19,6 +24,7 @@ import { executedTrades, tradeMemory } from './trade-memory.js';
 import { warRoomPlansPath } from '../warroom-flag.js';
 import { fcValues } from '../fc-value.js';
 import { AJ_ID, ajState, ajPickOn } from './aj-pick.js';
+import { protectState, tierUpGets, stepRises, PROTECTED_IDS } from './protected-upgrade.js';
 
 export const PINNED_NEVER_GIVE = Object.freeze(['160', '80', '277']);
 
@@ -56,6 +62,22 @@ const EPS = 1e-9;
 /** Why a suggestion was dropped (counted per surface under dropped_by_rule). */
 export const RULE_REASONS = Object.freeze(['never_give', 'never_get', 'sold_this_season', 'below_blue_chip',
   'unscored', 'no_fc_value', 'overpay', 'rules_unreadable']);
+/** PROTECTED-UPGRADE: why a protected player could not move (verdict.protected; the reason itself stays 'never_give'). */
+export const PROTECTED_WHY = Object.freeze(['never_give', 'protected_not_tier_up', 'protected_no_rise']);
+
+/**
+ * PROTECTED-UPGRADE: why giving protected player `id` in this step fails, or null when it may move
+ * (the step's gets hold a true tier up and the step raises playoff odds and lineup points).
+ * rules.protectUpgrade: Set of ids in 'blue_chips_only' for this league; any other id stays locked.
+ * rises: { points_delta, playoff_delta } of this step (planner.js stamps step.protected_upgrade.confirmed).
+ */
+export function protectedVerdict(rules, id, get, rises) {
+  if (!(rules.protectUpgrade instanceof Set) || !rules.protectUpgrade.has(S(id))) return 'never_give';
+  const up = tierUpGets(id, get, { scoreOf: rules.scoreOf, fcOf: x => (rules.fc.has(S(x)) ? rules.fc.get(S(x)) : null), floor: rules.floor });
+  if (!up.length) return 'protected_not_tier_up';
+  if (!(Number(rises?.points_delta) > 0 && Number(rises?.playoff_delta) > 0)) return 'protected_no_rise';
+  return null;
+}
 
 /**
  * AJ-PICK: A.J. Brown (277) may move in a step only when that step's gets hold a player on Nick's
@@ -79,22 +101,30 @@ const depthFor = (rules, id) => {
  * rules: { neverGive: Set, neverGet: Set, sold: Set, fc: Map id -> value, scoreOf(id) -> number|null,
  *   closed: string|null, ajAllow?: Set (AJ-PICK), floor?, overpayCap?, depthPremiumMax? } (the last
  *   three from the league's rules block under GRIDIRON_PER_LEAGUE_RULES; absent -> 83, 0 and +12%, Nick's league-4 rules).
- * t: { give: id[], get: id[], premium?: { points_delta, title_delta } } (premium only where the surface
+ * t: { give: id[], get: id[], premium?: { points_delta, title_delta }, rises?: { points_delta, playoff_delta } }
+ *   (rises: PROTECTED-UPGRADE, the step's own change in lineup points and playoff odds; absent -> a protected
+ *   player cannot move). (premium only where the surface
  *   computed Nick's own change in lineup points and title odds for this trade; otherwise the +12%
  *   depth-only 2-for-1 exception does not apply).
  * -> { ok, reasons: string[], overpay: number|null, requires_nick_confirm: boolean }
- * requires_nick_confirm: the step gives A.J. Brown under AJ-PICK; it passes the rules but may be served
+ * requires_nick_confirm: the step gives A.J. Brown under AJ-PICK (or a protected player under PROTECTED-UPGRADE);
+ * it passes the rules but may be served
  * only as a "Needs your OK" card until Nick confirms that exact card (ruleGate below keeps it only then).
  */
-export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
+export function ruleVerdict(rules, { give = [], get = [], premium = null, rises = null }) {
   const g = give.map(S), r = get.map(S);
   const reasons = new Set();
   if (rules.closed) reasons.add('rules_unreadable');
   let needsOk = false;
+  const blocked = {};
   for (const id of g) {
     if (id === AJ_ID && rules.neverGive.has(id)) {
       if (ajMayMove(r, rules)) needsOk = true;
       else reasons.add('never_give');
+    } else if (rules.neverGive.has(id) && PROTECTED_IDS.includes(id)) {
+      // Every surface already reads 'never_give' as "this player cannot be given"; the why rides beside it.
+      const why = protectedVerdict(rules, id, r, rises);
+      if (why) { reasons.add('never_give'); blocked[id] = why; } else needsOk = true;
     } else if (rules.neverGive.has(id)) reasons.add('never_give');
   }
   for (const id of r) {
@@ -109,7 +139,8 @@ export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
   const o = overpayCheck(rules, { give: g, get: r, premium });
   if (!o.priced) reasons.add('no_fc_value');
   else if (o.breaks) reasons.add('overpay');
-  return { ok: reasons.size === 0, reasons: [...reasons], overpay: o.over, requires_nick_confirm: needsOk };
+  return { ok: reasons.size === 0, reasons: [...reasons], overpay: o.over, requires_nick_confirm: needsOk,
+    ...(Object.keys(blocked).length ? { protected: blocked } : {}) };
 }
 
 /**
@@ -157,6 +188,8 @@ export function gatePlansFile(file, rulesFor) {
 }
 
 const unknownField = (source, reason) => ({ status: 'unknown', source, reason });
+export const PROTECTED_STEP_REASON = 'Uses a protected player without a true tier up at today\'s prices (a Blue chip whose score and '
+  + 'FantasyCalc value both beat his, raising playoff odds and lineup points), or his setting is Locked. It waits for the next replan.';
 export const STEP_OVERPAY_REASON = "No longer passes Nick's overpay rule at today's FantasyCalc prices (every step is a real trade: cap 0, "
   + '+12% only on a depth-only 2-for-1 that raises lineup points and title odds). It waits for the next replan.';
 
@@ -175,6 +208,7 @@ export function gateServedSteps(rules, entry) {
   if (entry.blue_chips?.status === 'ok') for (const r of entry.blue_chips.value?.rows ?? []) board.set(S(r.player), Number(r.score));
   const r = { ...rules, scoreOf: id => (board.has(S(id)) ? board.get(S(id)) : rules.scoreOf?.(id) ?? null) };
   const drops = [];
+  let why = null;
   const breaking = (steps, where, moveId) => {
     let bad = false;
     (steps ?? []).forEach((st, k) => {
@@ -182,14 +216,37 @@ export function gateServedSteps(rules, entry) {
       const o = overpayCheck(r, { give: st.give, get: st.get, premium: stepPremium(st) });
       if (o.priced && o.breaks) {
         bad = true;
+        why = why ?? STEP_OVERPAY_REASON;
         drops.push({ where, move_id: moveId ?? null, step: k + 1, give: st.give.map(S), get: st.get.map(S), overpay: +o.over.toFixed(4) });
+      }
+      // PROTECTED-UPGRADE: a served step that gives 160 / 80 is re-checked at today's prices and the
+      // league's setting now (Locked since the plan, or no longer a tier up): the move is withdrawn.
+      const prot = (r.neverGive instanceof Set ? st.give.map(S).filter(id => PROTECTED_IDS.includes(id) && r.neverGive.has(id)) : [])
+        .map(id => protectedVerdict(r, id, st.get, stepRises(st))).find(Boolean);
+      if (prot) {
+        bad = true;
+        why = why ?? PROTECTED_STEP_REASON;
+        drops.push({ where, move_id: moveId ?? null, step: k + 1, give: st.give.map(S), get: st.get.map(S), rule: prot });
+      }
+    });
+    // PROTECTED-UPGRADE (coordinator's addition): the tier-up get must still be held at the end of the move.
+    const held = new Set();
+    for (const st of steps ?? []) { for (const id of st?.give ?? []) held.delete(S(id)); for (const id of st?.get ?? []) held.add(S(id)); }
+    (steps ?? []).forEach((st, k) => {
+      const given = (st?.give ?? []).map(S).filter(id => PROTECTED_IDS.includes(id));
+      if (!given.length || !(r.neverGive instanceof Set)) return;
+      const ups = given.flatMap(id => tierUpGets(id, st.get, { scoreOf: r.scoreOf, fcOf: x => (r.fc.has(S(x)) ? r.fc.get(S(x)) : null), floor: r.floor }));
+      if (ups.length && !ups.some(id => held.has(id))) {
+        bad = true;
+        why = why ?? PROTECTED_STEP_REASON;
+        drops.push({ where, move_id: moveId ?? null, step: k + 1, give: st.give.map(S), get: st.get.map(S), rule: 'protected_upgrade_not_kept' });
       }
     });
     return bad;
   };
   let out = entry;
   const nm = entry.next_move?.status === 'ok' ? entry.next_move.value : null;
-  if (nm && breaking(nm.steps, 'next_move', nm.move_id)) out = { ...out, next_move: unknownField(entry.next_move.source ?? 'plan.path', STEP_OVERPAY_REASON) };
+  if (nm && breaking(nm.steps, 'next_move', nm.move_id)) out = { ...out, next_move: unknownField(entry.next_move.source ?? 'plan.path', why) };
   if (entry.alternatives?.status === 'ok' && Array.isArray(entry.alternatives.value)) {
     const kept = entry.alternatives.value.filter((m, i) => !breaking(m?.steps, `alternatives[${i}]`, m?.move_id));
     // The deck stays best first with contiguous ranks (plans-schema.js).
@@ -200,11 +257,12 @@ export function gateServedSteps(rules, entry) {
   if (entry.risk_modes?.status === 'ok' && Array.isArray(entry.risk_modes.value)) {
     let changed = false;
     const modes = entry.risk_modes.value.map(m => {
+      why = null;
       if (!m?.first_step || !breaking([m.first_step], `risk_modes.${m.mode}.first_step`, null)) return m;
       changed = true;
       const src = m.expected?.source ?? 'plan.path';
-      return { ...m, first_step: null, expected: unknownField(src, STEP_OVERPAY_REASON), if_complete: unknownField(src, STEP_OVERPAY_REASON),
-        p_complete: unknownField(src, STEP_OVERPAY_REASON) };
+      return { ...m, first_step: null, expected: unknownField(src, why), if_complete: unknownField(src, why),
+        p_complete: unknownField(src, why) };
     });
     if (changed) out = { ...out, risk_modes: { ...entry.risk_modes, value: modes } };
   }
@@ -378,7 +436,7 @@ export function leagueRulesOf(leagueId, { plansPath = warRoomPlansPath(), env = 
  *
  * db: { row, rows } (server/db/index.js). teamId: the team the suggestions are for (default Nick's).
  * -> { applies, me, rules, check(t), filter(list, sidesOf) -> { kept, dropped_by_rule, needs_nick_ok }, ok }
- *    sidesOf(item) -> { give, get, partner?, premium?, move_id? } from the suggesting team's side.
+ *    sidesOf(item) -> { give, get, partner?, premium?, rises?, move_id? } from the suggesting team's side.
  * AJ-PICK: a suggestion that gives A.J. Brown for one of Nick's picks passes the rules but needs his OK;
  * it is kept only when it names a move_id Nick confirmed (aj.confirm), else dropped and counted in
  * needs_nick_ok (and dropped_by_rule). Only the War Room deck shows it unconfirmed, as a "Needs your OK" card.
@@ -410,15 +468,22 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
   if (ajPickOn(env)) {
     try { aj = ajState(db, leagueId); } catch (e) { aj = { status: 'error', allow: new Set(), confirmed: new Set(), reason: e.message }; }
   }
+  // PROTECTED-UPGRADE: the league's setting for 160 / 80. An id Nick's objectives or the league's rules
+  // block also name stays locked whatever the setting says. Unreadable -> every protected player locked.
+  let prot = { status: 'off', upgrade: new Set() };
+  try { prot = protectState(db, leagueId, { env }); } catch (e) { prot = { status: 'error', upgrade: new Set(), reason: e.message }; }
+  const hardExtra = new Set(extra.map(S));
+  const protectUpgrade = new Set([...prot.upgrade].filter(id => !hardExtra.has(id)));
   const rules = {
     neverGive: new Set([...PINNED_NEVER_GIVE, ...extra]),
+    protectUpgrade,
     neverGet: new Set([...PINNED_NEVER_GET, ...(lr?.never_get ?? [])]),
     sold: sold.sold,
     fc: fc.byId,
     scoreOf: id => scores.byId.get(S(id)) ?? null,
     closed: closed.length ? closed.join('; ') : null,
     ajAllow: aj.allow,
-    sources: { fc_value: fc.status, ledger: sold.status, scores: scores.status, aj_pick: aj.status },
+    sources: { fc_value: fc.status, ledger: sold.status, scores: scores.status, aj_pick: aj.status, protected_upgrade: prot.status },
     ...(lr ? { floor: lr.floor, overpayCap: lr.overpay_cap, depthPremiumMax: lr.depth_premium_max,
       league_rules: { source: lr.errors.length ? 'invalid' : lr.source } } : {}),
   };
@@ -429,8 +494,8 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
     let dropped = 0, needsOk = 0;
     for (const item of list ?? []) {
       const s = sidesOf(item);
-      const nickSide = forNick ? { give: s.give, get: s.get, premium: s.premium }
-        : s.partner != null && S(s.partner) === me ? { give: s.get, get: s.give, premium: null } : null;
+      const nickSide = forNick ? { give: s.give, get: s.get, premium: s.premium, rises: s.rises ?? null }
+        : s.partner != null && S(s.partner) === me ? { give: s.get, get: s.give, premium: null, rises: null } : null;
       const v = nickSide ? check(nickSide) : null;
       if (v && v.ok && v.requires_nick_confirm && !(s.move_id != null && aj.confirmed.has(S(s.move_id)))) { dropped++; needsOk++; continue; }
       if (!v || v.ok) kept.push(item);

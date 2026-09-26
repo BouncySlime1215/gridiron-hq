@@ -18,6 +18,7 @@ import { warRoomFlag } from '../warroom-flag.js';
 import { recordSentOffer, unmarkSentOffer } from '../trade-outcomes.js';
 import { findCard, sentDeal } from './cards.js';
 import { validateRequest, validateAction } from './schema.js';
+import { PROTECTED_IDS } from '../campaign/protected-upgrade.js';
 
 /**
  * Default off. On with the War Room's own switch or locally through preview mode.
@@ -113,10 +114,11 @@ export function recordRequest({ userId, leagueId, kind, payload, source = 'nick'
   }
   const stored = { ...checked.payload };
   if (checked.kind === 'aj.confirm') {
-    // AJ-PICK: Nick's OK names one exact card in the current plans that gives A.J. Brown.
+    // AJ-PICK: Nick's OK names one exact card in the current plans that gives A.J. Brown (or a protected player).
     const legs = [0, 1, 2, 3].map(i => findCard(plans?.entries, leagueId, stored.move_id, i)).filter(Boolean);
-    if (!legs.some(c => c.give.includes('277'))) {
-      throw new WarRoomInputError('that card is not in the current plans or does not give A.J. Brown, so there is nothing to OK');
+    // PROTECTED-UPGRADE: a card that uses a protected player (160 / 80) is OK'd the same way.
+    if (!legs.some(c => c.give.includes('277') || c.give.some(g => PROTECTED_IDS.includes(String(g))))) {
+      throw new WarRoomInputError('that card is not in the current plans or needs no OK, so there is nothing to OK');
     }
     stored.card = legs.map(cardSummary);
   }

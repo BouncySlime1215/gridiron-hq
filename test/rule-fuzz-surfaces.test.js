@@ -137,4 +137,48 @@ test(`RULE-FUZZ oracle over every gated surface, ${SEEDS} fuzz leagues: nothing 
   assert.ok(served > 0 && dropped > 0, `not vacuous: ${served} served, ${dropped} dropped`);
 });
 
+/**
+ * PROTECTED-UPGRADE (Nick 2026-09-26): with 160 / 80 on "Blue chips only" (their default; no setting row),
+ * a surface outside the planner never serves them: none carries a step's confirmed rise in lineup points
+ * and playoff odds, so the gate keeps them locked there. Candidates built to be true tier ups (a Blue chip
+ * scoring AND valued above him) are fed in on purpose; every one is dropped and counted.
+ */
+test(`PROTECTED-UPGRADE over every gated surface, ${Math.min(SEEDS, 30)} fuzz leagues: tier-up bait for 160 / 80 is never served outside the planner`, () => {
+  let bait = 0, served = 0;
+  for (let seed = 1; seed <= Math.min(SEEDS, 30); seed++) {
+    const a = makeFuzzLeague(seed);
+    install(a);
+    const lg = row('SELECT id, my_team_id, season FROM leagues WHERE id = ?', a.league.id);
+    const me = a.league.me;
+    const g = NG.ruleGate({ row, rows }, { leagueId: lg.id });
+    assert.ok(g.rules.protectUpgrade.has('160') && g.rules.protectUpgrade.has('80'), 'Blue chips only is the default');
+    const sc = id => a.scoreOf(id)?.score, v = id => a.players.get(Number(id))?.value ?? 0;
+    const cs = [];
+    for (const pid of ['160', '80']) {
+      if (!a.rosters.get(me).map(S).includes(pid)) continue;
+      for (const [t, ids] of a.rosters) {
+        if (t === me) continue;
+        for (const x of ids) if (sc(x) >= 83 && sc(x) > sc(pid) && v(x) > v(pid)) cs.push({ id: `b${cs.length}`, team: t, give: [pid], get: [S(x)] });
+      }
+    }
+    bait += cs.length;
+    const deal = c => ({ id: c.id, partner_id: c.team, partner: `Team ${c.team}`, i_give: c.give.map(id => P(a, id)), i_get: c.get.map(id => P(a, id)) });
+    const ideas = engine.gateIdeas(lg, { mode: 'league', me: { roster_id: me }, deals: cs.map(deal) }, me);
+    served += ideas.deals.length;
+    const full = cs.map(deal);
+    served += gateProposals(g, { proposals: full.map(d => ({ idea_ids: [d.id], package: { i_give: d.i_give.map(p => p.name), i_get: d.i_get.map(p => p.name) } })) }, full).kept.length;
+    const tv = gateThreadView(g, { get: cs[0]?.get ?? [], branches: cs.map(c => ({ kind: 'counter', plan: { status: 'ok', value: { backup: { partner: c.team, give: c.give, get: c.get } } } })) });
+    served += tv.branches.filter(b => b.plan.status === 'ok').length;
+    // The one check itself: a tier up with a rise passes (and needs Nick's OK); without the rise it does not.
+    for (const c of cs.slice(0, 3)) {
+      const withRise = g.check({ give: c.give, get: c.get, rises: { points_delta: 1, playoff_delta: 0.01 } });
+      if (withRise.ok) assert.equal(withRise.requires_nick_confirm, true);
+      assert.equal(g.check({ give: c.give, get: c.get }).ok, false);
+    }
+  }
+  console.log(`# PROTECTED-UPGRADE surfaces: ${bait} tier-up bait packages, ${served} served`);
+  assert.ok(bait > 0, 'the fuzz leagues hold tier ups to bait with');
+  assert.equal(served, 0);
+});
+
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

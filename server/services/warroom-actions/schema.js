@@ -22,6 +22,7 @@
  * only from the engine (guardrail 1).
  */
 import { SKIP_REASONS, DECLINE_REASONS } from '../campaign/plans-schema.js';
+import { PROTECTED_IDS, PROTECT_MODES } from '../campaign/protected-upgrade.js';
 
 export { SKIP_REASONS, DECLINE_REASONS };
 
@@ -79,15 +80,16 @@ export const SENT_AS = Object.freeze(['opening', 'card', 'walk_away']);
 export const REQUEST_KINDS = Object.freeze([
   'objective.set', 'target.approve', 'offer.sent', 'offer.reply', 'deck.skip',
   'mode.set', 'tolerance.set', 'stop.add', 'stop.remove', 'retract',
-  'aj.allow', 'aj.revoke', 'aj.confirm'
+  'aj.allow', 'aj.revoke', 'aj.confirm', 'protect.mode'
 ]);
 
 /**
  * AJ-PICK (campaign/aj-pick.js): who Nick would take for A.J. Brown, and his OK on one exact card.
+ * PROTECTED-UPGRADE (campaign/protected-upgrade.js): protect.mode, Nick's Locked / Blue chips only setting.
  * Only Nick writes these: Coach may explain an A.J. card but never pick for him or confirm one,
  * not even with confirmed = 1.
  */
-export const NICK_ONLY_REQUESTS = Object.freeze(['aj.allow', 'aj.revoke', 'aj.confirm']);
+export const NICK_ONLY_REQUESTS = Object.freeze(['aj.allow', 'aj.revoke', 'aj.confirm', 'protect.mode']);
 
 /** Requests that change the plan. When Coach proposed them, the row must say Nick confirmed. */
 export const PLAN_REQUESTS = Object.freeze([
@@ -224,8 +226,16 @@ const REQUEST_RULES = {
   retract: p => ({ request_id: int(p.request_id, 'request_id', 1, Number.MAX_SAFE_INTEGER) }),
   'aj.allow': p => ({ player_id: ajPick(p.player_id) }),
   'aj.revoke': p => ({ player_id: ajPick(p.player_id) }),
-  'aj.confirm': p => ({ move_id: id(p.move_id, 'move_id') })
+  'aj.confirm': p => ({ move_id: id(p.move_id, 'move_id') }),
+  'protect.mode': p => ({ player_id: protectedPlayer(p.player_id), mode: oneOf(p.mode, PROTECT_MODES, 'mode') })
 };
+
+/** A player the protected-player setting governs (PROTECTED_DEFAULTS); A.J. Brown keeps AJ-PICK. */
+function protectedPlayer(value) {
+  const pid = id(value, 'player_id');
+  if (!PROTECTED_IDS.includes(pid)) fail('player_id is not a protected player');
+  return pid;
+}
 
 /** The player Nick would take for A.J. Brown: any player id but A.J. himself. */
 function ajPick(value) {

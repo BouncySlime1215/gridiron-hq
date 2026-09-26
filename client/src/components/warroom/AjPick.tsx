@@ -96,7 +96,7 @@ export function AjAllowedChip({ picks, nameOf }: { picks: AjPicks; nameOf: (id: 
   );
 }
 
-/** A deck card that gives A.J. Brown and Nick has not OK'd yet. */
+/** A deck card that gives A.J. Brown (or, PROTECTED-UPGRADE, a protected player) and Nick has not OK'd yet. */
 export const needsAjOk = (m: Move) => !!m.requires_nick_confirm && !m.nick_confirmed;
 
 export function AjOkBanner({ move, leagueId, forText, post }: { move: Move; leagueId: number; forText: string; post?: Poster }) {
@@ -111,7 +111,7 @@ export function AjOkBanner({ move, leagueId, forText, post }: { move: Move; leag
   return (
     <Card tone="warn" className="wr-aj-ok" as="div">
       <div data-testid="aj-ok-banner" role="note">
-        <b>Needs your OK: gives A.J. Brown for {forText}</b>
+        <b>{move.protected_label ? `Needs your OK: ${move.protected_label}, for ${forText}` : `Needs your OK: gives A.J. Brown for ${forText}`}</b>
         <p className="ds-note">Only you can OK this card; Coach can explain it but not approve it. Until you do, it is never your next move.</p>
         {state === 'saved'
           ? <p className="ds-note" role="status" data-testid="aj-ok-saved">OK saved. The planner can make this your next move after its next run.</p>

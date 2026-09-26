@@ -60,6 +60,7 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
         <div className="wr-hero-partner">
           <span className="wr-k">Send to</span>
           <h2 className="wr-hero-who">{partner}</h2>
+          {!ajBanner && move.protected_label && <p className="wr-sub" data-testid="protected-label">{move.protected_label}</p>}
           {clock && <p className="wr-sub" data-testid="hero-send-when" data-guess={clock.guess ? '1' : '0'}>{clock.text}</p>}
         </div>
         <span className={`wr-status wr-status-${status.tone}`} data-testid="hero-status" data-tone={status.tone}

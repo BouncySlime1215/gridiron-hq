@@ -192,8 +192,11 @@ const step = obj({
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
   p_yes_band: obj({ low: prob, high: prob }, { basis: oneOf(['no_information', 'heuristic_unanchored', 'heuristic_anchored']) }),
   counterpart: field(stepCounterpart),
-  // AJ-PICK: this step gives A.J. Brown and needs Nick's OK.
+  // AJ-PICK: this step gives A.J. Brown (or, PROTECTED-UPGRADE, a protected player) and needs Nick's OK.
   requires_nick_confirm: bool,
+  // PROTECTED-UPGRADE: the step gives a protected player for a true tier up; its own lineup and playoff-odds gains.
+  protected_upgrade: field(obj({ players: arr(pid, { min: 1 }), for: arr(pid, { min: 1 }), lineup_points_delta: num, playoff_odds_delta: num, text: str },
+    { confirmed_lineup_points_delta: num, confirmed_playoff_odds_delta: num })),
   // CAP-1C: the premium over the 0 cap on a depth-only 2-for-1, and the lineup / title gains that allowed it.
   depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
     { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num })),
@@ -217,7 +220,9 @@ const move = obj({
   reasoning: field(reasoning)
 }, {
   // AJ-PICK: the card gives A.J. Brown for a player Nick picked (aj_for); it is never the next move until he OKs it.
-  requires_nick_confirm: bool, nick_confirmed: bool, aj_for: arr(pid, { min: 1 })
+  requires_nick_confirm: bool, nick_confirmed: bool, aj_for: arr(pid, { min: 1 }),
+  // PROTECTED-UPGRADE: the protected players the card uses under 'Blue chips only', and its label.
+  protected_uses: arr(pid, { min: 1 }), protected_label: str
 });
 
 const destination = obj({
@@ -525,7 +530,7 @@ function crossCheck(entry, path, ctx) {
     err('next_move.value.move_id', 'must be the head of the deck (alternatives.value[0].move_id)');
   }
   // AJ-PICK: a card that gives A.J. Brown is the next move only once Nick OK'd it; waiting cards sit after the deck.
-  if (next && next.requires_nick_confirm && !next.nick_confirmed) err('next_move.value', "gives A.J. Brown without Nick's OK");
+  if (next && next.requires_nick_confirm && !next.nick_confirmed) err('next_move.value', "needs Nick's OK (A.J. Brown or a protected player) and has none");
   if (Array.isArray(deck)) {
     let seenWaiting = false;
     deck.forEach((m, i) => {

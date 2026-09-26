@@ -254,6 +254,18 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const dp = st.depth_premium;
     // AJ-PICK: every step that gives A.J. Brown says it needs Nick's OK.
     if (st.give.some(id => String(id) === '277') && plan.aj) out.requires_nick_confirm = true;
+    // PROTECTED-UPGRADE: a step that gives 160 / 80 under 'Blue chips only' says so, with the tier up and the rises.
+    const pu = st.protected_upgrade;
+    if (pu && plan.aj?.uses) {
+      out.requires_nick_confirm = true;
+      const c = pu.confirmed ?? null;
+      out.protected_upgrade = ok({ players: ids(pu.players), for: ids(pu.for),
+        lineup_points_delta: pu.points_delta, playoff_odds_delta: pu.playoff_delta,
+        ...(c ? { confirmed_lineup_points_delta: c.points_delta, confirmed_playoff_odds_delta: c.playoff_delta } : {}),
+        text: `A true tier up (a Blue chip whose score and market value both beat who you give): your lineup gains ${pu.points_delta.toFixed(1)} pts a week `
+          + `and your playoff odds ${(pu.playoff_delta * 100).toFixed(1)} pts` + (c ? `; ${c.points_delta.toFixed(1)} pts and ${(c.playoff_delta * 100).toFixed(1)} pts on fresh dice.` : '; not yet re-checked on fresh dice.'),
+      }, 'plan.path');
+    }
     if (dp) {
       const c = dp.confirmed ?? null;
       out.depth_premium = ok({ pct: dp.pct, cap: dp.cap, lineup_points_delta: dp.points_delta, title_odds_delta: dp.title_delta,
@@ -298,6 +310,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     return {
       move_id: thisId, rank: j + 1,
       ...(c.aj ? { requires_nick_confirm: true, nick_confirmed: !!c.aj.nick_confirmed, aj_for: ids(c.aj.for ?? []) } : {}),
+      // PROTECTED-UPGRADE: the card uses a protected player under 'Blue chips only' ("Uses Nico Collins, Blue chips only").
+      ...(c.aj?.uses ? { protected_uses: ids(c.aj.uses), protected_label: String(c.aj.label ?? '') } : {}),
       target: plan.target != null ? String(plan.target) : null,
       target_owner: plan.owner != null ? String(plan.owner) : null,
       chained: !!plan.chained, steps,
@@ -628,6 +642,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         ...(res.wants ? { wants: res.wants } : {}),
         // AJ-PICK: only when Nick has picks (no picks: the file is byte-identical to before AJ-PICK).
         ...(res.aj_pick && res.aj_pick.allow > 0 ? { aj_pick: res.aj_pick } : {}),
+        // PROTECTED-UPGRADE: what the tier-up pass searched, kept and refused (only when a player is on Blue chips only).
+        ...(res.protected_upgrade && res.protected_upgrade.status !== 'off' ? { protected_upgrade: res.protected_upgrade } : {}),
         ...(res.deadline ? { deadline_mode: deadlineSummary(res.deadline) } : {}),
         // PLAYOFF-SEEDING (shadow): seed values, win targets and must-win weeks, each with its SE (playoff-path.js).
         ...(res.playoff_path ? { playoff_path: res.playoff_path } : {}),

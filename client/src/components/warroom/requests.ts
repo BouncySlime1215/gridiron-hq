@@ -5,7 +5,7 @@ import { api } from '../../api';
  * becomes one row in the request table via POST /api/warroom/:leagueId/requests.
  * The producer reads the rows (FIX-07); nothing here changes a plan or sends an offer.
  */
-export type RequestKind = 'deck.skip' | 'offer.sent' | 'offer.reply' | 'target.approve' | 'aj.allow' | 'aj.revoke' | 'aj.confirm';
+export type RequestKind = 'deck.skip' | 'offer.sent' | 'offer.reply' | 'target.approve' | 'aj.allow' | 'aj.revoke' | 'aj.confirm' | 'protect.mode';
 export interface WarRoomRequest { kind: RequestKind; payload: Record<string, unknown> }
 export type Poster = (path: string, init: RequestInit) => Promise<unknown>;
 
@@ -19,6 +19,10 @@ export const ajAllow = (playerId: string, on: boolean): WarRoomRequest =>
 
 /** AJ-PICK: Nick's OK on one exact card that gives A.J. Brown. */
 export const ajConfirm = (moveId: string): WarRoomRequest => ({ kind: 'aj.confirm', payload: { move_id: moveId } });
+
+/** PROTECTED-UPGRADE: Nick's Locked / Blue chips only setting for one protected player. Nick's tap only. */
+export type ProtectMode = 'locked' | 'blue_chips_only';
+export const protectMode = (playerId: string, mode: ProtectMode): WarRoomRequest => ({ kind: 'protect.mode', payload: { player_id: playerId, mode } });
 
 export const requestPath = (leagueId: number) => `/warroom/${leagueId}/requests`;
 

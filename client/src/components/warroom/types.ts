@@ -76,6 +76,9 @@ export interface Move {
   requires_nick_confirm?: boolean;
   nick_confirmed?: boolean;
   aj_for?: string[];
+  /** PROTECTED-UPGRADE: the protected players this card uses under "Blue chips only", and its label. */
+  protected_uses?: string[];
+  protected_label?: string;
 }
 
 export interface Stop {

@@ -40,7 +40,8 @@ test('disconnect asks before it removes the stored cookies', () => {
 
 test('Settings views; no Pull ESPN news; Health and AI & developer inside Settings', () => {
   const s = read('client/src/pages/Settings.tsx');
-  assert.match(s, /\{ id: 'connections', label: 'Connections' \}, \{ id: 'health', label: 'Health' \}/);
+  // PROTECTED-UPGRADE adds Trade rules (Nick's Locked / Blue chips only setting) between Connections and Health.
+  assert.match(s, /\{ id: 'connections', label: 'Connections' \}, \{ id: 'trades', label: 'Trade rules' \}, \{ id: 'health', label: 'Health' \}/);
   assert.doesNotMatch(s, /sync-news/, 'Settings no longer pulls news');
   assert.match(s, /<DataFreshnessDetail \/>/);
   assert.match(s, /<NumberHealthCard \/>/);

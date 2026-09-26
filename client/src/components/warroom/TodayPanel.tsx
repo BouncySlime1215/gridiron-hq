@@ -6,7 +6,7 @@ import { SourcesContext } from './FieldState';
 import { PanelBoundary } from './Panel';
 import NextMoveDeck from './NextMoveDeck';
 import ScreenToday from './ScreenToday';
-import { useHeadshotMap, useNegotiations } from './useWarRoom';
+import { useHeadshotMap, useNegotiations, useSpendAnomaly } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
 import { FIXED_QUESTIONS } from './coach/CoachDrawer';
 
@@ -22,6 +22,8 @@ export default function TodayPanel({ view, leagueId, onAsk }: {
   setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const negotiations = useNegotiations(leagueId);
   const headshots = useHeadshotMap();
+  // SPEND-UI: a spend anomaly is one Watching row (the served line; nothing computed here).
+  const spendAnomaly = useSpendAnomaly();
   const deck = (
     <PanelBoundary name="Next move">
       <NextMoveDeck key={`${leagueId}:${view.snapshot?.id ?? ''}`} view={view} big variant="hero"
@@ -32,7 +34,7 @@ export default function TodayPanel({ view, leagueId, onAsk }: {
     <SourcesContext.Provider value={view.sources ?? {}}>
       <HeadshotContext.Provider value={headshots}>
         <div className="wr-root wr-v2 wr-inline" data-testid="today-panel">
-          <ScreenToday view={view} negotiations={negotiations.data} deck={deck} />
+          <ScreenToday view={view} negotiations={negotiations.data} deck={deck} spendAnomaly={spendAnomaly} />
         </div>
       </HeadshotContext.Provider>
     </SourcesContext.Provider>

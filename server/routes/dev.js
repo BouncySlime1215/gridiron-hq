@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { getApiKey, setApiKey, clearApiKey, getWorkspaceId, setWorkspaceId, clearWorkspaceId, usageSummary, PRICING } from '../services/claude.js';
 import { rows, row } from '../db/index.js';
+import { setDailyBudget } from '../services/llm-budget.js';
 import { canonicalGsisLabelConflicts, playerIdentityRepairPlan, unclaimedTeamPositionDuplicates } from '../services/player-repair.js';
 import { allSources } from '../services/source-registry.js';
 
 const r = Router();
 
-const mask = k => (k ? `${k.slice(0, 7)}…${k.slice(-4)}` : null);
 
 r.get('/status', (req, res) => {
   const key = getApiKey();
@@ -20,7 +20,8 @@ r.get('/status', (req, res) => {
   };
   const workspaceId = getWorkspaceId();
   res.json({
-    api_key: key ? { configured: true, masked: mask(key) } : { configured: false },
+    // SPEND-UI: the key is never sent back, not even masked; the screen says "Connected".
+    api_key: { configured: !!key },
     workspace_id: workspaceId ? { configured: true, value: workspaceId } : { configured: false },
     pricing: PRICING['claude-haiku-4-5-20251001'],
     model: 'claude-haiku-4-5-20251001',
@@ -35,7 +36,7 @@ r.put('/key', (req, res) => {
     return res.status(400).json({ error: 'That does not look like an Anthropic key (expected it to start with sk-ant-).' });
   }
   const result = setApiKey(key.trim());
-  res.json({ ok: true, masked: mask(key.trim()), ...result });
+  res.json({ ok: true, ...result });
 });
 
 r.delete('/key', (req, res) => { clearApiKey(); res.json({ ok: true }); });
@@ -56,6 +57,24 @@ r.put('/workspace-id', (req, res) => {
 r.delete('/workspace-id', (req, res) => { clearWorkspaceId(); res.json({ ok: true }); });
 
 r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
+
+/**
+ * SPEND-UI: Settings -> AI & developer. The display block of the one spend summary (ai-spend.js)
+ * and whether a key is connected. The screen draws these and computes nothing.
+ */
+r.get('/spend', (req, res, next) => {
+  try { res.json({ spend: usageSummary(30).display, api_key: { configured: !!getApiKey() } }); } catch (e) { next(e); }
+});
+
+/** A family's daily budget in dollars (0 turns the feature off), or null for its default. setDailyBudget validates. */
+r.put('/budgets/:key', (req, res, next) => {
+  try {
+    const usd = req.body?.usd;
+    if (usd !== null && typeof usd !== 'number') return res.status(400).json({ error: 'A daily budget is a dollar amount, or null for the default.' });
+    setDailyBudget(req.params.key, usd);
+    res.json({ spend: usageSummary(30).display });
+  } catch (e) { next(e); }
+});
 r.get('/player-identity/repair-plan', (req, res) => res.json(playerIdentityRepairPlan()));
 r.get('/player-identity/gsis-conflicts', (req, res) => res.json(canonicalGsisLabelConflicts()));
 r.get('/player-identity/team-position-duplicates', (req, res) => res.json(unclaimedTeamPositionDuplicates()));

@@ -3,7 +3,8 @@ import type { Destination, WarRoomView } from './types';
 import type { Negotiations } from './negotiateModel';
 import { Val } from './FieldState';
 import { pct, isOk } from './format';
-import { stopCounts, watchItems } from './today';
+import { stopCounts, watchItems, type SpendAnomaly } from './today';
+import { AppLink } from '../settings/spendLinks';
 import Icon, { EmptyState } from './icons';
 
 /**
@@ -11,10 +12,10 @@ import Icon, { EmptyState } from './icons';
  * passed in so its state survives screen changes), a short WATCHING list and the
  * SEASON PROGRESS strip. Every line is a served field; nothing is computed.
  */
-export default function ScreenToday({ view, negotiations, deck }: {
-  view: WarRoomView; negotiations?: Negotiations | null; deck: ReactNode;
+export default function ScreenToday({ view, negotiations, deck, spendAnomaly }: {
+  view: WarRoomView; negotiations?: Negotiations | null; deck: ReactNode; spendAnomaly?: SpendAnomaly | null;
 }) {
-  const items = watchItems(view, negotiations);
+  const items = watchItems(view, negotiations, spendAnomaly);
   const d = isOk(view.destination) ? view.destination.value : undefined;
   const stops = stopCounts(view);
   // A destination that is itself failed/unknown shows its own state, as the top strip does.
@@ -34,7 +35,8 @@ export default function ScreenToday({ view, negotiations, deck }: {
               {items.map(it => (
                 <li key={it.id} className={`wr-watch-i wr-watch-${it.tone}`} title={it.detail}>
                   <Icon name={it.tone === 'red' ? 'stop' : it.tone === 'amber' ? 'warn' : 'clock'} size={16} className="wr-watch-ic" />
-                  <span className="wr-watch-t">{it.text}</span>
+                  {it.href ? <AppLink href={it.href} className="wr-watch-t wr-watch-link" testid="watch-link">{it.text}</AppLink>
+                    : <span className="wr-watch-t">{it.text}</span>}
                 </li>
               ))}
             </ul>

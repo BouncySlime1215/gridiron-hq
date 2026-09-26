@@ -1325,6 +1325,11 @@ async function refreshExgbWeeklyGrade() {
   const { runExgbWeeklyGrade } = await import('./exgb-grader.js');
   return runExgbWeeklyGrade();
 }
+/** PROJ-DUEL: the shadow model's drivers per forecast week and the residuals of every finished week (GRIDIRON_EXGB; nothing served). */
+async function refreshProjDuelExplain() {
+  const { refreshProjDuelExplain: runExplain } = await import('./proj-duel/explain.js');
+  return runExplain();
+}
 
 /**
  * PROJ-ESPN (#446): the shadow log of our own weekly projection beside the served frozen ESPN
@@ -1415,6 +1420,8 @@ export const JOBS = {
     label: 'E-XGB shadow forecasts at each capture window (GRIDIRON_EXGB; nothing served)' },
   exgb_weekly_grade: { run: refreshExgbWeeklyGrade, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,
     label: 'E-XGB weekly pre-registered grade vs frozen ESPN and our projection (GRIDIRON_EXGB)' },
+  proj_duel_explain: { run: refreshProjDuelExplain, maxAgeMinutes: 30, tier: 'live', offThread: true,
+    label: 'PROJ-DUEL: shadow-model drivers (TreeSHAP) and graded residuals per player-week (GRIDIRON_EXGB; nothing served)' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
   nfl_forward_settle: { run: refreshForwardSettlement, maxAgeMinutes: 30, tier: 'live',
     label: 'Settle forward picks (CLV grading) shortly after a game goes final' },

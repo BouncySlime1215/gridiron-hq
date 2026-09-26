@@ -70,7 +70,8 @@ export function weekFinal(season, week, now = new Date()) {
   return Boolean(last && hasFinals && Date.parse(`${last.replace(' ', 'T')}:00Z`) + 5 * 3600e3 + FINAL_AFTER_MS <= now.getTime());
 }
 
-function latestForecasts(season, week) {
+/** The latest pre-kickoff forecast per arm and player for one week (never a late row). */
+export function latestForecasts(season, week) {
   const out = new Map(); // `${arm}:${player_id}` -> prediction
   for (const r of rows(`SELECT arm, player_id, prediction, predicted_at FROM exgb_shadow_predictions
                         WHERE season = ? AND week = ? AND late = 0 AND kickoff_at IS NOT NULL AND predicted_at < kickoff_at

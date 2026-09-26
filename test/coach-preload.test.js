@@ -80,7 +80,7 @@ test('the bundle: plan, moves, targets, roster with floors, the partner in focus
   const focus = { move_id: focusMove.move_id, partner: String(focusMove.steps[0].partner) };
   const pre = await preloadContext({ leagueId: 4, focus, ledger });
   const byTable = Object.fromEntries(ledger.queries.map(q => [q.tables[0], q]));
-  assert.deepEqual(Object.keys(byTable), ['plan_summary', 'plan_moves', 'plan_targets', 'my_roster', 'partner_focus', 'nick_rules']);
+  assert.deepEqual(Object.keys(byTable), ['plan_summary', 'plan_moves', 'plan_targets', 'my_roster', 'partner_focus', 'nick_rules', 'proj_duel']);
   assert.ok(ledger.queries.every(q => q.tool === 'plan_read'));
   assert.equal(byTable.plan_summary.rows[0].title_odds_now, L4.destination.value.title_now.value);
   assert.equal(byTable.plan_moves.rows[0].move_id, focusMove.move_id);

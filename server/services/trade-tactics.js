@@ -303,7 +303,7 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
     decisions_reason: txPresent ? null : TX_ABSENT_REASON,
     read_state: txPresent ? 'present' : 'source_table_absent',
     active_hours_reason: txPresent ? null : TX_ABSENT_REASON,
-    busiest_hour: null, last_decline_at: null,
+    busiest_hour: null, last_decline_at: null, last_action_at: null,
     // When Nick last ASKED this person for something is already on
     // counterparty-pricing#selfRead (`to_each_manager[].last_offer_at`), which
     // is the one place that reads the offer items. Not duplicated here.
@@ -361,6 +361,8 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
     }
     const acts = actions.get(rid) ?? [];
     entry.actions_n = acts.length;
+    // TM-34: his last own move (deadline mode's who-goes-quiet read); every own action counts, even below MIN_A.
+    entry.last_action_at = acts.length ? new Date(Math.max(...acts)).toISOString() : null;
     if (acts.length >= MIN_A) {
       const hist = new Array(24).fill(0);
       for (const ms of acts) hist[new Date(ms).getUTCHours()]++;

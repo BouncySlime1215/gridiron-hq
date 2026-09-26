@@ -253,7 +253,8 @@ test('the route computes nothing: it imports the contract and no producer module
   const src = fs.readFileSync(path.join(HERE, '..', 'server', 'services', 'war-room-view.js'), 'utf8');
   const imports = [...src.matchAll(/^import .* from '([^']+)'/gm)].map(m => m[1]).sort();
   // FP-GUARD: fantasypros-guard.js strips FantasyPros keys on the way out; it computes nothing.
-  assert.deepEqual(imports, ['./campaign/plans-schema.js', './fantasypros-guard.js', './preview-mode.js', './warroom-flag.js', 'node:fs/promises']);
+  // PLANS-EXPIRE: campaign/plan-age.js is a pure date rule (planned_at vs now); it computes no number.
+  assert.deepEqual(imports, ['./campaign/plan-age.js', './campaign/plans-schema.js', './fantasypros-guard.js', './preview-mode.js', './warroom-flag.js', 'node:fs/promises']);
 });
 
 test('fixtures carry team ids only (no manager or league names)', () => {

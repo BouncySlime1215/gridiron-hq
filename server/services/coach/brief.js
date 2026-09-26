@@ -39,6 +39,7 @@ import { newLedger } from './ledger.js';
 import { verifyAnswer } from './verify.js';
 import { readStatements, readCredibility, readReplies, readInjuries } from './brief-inputs.js';
 import { claimsFor } from './brief-claims.js';
+import { outOfDateReason } from '../campaign/plan-age.js';
 
 export const BRIEF_ENV = 'GRIDIRON_COACH_BRIEF_ENABLED';
 export const TARGET_LEAGUE = 4;
@@ -218,6 +219,9 @@ function frame({ db, file, leagueId, env, now }) {
   }
   const entry = leagueEntry(file, leagueId);
   if (!entry) return { done: { status: 'unknown', preview: flag.preview, reason: `League ${leagueId} is not in the plans file.` } };
+  // PLANS-EXPIRE (integration-10a): no brief from a plan the War Room hides as out of date.
+  const stale = outOfDateReason(entry, file.leagues, { env, now: now.getTime() });
+  if (stale) return { done: { status: 'unknown', preview: flag.preview, reason: stale } };
   return { flag, entry, version: planVersion(file, entry), cacheOk: cacheReady(db), at: now.toISOString() };
 }
 

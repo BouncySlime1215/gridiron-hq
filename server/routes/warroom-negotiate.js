@@ -39,8 +39,10 @@ import { recordRequest } from '../services/warroom-actions/store.js';
 import { unmarkSentOffer } from '../services/trade-outcomes.js';
 import {
   REPLY_KINDS, findStep, openThread, closeIfUnsent, getThread, threadsFor, eventsOf, addEvent, closeThread, closesOn,
-  addNames, replyTimes, threadView
+  addNames, replyTimes, threadView, lastSendOf, dealIdsOf
 } from '../services/warroom-negotiate.js';
+import { negotiatorSafetyOn } from '../services/campaign/negotiator-safety.js';
+import { dealNews } from '../services/campaign/deal-news.js';
 
 const bad = (res, error) => { res.status(400).json({ error }); };
 const previewed = (flag, text) => (flag.preview && text ? previewText(text) : text);
@@ -105,7 +107,11 @@ export function negotiateRouter({
 
   async function render(lg, flag, t) {
     const dist = await times(lg.id, String(lg.my_team_id), t.partner);
-    const v = gateThreadView(ruleGate({ row, rows }, { leagueId: lg.id }), threadView(t, eventsOf(t.id), dist, clock()));
+    const events = eventsOf(t.id);
+    // NEGOTIATOR-SAFETY (c): the offer's expiry, and news on any player in the deal since the last send.
+    const since = negotiatorSafetyOn() && t.status === 'open' ? lastSendOf(t, events) : null;
+    const news = since ? dealNews({ rows }, { leagueId: lg.id, ids: dealIdsOf(t, events), since }) : null;
+    const v = gateThreadView(ruleGate({ row, rows }, { leagueId: lg.id }), threadView(t, events, dist, clock(), { news }));
     if (flag.preview && v.countdown) {
       v.countdown.basis = previewText(v.countdown.basis);
       if (v.countdown.reason) v.countdown.reason = previewText(v.countdown.reason);

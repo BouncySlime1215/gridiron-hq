@@ -18,6 +18,13 @@
  *                  season, no price-fall exception).
  *   no_undo        no step with a manager both takes back from him a player Nick sent him and gives him
  *                  back a player he sent Nick, in one trade this season between the two.
+ *   stranded_hold  FLIP-STRANDED: after every leg but the last of a move served as a sequence (a plan's
+ *                  steps, a flip's leg 1, a LADDER-01 card's rungs), every player Nick then holds that he
+ *                  did not start with scores 83+: if the next leg is turned down he keeps him. Each leg's
+ *                  own never-give, overpay and buy-back checks are the offer rules above (every leg is an
+ *                  offer), so this rule only adds the floor on what he holds in between. Flip claims
+ *                  (Nick 2026-09-25): a player got by a waiver claim (step.claim) and traded away in a
+ *                  later trade (not claim) leg of the same path is exempt; claimed and kept, he is not.
  *   beats_no_trade every move served as something to send beats doing nothing on the confirm dice:
  *                  - deck cards: confirm.verdict is not 'failed', beats_no_trade is not false, and the
  *                    confirm-dice expected gain (plan.expected) is > 0;
@@ -46,7 +53,8 @@
 import { NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID, BLUE_CHIP } from './rule-fuzz-league.mjs';
 
 export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
-  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded']);
+  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded',
+  'stranded_hold']);
 export const DEPTH_PREMIUM = 0.12;
 const EPS = 1e-9;
 const S = x => String(x);
@@ -136,6 +144,26 @@ export function finalGets(plan, startIds) {
   return [...held].filter(id => !start.has(id));
 }
 
+/**
+ * FLIP-STRANDED: what Nick holds between legs. For each leg but the last, the players he holds right
+ * after it that he did not start with: [{ leg, player }] (leg is 0-based).
+ */
+export function strandedAfterLegs(steps, startIds) {
+  const start = new Set((startIds ?? []).map(S));
+  const held = new Set(start);
+  const out = [];
+  const flipClaim = new Set();
+  for (const [i, st] of steps.entries()) {
+    if (st.claim) for (const id of st.get) if (steps.slice(i + 1).some(x => !x.claim && x.give.map(S).includes(S(id)))) flipClaim.add(S(id));
+  }
+  for (const [i, st] of steps.entries()) {
+    for (const id of st.give) held.delete(S(id));
+    for (const id of st.get) held.add(S(id));
+    if (i < steps.length - 1) for (const id of held) if (!start.has(id) && !flipClaim.has(id)) out.push({ leg: i, player: id });
+  }
+  return out;
+}
+
 /** Every player Nick sent away in any trade this season. */
 export function soldThisSeason(ledger, me) {
   return new Set((ledger?.trades ?? []).flatMap(t => t.moves).filter(m => S(m.from) === S(me)).map(m => S(m.player)));
@@ -195,6 +223,12 @@ export function ruleViolations(adapter, res) {
   }
   const start = adapter.rosters.get(me);
   for (const [name, p] of plans) for (const id of finalGets(p, start)) if (!blue(id)) bad('final_get', name, `${id} scores ${score(id)}`);
+  const stranded = (surface, steps) => {
+    for (const h of strandedAfterLegs(steps, start)) if (!blue(h.player)) bad('stranded_hold', surface, `after leg ${h.leg + 1}: ${h.player} scores ${score(h.player)}`);
+  };
+  for (const [name, p] of plans) stranded(name, p.steps);
+  for (const f of res.flip?.realised ?? []) if (f.legs) stranded(`flip ${f.player}`, [{ give: f.legs.give_a_ids ?? [f.legs.give_a], get: [f.player] }, { give: [f.player], get: f.legs.get_b_ids ?? [f.legs.get_b] }]);
+  for (const [j, card] of (res.ladders?.cards ?? []).entries()) stranded(`ladders[${j}]`, (card.rungs ?? []).filter(r => r.give && r.get));
   for (const [j, c] of (res.deck ?? []).entries()) {
     if (!c.plan) continue;
     if (c.confirm?.verdict === 'failed') bad('beats_no_trade', `deck[${j}]`, 'confirm verdict failed');

@@ -206,9 +206,6 @@ export interface WarRoomView {
   risk_modes?: Field<RiskModeRow[]>;
   teams?: Field<Record<string, TeamName>>;
   partners?: Field<Partner[]>;
-  /** PEOPLE-BOARD: the rail's switch and its tiles (war-room-view.js#buildPeopleBoard). */
-  people_board?: { enabled: boolean; preview: boolean };
-  people?: Field<PersonTile[]>;
   /** PLAYER-SCORE: the blue-chip board (people/player-score.js via the producer). */
   blue_chips?: Field<BlueChipBoardData>;
 }
@@ -254,18 +251,23 @@ export function namer(names: Record<string, string> | undefined) {
   return { one, text };
 }
 
-/** The loaded view's roster names; WarRoom fills it (setTeamNames) so every teamLabel call site reads it. */
+/** The loaded view's roster names; TodayPanel / TradesPlanner fill it (setTeamNames) so every teamLabel call site reads it. */
 let teamNames: Record<string, TeamName> = {};
 export function setTeamNames(teams: Record<string, TeamName> | null | undefined) { teamNames = teams ?? {}; }
 
-/** 'Manager (Team name)' when known, else whichever is known, else 'Team N'. */
-export function teamLabel(id: string | null | undefined): string {
+/** 'Manager (Team name)' when known, else whichever is known, else 'Team N', from a given teams map. */
+export function teamLabelIn(teams: Record<string, TeamName> | null | undefined, id: string | null | undefined): string {
   if (id == null) return '';
-  const t = teamNames[String(id)];
+  const t = teams?.[String(id)];
   const manager = t?.manager?.trim();
   const name = t?.name?.trim();
   if (manager && name) return `${manager} (${name})`;
   return manager || name || `Team ${id}`;
+}
+
+/** teamLabelIn over the loaded view's registry (setTeamNames). */
+export function teamLabel(id: string | null | undefined): string {
+  return teamLabelIn(teamNames, id);
 }
 
 /** The contract's `partners` entry: who to deal with. Labels and counts only. */
@@ -279,25 +281,4 @@ export interface Partner {
   offers_logged?: number;
   checked_out?: boolean;
   blocked?: boolean;
-}
-
-/** PEOPLE-BOARD: one league-mate's tile, served whole; the client formats and computes nothing. */
-export interface PersonWord { status: 'proven' | 'manager_split' | 'noise'; n: number; weight: number | null }
-export interface PersonTile {
-  team: string;
-  label: string;
-  /** Nick's notes over the models: 'never' (can't reach him) sits last, 'last' (not a buyer) before it. */
-  standing: 'live' | 'last' | 'never';
-  nick: { never: boolean; last: boolean; hard: boolean; said: string[]; source: string | null };
-  checked_out: boolean;
-  blocked: boolean;
-  p_responds: Field<{ p: number; basis: string }>;
-  fatigue: Field<{ used: number; limit: number | null }>;
-  mood: Field<string>;
-  in_market: Field<{ said: { text: string; ago: string; credible: boolean; fading: boolean }[]; said_n: number; wants_n: number }>;
-  word: Field<{ wants: PersonWord | null; shop: PersonWord | null; as_of: string }>;
-  approach: Field<string>;
-  last_contact: Field<string>;
-  /** How many of the plan's moves have a step with him (what a tap focuses the deck on). */
-  moves_n: number;
 }

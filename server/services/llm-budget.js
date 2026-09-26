@@ -28,6 +28,9 @@ import { db, rows, row, run } from '../db/index.js';
 // the 1-hour TTL; cache reads are 0.1x input.
 const SONNET_5 = Object.freeze({ in: 2.00, out: 10.00, cache_write_5m: 2.50, cache_write_1h: 4.00, cache_read: 0.20 });
 const HAIKU_4_5 = Object.freeze({ in: 1.00, out: 5.00, cache_write_5m: 1.25, cache_write_1h: 2.00, cache_read: 0.10 });
+// COACH-CHAT (2026-09-25): Opus 5.5 for deep trade analysis. $4/$20, cache reads $0.20 (Claude API
+// model table); writes by the same 1.25x / 2x rule as the others.
+const OPUS_5_5 = Object.freeze({ in: 4.00, out: 20.00, cache_write_5m: 5.00, cache_write_1h: 8.00, cache_read: 0.20 });
 
 /**
  * Every model the app may call, and nothing else: a model missing here is
@@ -36,6 +39,7 @@ const HAIKU_4_5 = Object.freeze({ in: 1.00, out: 5.00, cache_write_5m: 1.25, cac
  */
 export const PRICING = Object.freeze({
   'claude-sonnet-5': SONNET_5,
+  'claude-opus-5-5': OPUS_5_5,
   'claude-haiku-4-5-20251001': HAIKU_4_5,
   'claude-haiku-4-5': HAIKU_4_5
 });

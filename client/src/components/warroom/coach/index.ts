@@ -6,7 +6,8 @@
  *
  * Panels read `coach.ui` and never compute an engine value.
  */
-export { useWarRoomCoach, type WarRoomCoach, type CoachMessage } from './useWarRoomCoach';
+export { useWarRoomCoach, type WarRoomCoach, type CoachMessage, type CoachProposal } from './useWarRoomCoach';
+export { PlanChangeCard, ProposalCard, DraftCard, planChangeTitle } from './ActionCards';
 export { default as CoachDock } from './CoachDock';
 export { default as PlugInCard } from './PlugInCard';
 export { default as CoachDrawer, FIXED_QUESTIONS } from './CoachDrawer';

@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import CoachBrief, { SourcesToggle } from './CoachBrief';
-import { PreviewPanel } from './CoachDock';
 import PlugInCard, { FIELD_LABELS } from './PlugInCard';
+import { DraftCard, PlanChangeCard, ProposalCard } from './ActionCards';
 import type { CoachMessage, WarRoomCoach } from './useWarRoomCoach';
+import { api } from '../../../api';
 import Icon from '../icons';
 
 /**
- * WAR-ROOM-UI v2: Coach as a right-side drawer, closed by default. It opens to a short
- * list of fixed questions (no typing needed); a tap asks the existing grounded route
- * (POST /api/coach/ask, via coach.ask) and the answer shows under its question as short
- * sentences with one small "sources" toggle. The free-text box stays, below the
- * questions. Coach never sends an offer; the drawer says so.
+ * WAR-ROOM-UI v2 + COACH-CHAT: Coach as a right-side drawer, closed by default,
+ * holding one conversation per league. An empty conversation opens on a short list
+ * of starter questions (no typing needed). Each answer shows as a chat bubble of
+ * short grounded sentences with one small "sources" toggle, then 2-3 follow-up
+ * chips and any action cards Coach proposes (nothing runs without a tap). The
+ * conversation lives on the server, so it survives closing the drawer, moving
+ * between pages and reloading; "New conversation" starts over. Coach never sends
+ * an offer; the drawer says so.
  */
 export const FIXED_QUESTIONS = [
   "What's my next move and why?",
@@ -34,48 +38,59 @@ export function plainNote(text: string): string {
     .replace(/\b[a-z_]{3,}(?:\.[a-z_]{3,})+\b/g, id => (FIELD_LABELS[id] ?? id.split('.').pop()!.replace(/_/g, ' ')).toLowerCase());
 }
 
-export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAutoAsked, deckAt }: {
+const money = (n: number) => `$${n < 0.01 && n > 0 ? '0.01' : n.toFixed(2)}`;
+
+export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAutoAsked, deckAt, onChanged }: {
   coach: WarRoomCoach; plans?: any; open: boolean; onClose: () => void;
   /** The plan on screen, sent as ask context so "what else" follow-ups track manual swipes. */
   deckAt?: { deck_index: number; move_id: string } | null;
   /** A fixed question to have answered as the drawer opens ("Ask Coach about this"). */
   autoAsk?: string | null;
   onAutoAsked?: () => void;
+  /** After an action card is done: refresh the view it changed. */
+  onChanged?: () => void;
 }) {
-  const [answers, setAnswers] = useState<Record<string, Slot>>({});
-  const [shown, setShown] = useState<string | null>(null);
-  /** Questions asked for Nick by a tap elsewhere (a League card), shown above the fixed ones. */
-  const [custom, setCustom] = useState<string[]>([]);
   const [text, setText] = useState('');
   const [showLog, setShowLog] = useState(false);
+  const [spend, setSpend] = useState<{ model_on: boolean; spent_today_usd: number } | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  // A new league is a new conversation.
-  const league = plans?.league_id ?? plans?.league ?? null;
-  useEffect(() => { setAnswers({}); setShown(null); setCustom([]); }, [league]);
-
-  const run = (q: string) => {
-    setShown(q);
-    if (!(FIXED_QUESTIONS as readonly string[]).includes(q)) setCustom(c => [q, ...c.filter(x => x !== q)].slice(0, 4));
-    if (answers[q] && answers[q] !== 'failed') return;
-    setAnswers(a => ({ ...a, [q]: 'asking' }));
-    coach.ask(q, deckAt ?? undefined).then(reply => setAnswers(a => ({ ...a, [q]: reply ?? 'failed' })));
-  };
+  const ask = (q: string) => { void coach.ask(q, deckAt ?? undefined); };
 
   useEffect(() => {
     if (!open || !autoAsk) return;
-    run(autoAsk);
+    ask(autoAsk);
     onAutoAsked?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, autoAsk]);
 
   useEffect(() => { if (open) closeRef.current?.focus?.(); }, [open]);
 
+  // The newest message in view.
+  const count = coach.messages.length;
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (open && el && typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight });
+  }, [open, count, coach.busy]);
+
+  // Today's AI spend, for the one-line hint under the box (only when the model is on).
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    api<{ model_on: boolean; spent_today_usd: number }>('/coach/spend')
+      .then(res => { if (live) setSpend(res); })
+      .catch((e: unknown) => console.warn('Coach: today\'s AI spend could not be read', e));
+    return () => { live = false; };
+  }, [open, count]);
+
   if (coach.enabled === false) return null;
-  const fixed = new Set<string>([...FIXED_QUESTIONS, ...custom]);
-  // The free-text thread: everything that was not one of the fixed questions.
-  const thread = coach.messages.filter(m => (m.who === 'nick' ? !fixed.has(m.text) : !(m.question && fixed.has(m.question))));
-  const submit = () => { const q = text; setText(''); void coach.ask(q, deckAt ?? undefined); };
+  const messages = coach.messages;
+  const lastCoach = [...messages].reverse().find(m => m.who === 'coach');
+  const lastAsked = [...messages].reverse().find(m => m.who === 'nick')?.text;
+  const empty = messages.length === 0 && !coach.busy;
+  const draft = coach.ui.drafts?.[String(coach.ui.league ?? 'current')] ?? null;
+  const submit = () => { const q = text; setText(''); ask(q); };
 
   return (
     <>
@@ -88,6 +103,9 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
             <div className="wr-ch-s">Answers from this league&apos;s plan. Never sends an offer.</div>
           </div>
           <span className="wr-sp" />
+          <button type="button" className="wr-btn wr-sm" onClick={() => { void coach.newConversation(); }} data-testid="coach-new"
+            disabled={!messages.length || coach.busy}
+            title={!messages.length ? 'This conversation is already empty' : coach.busy ? 'Coach is answering' : 'Start a new conversation'}>New</button>
           <button type="button" className="wr-btn wr-sm" onClick={() => coach.undo()}
             disabled={!coach.session.history.length && !coach.pending}
             title={!coach.session.history.length && !coach.pending ? 'Nothing to undo yet: Coach has not changed the screen' : 'Undo the last change Coach made'}>Undo</button>
@@ -98,41 +116,49 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
           <span>{coach.footer.stops_left} stop{coach.footer.stops_left === '1' ? '' : 's'} left</span>
           <span>Next: {coach.footer.next_move}</span>
         </p>
-        <div className="wr-drawer-b" aria-live="polite">
+        <div className="wr-drawer-b" aria-live="polite" ref={bodyRef}>
           {coach.error && (
             <div role="alert" className="wr-state wr-state-failed">
               {coach.error} <button type="button" className="wr-link" onClick={coach.clearError}>Dismiss</button>
             </div>
           )}
-          <PreviewPanel coach={coach} />
-          <ul className="wr-fixedq wr-stagger" aria-label="Ask Coach">
-            {[...custom, ...FIXED_QUESTIONS].map(q => {
-              const a = answers[q];
-              const on = shown === q;
-              return (
-                <li key={q} data-testid={custom.includes(q) ? 'coach-custom-q' : 'coach-fixed-q'}>
-                  <button type="button" className={`wr-q${on ? ' wr-on' : ''}`} aria-expanded={on && !!a}
-                    disabled={a === 'asking'} onClick={() => (on && a && a !== 'asking' && a !== 'failed' ? setShown(null) : run(q))}>
+          {empty && (
+            <ul className="wr-fixedq wr-stagger" aria-label="Ask Coach">
+              {FIXED_QUESTIONS.map(q => (
+                <li key={q} data-testid="coach-fixed-q">
+                  <button type="button" className="wr-q" onClick={() => ask(q)} disabled={coach.busy}>
                     <span>{q}</span><Icon name="right" size={16} className="wr-q-chev" />
                   </button>
-                  {on && a && <Answer slot={a} question={q} onRetry={() => run(q)} />}
                 </li>
-              );
-            })}
-          </ul>
-          {coach.ui.cards.map(card => <PlugInCard key={card.id} card={card} plans={plans} />)}
-          {coach.busy && !Object.values(answers).includes('asking') && (
-            <Answer slot="asking" question={[...thread].reverse().find(m => m.who === 'nick')?.text} />
+              ))}
+            </ul>
           )}
-          {thread.length > 0 && (
-            <div className="wr-thread2">
-              {thread.map((m, i) => (
-                <div key={i} className={m.who === 'nick' ? 'wr-msg-me' : 'wr-msg-coach'}>
+          {messages.length > 0 && (
+            <div className="wr-thread2" data-testid="coach-thread">
+              {messages.map((m, i) => (
+                <div key={i} className={m.who === 'nick' ? 'wr-msg-me' : 'wr-msg-coach'} data-testid={m.who === 'nick' ? 'coach-msg-me' : 'coach-msg-coach'}>
                   {m.who === 'nick' ? m.text : <Answer slot={m} />}
                 </div>
               ))}
             </div>
           )}
+          {coach.busy && <div className="wr-msg-coach"><Answer slot="asking" question={lastAsked} /></div>}
+          {!coach.busy && coach.pending && <PlanChangeCard pending={coach.pending} coach={coach} onChanged={onChanged} />}
+          {!coach.busy && draft && <DraftCard text={draft} />}
+          {!coach.busy && lastCoach?.proposals?.map(p => (
+            <ProposalCard key={`${lastCoach.question ?? ''}:${p.kind}`} proposal={p} coach={coach} onChanged={onChanged} />
+          ))}
+          {!coach.busy && lastCoach?.followups && lastCoach.followups.length > 0 && (
+            <div className="wr-chat-chips" aria-label="Ask next" data-testid="coach-followups">
+              {/* The design system's Chip (ds-chip, accent tone), by its classes. */}
+              {lastCoach.followups.map(q => (
+                <button key={q} type="button" className="ds-chip ds-chip-accent" onClick={() => ask(q)} data-testid="coach-followup">{q}</button>
+              ))}
+            </div>
+          )}
+          {/* One card per field and view: asking the same question twice does not stack the same number twice. */}
+          {[...new Map(coach.ui.cards.map(card => [`${card.field}|${card.view}`, card])).values()]
+            .map(card => <PlugInCard key={card.id} card={card} plans={plans} />)}
           <details className="wr-drawer-more">
             <summary>Morning brief</summary>
             <CoachBrief leagueId={plans?.league_id} citeStyle="sources" />
@@ -142,16 +168,19 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
           </button>
           {showLog && (
             <ul className="wr-ch-s">
-              {coach.log.slice(0, 30).map((l, i) => <li key={i}><code>{l.type}</code> {l.outcome}: {l.detail}</li>)}
+              {coach.log.slice(0, 30).map((l, i) => <li key={i}>{l.outcome}: {l.detail}</li>)}
             </ul>
           )}
         </div>
         <form className="wr-ask wr-drawer-ask" onSubmit={e => { e.preventDefault(); submit(); }}>
-          <input value={text} onChange={e => setText(e.target.value)} placeholder="Or type your own question..."
+          <input value={text} onChange={e => setText(e.target.value)} placeholder={messages.length ? 'Ask a follow-up...' : 'Or type your own question...'}
             aria-label="Ask Coach" disabled={coach.busy} />
           <button className="wr-btn" type="submit" disabled={coach.busy || !text.trim()}
             title={coach.busy ? 'Coach is answering' : !text.trim() ? 'Type a question first' : undefined}>{coach.busy ? 'Working' : 'Ask'}</button>
         </form>
+        {spend?.model_on && (
+          <p className="wr-drawer-spend" data-testid="coach-spend">AI today: {money(spend.spent_today_usd)}. Answers from your plan cost nothing.</p>
+        )}
       </aside>
     </>
   );
@@ -183,7 +212,7 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
   return (
     <div className="wr-answer" data-testid="coach-answer">
       {claims.length ? claims.map((c, i) => <p key={i}>{c.text}</p>)
-        : !slot.claims?.length && slot.text && !extra.length ? <p>{slot.text}</p> : null}
+        : !slot.claims?.length && slot.text && !extra.length && !slot.refusals?.length ? <p>{slot.text}</p> : null}
       {extra.map((t, i) => <p key={`o${i}`} className="wr-muted">{t}</p>)}
       {slot.refusals?.map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
       <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />

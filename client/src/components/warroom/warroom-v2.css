@@ -395,7 +395,24 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-srcs-list li + li { margin-top: 4px; }
 .wr-thread2 { display: flex; flex-direction: column; gap: 8px; }
 .wr-msg-me { align-self: flex-end; max-width: 85%; background: var(--c-accent-tint); color: var(--c-ink); border-radius: var(--r-tile); padding: 8px 12px; font-size: 14px; overflow-wrap: anywhere; }
+.wr-msg-coach { align-self: stretch; min-width: 0; background: var(--c-soft); border-radius: var(--r-tile); padding: 10px 14px; }
 .wr-msg-coach .wr-answer { padding: 0; }
+.wr-msg-coach .wr-answer p:last-of-type { margin-bottom: 4px; }
+/* COACH-CHAT: follow-up chips and action cards under the newest answer. */
+.wr-chat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.wr-chat-chips .ds-chip { white-space: normal; text-align: left; padding: 4px 12px; max-width: 100%; }
+.wr-action { animation: wr2-in var(--t-slow) var(--ease-out); }
+.wr-action-b { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; min-width: 0; }
+.wr-action-t { display: flex; align-items: flex-start; gap: 8px; font: 600 14px/1.35 var(--f-display); overflow-wrap: anywhere; }
+.wr-action-t .wr-ic { flex: none; margin-top: 2px; color: var(--c-accent); }
+.wr-action-l { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--c-ink2); overflow-wrap: anywhere; }
+.wr-action-l span { display: inline-block; min-width: 88px; font-weight: 600; color: var(--c-muted); }
+.wr-action-draft { margin: 0; font-size: 14px; background: var(--c-raised); border-radius: var(--r-badge); padding: 8px 12px; overflow-wrap: anywhere; }
+.wr-action-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wr-action-btns .wr-btn-lg { padding: 6px 12px; font-size: 13px; }
+.wr-action-ok { margin: 0; font-size: 13px; font-weight: 600; color: var(--c-green); }
+.wr-action-err { margin: 0; font-size: 13px; color: var(--c-red); }
+.wr-drawer-spend { margin: 0; padding: 0 16px 10px; font-size: 12px; color: var(--c-muted); }
 .wr-drawer-more > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--c-muted); }
 .wr-drawer .card { background: var(--c-soft); color: var(--c-ink); border: 0; border-radius: var(--r-tile); padding: 12px 14px; box-shadow: none; }
 .wr-drawer .card .text-slate-500 { color: var(--c-muted); }

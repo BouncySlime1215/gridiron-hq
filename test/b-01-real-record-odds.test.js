@@ -38,6 +38,7 @@ const { deriveFormat } = await import('../server/services/format.js');
 const { simulateSeason, simStartWeek, tradeImpact } = await import('../server/services/season-sim.js');
 const { withRandomSeed } = await import('../server/services/stats-util.js');
 const { myPlayoffOdds } = await import('../server/services/trade-engine.js');
+const { leagueWorld } = await import('../server/services/league-world.js');
 const { hashSessionToken } = await import('../server/platform/auth.js');
 const { default: modelRouter } = await import('../server/routes/model.js');
 const express = (await import('express')).default;
@@ -165,7 +166,8 @@ test('B-01: a payload that is last season\'s (pre-draft fallback) starts at week
 
 test('B-01: the page routes no longer pin from_week to 1', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'server/routes/model.js'), 'utf8');
-  assert.ok(/simulateSeason\(lg,/.test(src), 'control: the route still calls simulateSeason');
+  // ONE-NUMBER-FIX: the twin serves the league world's title odds (whose start week is simStartWeek).
+  assert.ok(/oneWorldTitleOdds\(lg,/.test(src), 'control: the route serves the one world');
   assert.doesNotMatch(src, /from_week\)\s*\|\|\s*1/, 'a route still defaults from_week to 1');
 });
 
@@ -205,13 +207,14 @@ test('B-01: myPlayoffOdds (Trades page) uses simStartWeek, not the NFL game_line
   const lagging = insertLeague(604, payload, { currentWeek: 4 });
   assert.equal(simStartWeek(lagging), 4, 'control: the league week differs from NFL_WEEK');
   const odds = myPlayoffOdds(lagging, '1');
-  assert.match(odds.source, /from week 4$/, odds.source);
-  const direct = withRandomSeed(20260918, () => simulateSeason(lagging, { runs: 1000 }));
+  assert.match(odds.source, /from week 4 \(one world /, odds.source);
+  // ONE-NUMBER-FIX: the Trades page reads the league world /simulate serves: the same number.
+  const direct = leagueWorld(lagging).base;
   assert.equal(odds.value, +team1(direct).playoff_odds.toFixed(2), 'Trades page and /simulate disagree on the same league');
 
   // Pre-draft fallback: last season's payload must not be carried in by the engine either.
   const stale = insertLeague(605, payload, { payloadSeason: 2025 });
-  assert.match(myPlayoffOdds(stale, '1').source, /from week 1$/, 'the engine carried last season\'s results in');
+  assert.match(myPlayoffOdds(stale, '1').source, /from week 1 \(one world /, 'the engine carried last season\'s results in');
 });
 
 // --- INT-162-1 (B-01 hardening, 2026-09-23) -------------------------------
@@ -253,16 +256,16 @@ test('B-01 hardening: routes honour an explicit from_week, but never on a stale 
     body: JSON.stringify({ my_team_id: '1', their_team_id: '2', runs: 200, seed: 4, from_week: 5 }) })).json();
   assert.equal(staleImpact.from_week, 1, `POST /trade-impact from_week=5 on last season's payload: ${JSON.stringify(staleImpact).slice(0, 200)}`);
 
-  // Control: the override is still honoured on a current-season payload (it is
-  // not an orphaned input), and the memo keyed on it returns that week.
+  // ONE-NUMBER-FIX: on a current-season payload the one world starts at the league's week
+  // (simStartWeek); a client from_week no longer picks a different number and is echoed back as
+  // ignored, so it is not an orphaned input either.
   insertLeague(608, payload);
   const explicit = await (await fetch(`${base}/608/simulate?runs=200&seed=4&from_week=3`, { headers: auth })).json();
-  assert.equal(explicit.from_week, 3, 'GET /simulate?from_week=3 on a current-season payload');
-  const again = await (await fetch(`${base}/608/simulate?runs=200&seed=4&from_week=3`, { headers: auth })).json();
-  assert.equal(again.from_week, 3, 'memo hit for from_week=3 returns week 3');
+  assert.equal(explicit.from_week, simStartWeek(rows('SELECT * FROM leagues WHERE id = 608')[0]), 'the league week, not the client\'s');
+  assert.equal(explicit.one_world?.ignored?.from_week, '3', 'the client week is echoed back as ignored');
   const impact = await (await fetch(`${base}/608/trade-impact`, { method: 'POST', headers: auth,
     body: JSON.stringify({ my_team_id: '1', their_team_id: '2', runs: 200, seed: 4, from_week: 3 }) })).json();
-  assert.equal(impact.from_week, 3, 'POST /trade-impact from_week=3 on a current-season payload');
+  assert.equal(impact.from_week, explicit.from_week, 'POST /trade-impact prices on the same world as /simulate');
 });
 
 test('B-01 hardening: source guard — outside season-sim.js, fromWeek only ever carries the raw client week', () => {
@@ -298,7 +301,8 @@ test('B-01 hardening: source guard — outside season-sim.js, fromWeek only ever
     }
   }
   assert.ok(importers >= 2, `control: expected routes/model.js and trade-engine.js among season-sim importers, found ${importers}`);
-  // Known-nonzero control: /simulate and /trade-impact each pass the raw week once.
-  assert.ok(allowedHits >= 2, `control: expected the two routes' raw pass-throughs, found ${allowedHits}`);
+  // ONE-NUMBER-FIX: /simulate and /trade-impact read the league world, so no route passes a week
+  // any more; the importer control above keeps this guard live.
+  assert.ok(allowedHits >= 0);
   assert.deepEqual(offenders, [], `fromWeek set to something other than the raw client week (a second producer):\n${offenders.join('\n')}`);
 });

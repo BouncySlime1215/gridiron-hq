@@ -3,7 +3,7 @@
 
   drivers  For --season/--week, rebuild the exact forecast rows exgb_shadow.py predict builds (same
            locked panel code, same verified artifacts) and write, per player, arm A_xgb's TreeSHAP
-           contributions (XGBoost pred_contribs) and the pre-game expected usage the model saw. It also
+           contributions for every feature (XGBoost pred_contribs) and the pre-game expected usage the model saw. It also
            writes the A_xgb prediction it recomputed, so the caller can prove the stored forecast is
            byte-identical: this script never writes a prediction and never changes a model.
   usage    For a finished --season/--week, each player's actual usage line (the panel's own observation:
@@ -28,7 +28,6 @@ import exgb_arms as A  # noqa: E402
 import exgb_panel as P  # noqa: E402
 import exgb_shadow as SH  # noqa: E402
 
-TOP = 5
 EXPECTED = ('trail3_carries', 'trail3_targets', 'trail3_receptions', 'trail3_snap_pct', 'trail3_rz_share', 'trail3_xfp',
             'team_implied', 'opp_allowed_pos_trail')
 
@@ -60,7 +59,7 @@ def drivers(a):
         contribs = ax.get_booster().predict(xgb.DMatrix(X[at], feature_names=None), pred_contribs=True)
         for i, m in enumerate(meta[at]):
             c = contribs[i]
-            order = np.argsort(-np.abs(c[:-1]))[:TOP]
+            order = np.argsort(-np.abs(c[:-1]))  # every feature, biggest first
             rows.append({'player_id': int(m[0]), 'position': name, 'arm': 'A_xgb',
                          'prediction': round(float(pa[i]), 4), 'base': round(float(c[-1]), 4),
                          'contribs': [{'feature': names[j], 'contribution': round(float(c[j]), 4), 'value': _num(X[at][i, j])}

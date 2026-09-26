@@ -22,6 +22,12 @@ import { latestForecasts, actualPoints, weekFinal } from '../exgb-grader.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const ARM = 'A_xgb';
+/**
+ * The driver set a stored row holds, appended to its manifest hash: 'all-v2' rows carry every
+ * feature's contribution (the breakdown sheet's bar list); rows from before carry the top 5 only and
+ * are recomputed once (the table is append-only, so the new set is a new row, never an update).
+ */
+export const DRIVER_SET = 'all-v2';
 const TIMEOUT_MS = 10 * 60 * 1000;
 const tableIn = name => !!row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`, name);
 const r1 = x => (x == null || !Number.isFinite(Number(x)) ? null : Math.round(Number(x) * 10) / 10);
@@ -51,7 +57,7 @@ export function ingestDrivers(payload, { now = new Date() } = {}) {
       const match = s != null && s === r.prediction ? 1 : 0;
       const res = run(`INSERT OR IGNORE INTO exgb_shadow_drivers (season, week, player_id, arm, manifest_sha256, computed_at, base,
         contribs_json, expected_json, prediction_recomputed, matches_prediction) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      payload.season, payload.week, r.player_id, ARM, payload.manifest_sha256 ?? 'unknown', now.toISOString(), r.base ?? null,
+      payload.season, payload.week, r.player_id, ARM, `${payload.manifest_sha256 ?? 'unknown'}|${DRIVER_SET}`, now.toISOString(), r.base ?? null,
       JSON.stringify(r.contribs ?? []), JSON.stringify(r.expected ?? {}), r.prediction ?? null, match);
       if (Number(res.changes)) { inserted++; if (s != null) (match ? matched++ : mismatched++); }
     }
@@ -100,7 +106,8 @@ export async function refreshProjDuelExplain({ season = null, now = new Date(), 
   const weeks = rows('SELECT DISTINCT week FROM exgb_shadow_predictions WHERE season = ? AND arm = ? ORDER BY week', yr, ARM).map(r => r.week);
   const out = { season: yr, drivers: [], residuals: [] };
   for (const w of weeks) {
-    const have = row('SELECT COUNT(*) AS n FROM exgb_shadow_drivers WHERE season = ? AND week = ? AND arm = ?', yr, w, ARM)?.n ?? 0;
+    const have = row('SELECT COUNT(*) AS n FROM exgb_shadow_drivers WHERE season = ? AND week = ? AND arm = ? AND manifest_sha256 LIKE ?',
+      yr, w, ARM, `%|${DRIVER_SET}`)?.n ?? 0;
     const lastRun = row(`SELECT MAX(predicted_at) AS at FROM exgb_shadow_runs WHERE season = ? AND week = ? AND status = 'ok'`, yr, w)?.at;
     const lastDrivers = row('SELECT MAX(computed_at) AS at FROM exgb_shadow_drivers WHERE season = ? AND week = ?', yr, w)?.at;
     if (!have || (lastRun && lastDrivers && lastRun > lastDrivers)) {
@@ -150,12 +157,36 @@ export function featureText(feature, value, position = null) {
  * pushed our number in the direction it differs from ESPN, biggest first (up to 3).
  */
 export function driversText({ ours, espn, contribs, position }) {
-  if (ours == null || espn == null || !Array.isArray(contribs)) return null;
+  if (ours == null || espn == null || !Array.isArray(contribs) || Math.abs(ours - espn) < 0.05) return null;
   const lower = ours < espn;
-  const pick = contribs.filter(c => (lower ? c.contribution < 0 : c.contribution > 0))
+  const toward = contribs.filter(c => (lower ? c.contribution < 0 : c.contribution > 0))
+    .sort((x, y) => Math.abs(y.contribution) - Math.abs(x.contribution))
     .map(c => featureText(c.feature, c.value, position)).filter(Boolean).slice(0, 3);
-  if (!pick.length) return null;
-  return `Ours ${lower ? 'lower' : 'higher'}: ${pick.join(', ')}.`;
+  if (toward.length) return `Ours ${lower ? 'lower' : 'higher'}: ${toward.join(', ')}.`;
+  // Nothing pushed our number toward the gap: the model's own ceiling (or floor) is the reason.
+  const against = contribs.filter(c => (lower ? c.contribution > 0 : c.contribution < 0))
+    .sort((x, y) => Math.abs(y.contribution) - Math.abs(x.contribution))
+    .map(c => featureText(c.feature, c.value, position)).filter(Boolean).slice(0, 2);
+  if (!against.length) return null;
+  return lower
+    ? `Ours lower even though ${against.join(' and ')}: the model tops out below ESPN for top players.`
+    : `Ours higher even though ${against.join(' and ')}: the model sits above ESPN for this player.`;
+}
+
+/** A feature's plain name (no value), for the breakdown's bar list. */
+export function featureLabel(feature, position = null) {
+  const base = String(feature).replace(/^(lag1|trail3|trail5)_/, '');
+  const when = /^lag1_/.test(feature) ? 'last game' : /^trail3_/.test(feature) ? '3-week' : /^trail5_/.test(feature) ? '5-week' : null;
+  const WHAT = { ppr: 'points', targets: 'targets', carries: 'carries', receptions: 'catches', target_share: 'target share',
+    air_yards_share: 'air-yards share', wopr: 'opportunity rating', receiving_air_yards: 'air yards', attempts: 'pass attempts',
+    snap_pct: 'snap share', rz_share: 'red-zone share', xfp: 'expected points' };
+  if (when && WHAT[base]) return when === 'last game' ? `${WHAT[base]} last game` : `${when} ${WHAT[base]}`;
+  const L = { std_ppr: 'season average', n_games_std: 'games this season', prev_season_ppg: 'last season per game',
+    prev_season_games: 'games last season', missed_last_team_game: 'missed the last team game', team_implied: 'team implied total',
+    team_spread: 'spread', game_total: 'game total', line_src: 'line source', home: 'home game', inj_status: 'injury status',
+    inj_dnp: 'missed practice', opp_allowed_pos_trail: `opponent vs ${position ?? 'position'} lately`,
+    opp_allowed_pos_prev_season: `opponent vs ${position ?? 'position'} last season`, week: 'week of the season' };
+  return L[feature] ?? String(feature).replace(/_/g, ' ');
 }
 
 /** "14 carries vs 17 expected, 0 TDs, team scored 13 vs 24 implied" from a residual row and its expected usage. */

@@ -18,7 +18,7 @@ import { frozenEspnForGrading } from '../espn-weekly-projection-capture.js';
 import { latestForecasts, actualPoints, weekFinal } from '../exgb-grader.js';
 import { readPlansFile, leagueEntry } from '../coach/brief.js';
 import { warRoomPlansPath } from '../warroom-flag.js';
-import { explainRows, driversText, happenedText } from './explain.js';
+import { explainRows, driversText, happenedText, featureLabel, featureText } from './explain.js';
 
 export const DUEL_ARM = 'A_xgb';
 export const TESTING_LABEL = 'Our model is in testing and not used for your numbers.';
@@ -113,7 +113,7 @@ export async function projDuel(lg, { season, week, now = new Date(), plansPath =
     // Drivers only when the stored forecast is the one the drivers recomputed (the model did not change).
     const d = why.drivers.get(pid);
     const res = why.residuals.get(pid);
-    out.push({ player_id: String(pid), name: nm?.name ?? `Player ${pid}`, position,
+    out.push({ player_id: String(pid), name: nm?.name ?? `Player ${pid}`, position, team: e.pro_team ?? null,
       espn: r1(e.projected_pts), ours: r1(ours), gap: r1(ours - e.projected_pts),
       starter: starters.has(pid), target: targets.has(pid), actual: r1(a), closer,
       why: d?.matches ? driversText({ ours, espn: e.projected_pts, contribs: d.contribs, position }) : null,
@@ -143,4 +143,52 @@ export function duelFacts(season, week, playerIds, scoreboard = duelScoreboard(s
 export function duelWeeks(season) {
   if (!tableIn('exgb_shadow_predictions')) return [];
   return rows('SELECT DISTINCT week FROM exgb_shadow_predictions WHERE season = ? AND arm = ? ORDER BY week DESC', season, DUEL_ARM).map(r => r.week);
+}
+
+/**
+ * The breakdown sheet for one player-week: both projections and the actual, every driver (label,
+ * plain value, contribution; biggest first), the expected usage beside the actual usage line, team
+ * implied vs scored, and the last 3 weeks of both projections vs actuals. Null when the player has
+ * no ESPN projection or no shadow forecast that week.
+ */
+export function playerBreakdown({ season, week, playerId, now = new Date() }) {
+  const pid = Number(playerId);
+  const nm = row('SELECT name, position FROM players WHERE id = ?', pid);
+  const numbersFor = w => {
+    const e = frozenEspnForGrading(season, w, 'ppr').find(r => Number(r.player_id) === pid);
+    const ours = latestForecasts(season, w).get(`${DUEL_ARM}:${pid}`);
+    if (!e || ours == null) return null;
+    const a = weekFinal(season, w, now) ? actualPoints(season, w).get(pid)?.pts ?? 0 : null;
+    return { week: w, espn: r1(e.projected_pts), ours: r1(ours), actual: r1(a), team: e.pro_team ?? null, position: e.position ?? nm?.position ?? null };
+  };
+  const cur = numbersFor(week);
+  if (!cur) return null;
+  const { drivers, residuals } = explainRows(season, week);
+  const d = drivers.get(pid);
+  const res = residuals.get(pid) ?? null;
+  const position = cur.position;
+  const closer = cur.actual == null ? null : Math.abs(cur.actual - cur.ours) < Math.abs(cur.actual - cur.espn) ? 'ours'
+    : Math.abs(cur.actual - cur.ours) > Math.abs(cur.actual - cur.espn) ? 'espn' : 'tie';
+  const ex = d?.expected ?? {};
+  const usage = [
+    ['Carries', ex.trail3_carries, res?.carries], ['Targets', ex.trail3_targets, res?.targets], ['Catches', ex.trail3_receptions, res?.receptions],
+    ['Snap share', ex.trail3_snap_pct, res?.snap_pct, 'pct'], ['Red-zone share', ex.trail3_rz_share, res?.rz_share, 'pct'],
+    ['Expected points', ex.trail3_xfp, res?.xfp]
+  ].filter(([, e, a]) => e != null || a != null)
+    .map(([label, e, a, kind]) => ({ label, expected: kind === 'pct' ? (e == null ? null : Math.round(e * 100)) : r1(e),
+      actual: kind === 'pct' ? (a == null ? null : Math.round(a * 100)) : r1(a), unit: kind === 'pct' ? '%' : '' }));
+  const history = [];
+  for (let w = week - 1; w >= 1 && history.length < 3; w--) { const h = numbersFor(w); if (h) history.unshift(h); }
+  return {
+    player_id: String(pid), name: nm?.name ?? `Player ${pid}`, position, team: cur.team, week, label: TESTING_LABEL,
+    espn: cur.espn, ours: cur.ours, actual: cur.actual, closer,
+    why: d?.matches ? driversText({ ours: cur.ours, espn: cur.espn, contribs: d.contribs, position }) : null,
+    happened: res ? happenedText(res, ex) : null,
+    drivers: d?.matches ? d.contribs.map(c => ({ label: featureLabel(c.feature, position), value: featureText(c.feature, c.value, position),
+      contribution: Math.round(c.contribution * 100) / 100 })) : [],
+    drivers_note: !d ? 'The model\'s reasons for this week are not computed yet.' : d.matches ? null
+      : 'The model\'s reasons did not reproduce this forecast exactly, so they are not shown.',
+    usage, team_implied: res?.team_implied != null ? r1(res.team_implied) : r1(ex.team_implied), team_scored: res?.team_points != null ? r1(res.team_points) : null,
+    history: [...history, cur].map(h => ({ week: h.week, espn: h.espn, ours: h.ours, actual: h.actual }))
+  };
 }

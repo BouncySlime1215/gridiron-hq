@@ -792,13 +792,71 @@ function applyOverrides(teams, overrides, assets) {
 }
 
 /**
+ * PRODUCER-SPEED (flag GRIDIRON_PRODUCER_SPEED, via tradeImpactWorld's `fastSeasons`): playSeasons'
+ * regular season on index arrays instead of Maps. `table` is the world's points (roster -> week ->
+ * Float64Array[run]); each team's weeks are resolved once, not looked up twice per run and week.
+ * Every operation is the one the Map loop does, in the same order per team (pf summed week by week,
+ * the team offset added to the raw score first, wins in whole and half steps, the median game on the
+ * same sorted scores), so every record is the same double. `play(run)` returns the record Map in ids
+ * order, the order seedStandings and the stats loop read. Returns null (caller keeps the Map loop)
+ * when a fixture names a team outside `ids` or a week the table lacks.
+ */
+function regularSeasonTable({ ids, weeks, sched, table, startingRecords, medianGame, sd, world }) {
+  const n = ids.length;
+  const at = new Map(ids.map((id, i) => [id, i]));
+  const cols = [];
+  for (const week of weeks) {
+    const col = ids.map(id => table.get(id)?.get(week));
+    if (col.some(a => !a)) return null;
+    cols.push(col);
+  }
+  const games = [];
+  for (const week of weeks) {
+    const g = [];
+    for (const [a, b] of sched.get(week) ?? []) {
+      if (!at.has(a) || !at.has(b)) return null;
+      g.push(at.get(a), at.get(b));
+    }
+    games.push(g);
+  }
+  const w0 = ids.map(id => (startingRecords.get(id) ?? { w: 0 }).w);
+  const pf0 = ids.map(id => (startingRecords.get(id) ?? { pf: 0 }).pf);
+  const score = new Float64Array(n), w = new Float64Array(n), pf = new Float64Array(n);
+  const off = new Float64Array(n), sorted = new Float64Array(n);
+  return {
+    play(run) {
+      if (sd > 0) { const o = teamOffsets(world, ids, run, sd); for (let i = 0; i < n; i++) off[i] = o.get(ids[i]); }
+      for (let i = 0; i < n; i++) { w[i] = w0[i]; pf[i] = pf0[i]; }
+      for (let k = 0; k < cols.length; k++) {
+        const col = cols[k];
+        for (let i = 0; i < n; i++) score[i] = sd > 0 ? col[i][run] + off[i] : col[i][run];
+        const g = games[k];
+        for (let j = 0; j < g.length; j += 2) {
+          const a = g[j], b = g[j + 1], sa = score[a], sb = score[b];
+          if (sa > sb) w[a]++;
+          else if (sb > sa) w[b]++;
+          else { w[a] += 0.5; w[b] += 0.5; }
+        }
+        for (let i = 0; i < n; i++) pf[i] += score[i];
+        if (medianGame && n) {
+          sorted.set(score); sorted.sort();
+          const mid = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+          for (let i = 0; i < n; i++) { if (score[i] > mid) w[i]++; else if (score[i] === mid) w[i] += 0.5; }
+        }
+      }
+      return new Map(ids.map((id, i) => [id, { w: w[i], pf: pf[i] }]));
+    }
+  };
+}
+
+/**
  * Plays the prepared season `runs` times: regular-season fixtures, the league's
  * seeding, then its bracket. `pointsFor(team, run, week)` is that team's lineup
  * total in that run and NFL week; it is the only thing that differs between a
  * full simulation (lineups set from fresh draws) and a trade rescore (lineups
  * read from a prebuilt world), so both give the same numbers.
  */
-function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
+function playSeasons(prep, teams, runs, keepRuns, rawPointsFor, table = null) {
   const { lg, rules, fromWeek, sched, weeks, bracketWeeks, playoffTeams, medianGame } = prep;
   const ids = teams.map(t => t.roster_id);
   // AVAIL-HORIZON-2 change B: each run draws each team's strength offset once and adds it
@@ -825,10 +883,13 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
   const rbMode = prep.rbTitle ?? rbTitleMode();
   const rb = rbMode === 'off' ? null : rbTitleState(prep, teams, runs, rawPointsFor, perRun);
 
-  for (let run = 0; run < runs; run++) {
-    const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
+  // PRODUCER-SPEED: the regular season on index arrays (null = the Map loop below, unchanged).
+  const fast = table ? regularSeasonTable({ ids, weeks, sched, table, startingRecords, medianGame, sd, world: prep.world }) : null;
 
-    for (const week of weeks) {
+  for (let run = 0; run < runs; run++) {
+    const record = fast ? fast.play(run) : new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
+
+    if (!fast) for (const week of weeks) {
       const weekScore = new Map();
       for (const t of teams) weekScore.set(t.roster_id, pointsFor(t, run, week));
       for (const [a, b] of sched.get(week) ?? []) {
@@ -1048,7 +1109,7 @@ class RunDraws {
  */
 export function tradeImpactWorld(lg, {
   runs = TRADE_IMPACT_RUNS, scoring = null, fromWeek: requestedWeek = null, seed = null,
-  universe = [], projections = null, fastLineups = false
+  universe = [], projections = null, fastLineups = false, fastSeasons = false
 } = {}) {
   scoring = scoring ?? scoringFor(lg);
   projections = projections ?? buildProjections({ through: SEASON - 1, scoring });
@@ -1086,8 +1147,10 @@ export function tradeImpactWorld(lg, {
   const w = { key, projections, universe: universeIds, extras, prep, draws, runs };
   // PRODUCER-FAST: `fastLineups` scores every lineup of this world (base and deals) with teamPointsFast.
   if (fastLineups) w.teamPoints = teamPointsFast;
+  // PRODUCER-SPEED: this world's seasons (base and every deal) play on index arrays (the same doubles).
+  if (fastSeasons) w.fastSeasons = true;
   w.points = new Map(prep.teams.map(t => [t.roster_id, (w.teamPoints ?? teamPoints)(w, t.players)]));
-  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points));
+  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points), w.fastSeasons ? w.points : null);
   return w;
 }
 
@@ -1239,7 +1302,7 @@ export function tradeImpact(lg, {
     const afterTeams = applyOverrides(w.prep.teams, overrides, w.prep.assets);
     const points = new Map(w.points);
     for (const t of afterTeams) if (overrides.has(t.roster_id)) points.set(t.roster_id, (w.teamPoints ?? teamPoints)(w, t.players));
-    after = playSeasons(w.prep, afterTeams, runs, true, pointsReader(w, points));
+    after = playSeasons(w.prep, afterTeams, runs, true, pointsReader(w, points), w.fastSeasons ? points : null);
   } else {
     // One projection build shared by both runs — rebuilding would introduce noise that
     // has nothing to do with the trade.

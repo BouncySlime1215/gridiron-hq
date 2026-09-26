@@ -392,6 +392,8 @@ export async function buildPlansFile(leagues, {
             read_error: brain.read.error } : { status: 'not_read' },
           // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
+          // PRODUCER-SPEED (GRIDIRON_PRODUCER_SPEED=1): the roster-points memo's counts, only when it is on.
+          ...(adapter.speedStats?.() ? { producer_speed: adapter.speedStats() } : {}),
           // DRAFT-ID-MAP (shadow): join counts, only when GRIDIRON_DRAFT_ID_MAP gave the adapter a draft read.
           ...(adapter.draft ? { draft_id_map: draftSummary(adapter.draft) } : {}),
           // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.

@@ -33,6 +33,7 @@ import { fcValues, fcValueOf, fcFormatValues } from '../../server/services/fc-va
 import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
 import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 import { searchWideFlag, CLAIM_POOL_SIZE } from '../../server/services/campaign/search-wide.js';
+import { producerSpeedEnabled, pointsMemo } from './points-memo.mjs';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -346,7 +347,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
   rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env),
-  searchWide = searchWideFlag(env) } = {}) {
+  searchWide = searchWideFlag(env), speed = producerSpeedEnabled(env) } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
   // planner can never disagree about the flag.
@@ -356,7 +357,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const wBase = tradeImpactWorld(lg, { fastLineups: fast });
+  // PRODUCER-SPEED (points-memo.mjs): only on top of PRODUCER-FAST's lineups; off, the adapter is as before.
+  const speedOn = !!(speed && fast);
+  const wBase = tradeImpactWorld(lg, { fastLineups: fast, fastSeasons: speedOn });
   if (wBase.fail) return { fail: String(wBase.fail?.error ?? wBase.fail) };
   // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): the top free agents are simulated as the world's universe, so
   // a claim step is priced on the same dice as the trades. That is a different world (season-sim.js:940), so
@@ -364,16 +367,18 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const claimIds = claims
     ? freeAgentPool(wBase.prep.assets, new Set(wBase.prep.teams.flatMap(t => t.players.map(p => p.id)))).slice(0, CLAIM_POOL_SIZE).map(p => p.id)
     : [];
-  const w0 = claimIds.length ? tradeImpactWorld(lg, { fastLineups: fast, universe: claimIds, projections: wBase.projections }) : wBase;
+  const w0 = claimIds.length ? tradeImpactWorld(lg, { fastLineups: fast, fastSeasons: speedOn, universe: claimIds, projections: wBase.projections }) : wBase;
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
   const worldFor = seed => {
-    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast, universe: claimIds }));
+    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast, fastSeasons: speedOn, universe: claimIds }));
     return worlds.get(seed);
   };
 
+  const memo = speedOn ? pointsMemo(svc.sim.teamPointsFast) : null;
   const teamPoints = (w, players) => {
+    if (memo) return memo(w, players);
     if (fast) return svc.sim.teamPointsFast(w, players);
     const out = new Map();
     // SIM-KDST: the week's K / D/ST points go in as season-sim's own teamPoints passes them.
@@ -408,7 +413,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       // SEARCH-WIDE: name the world's extra free agents (the claim universe), or tradeImpact rebuilds a world
       // without them on every rescore: ~100x slower, and the rebuilt world ignores `state` (delta 0).
       const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed,
-        world: { ...w, prep: { ...w.prep, teams }, points }, universe: w.extras ?? [] });
+        world: { ...w, prep: { ...w.prep, teams }, points, ...(memo ? { teamPoints: memo } : {}) }, universe: w.extras ?? [] });
       if (r.error) throw new Error(r.error);
       if (a === me) {
         const after = state.has(me) ? seasonAvg(points.get(me), w.runs) : baseAvg;
@@ -582,6 +587,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // SEARCH-WIDE: the waiver-claim record a claim's P(yes) is priced on (search-wide.js#claimProbability).
     ...(claimIds.length ? { waiverRecord: waiverRecord(svc, { leagueId, season }) } : {}),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
+    // PRODUCER-SPEED: the roster-points memo's counts (null when the flag is off).
+    speedStats: () => (memo ? { ...memo.stats } : null),
     // O1 radar: events + net validated opportunity change for this NFL week. Present only while
     // GRIDIRON_OPP_RADAR=1; otherwise opportunityRadar 'off', which why-now.js prints as "O1 radar off".
     ...(svc.radar?.radarFlag().on

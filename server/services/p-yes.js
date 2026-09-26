@@ -33,7 +33,9 @@
 import { acceptanceBand } from './trade-acceptance.js';
 import { activityBaseline } from './eval/e1.js';
 import { loadLeagueOffers, priorCounts } from './eval/e1-league.js';
-import { BLEND_BASIS, BLEND_ENV, BLEND_LABEL, blendP, blendState, probeEIG, basisSummary } from './p-yes-blend.js';
+import { BLEND_BASIS, BLEND_ENV, BLEND_LABEL, blendP, blendState, probeEIG, basisSummary,
+  forwardGraded, forwardOn, loadFirstSight } from './p-yes-blend.js';
+import { eBayesShadowOn, shadowTable } from './eval/e-bayes.js';
 
 export { BLEND_BASIS, BLEND_LABEL };
 /** LIVE-BLEND: the one env that sets the served P(yes) (was GRIDIRON_PYES_BASELINE under PYES-ONE). */
@@ -52,7 +54,7 @@ export function pYesFlag(env = process.env) {
  * shape: league_id, counterparty_team_id, proposed_at, resolved_at?, y).
  * Returns { byTeam: Map team -> { p, acc, n }, unseen: { p, n: 0 }, pooled: { acc, n }, as_of }.
  */
-export function pYesTableFrom(offers, leagueId, teams = null, { now = Date.now(), mode = 'baseline' } = {}) {
+export function pYesTableFrom(offers, leagueId, teams = null, { now = Date.now(), mode = 'baseline', firstSight = null, env = process.env } = {}) {
   const at = new Date(now).toISOString();
   const seen = offers.filter(o => String(o.league_id) === String(leagueId)).map(o => o.counterparty_team_id);
   const list = [...new Set([...(teams ?? seen)].filter(t => t != null).map(String))];
@@ -64,13 +66,18 @@ export function pYesTableFrom(offers, leagueId, teams = null, { now = Date.now()
   const u = priors[priors.length - 1];
   return { byTeam, unseen: { p: ps[ps.length - 1], n: 0 }, pooled: { acc: u.accAll, n: u.nAll }, as_of: at, mode,
     // LIVE-BLEND: the weights, from every league's graded offers (pooled, shrunk to this league).
-    ...(mode === 'blend' ? { blend: blendState(offers, leagueId, { now }) } : {}) };
+    // E-DATA: `firstSight` rows (GRIDIRON_PYES_FORWARD=1 only) earn them on first-sight predictions.
+    ...(mode === 'blend' ? { blend: blendState(offers, leagueId,
+      { now, ...(firstSight ? { graded: forwardGraded(offers, firstSight, { now }) } : {}) }) } : {}),
+    // E-BAYES (shadow, GRIDIRON_EBAYES_SHADOW=1): carried for logging only; pYesFor, stepPYes and pYesBasis never read it.
+    ...(eBayesShadowOn(env) ? { shadow_e_bayes: shadowTable(offers, leagueId, list, { now }) } : {}) };
 }
 
 /** The same table, reading decided offers from a database handle (node:sqlite). */
-export function pYesTable(database, leagueId, teams = null, { now = Date.now(), mode = pYesFlag().mode } = {}) {
+export function pYesTable(database, leagueId, teams = null, { now = Date.now(), mode = pYesFlag().mode, env = process.env } = {}) {
   const { offers, reason } = loadLeagueOffers(database);
-  const table = { ...pYesTableFrom(offers, leagueId, teams, { now, mode }), league: String(leagueId), reason: reason ?? null };
+  const firstSight = mode === 'blend' && forwardOn(env) ? loadFirstSight(database).rows : null;
+  const table = { ...pYesTableFrom(offers, leagueId, teams, { now, mode, firstSight, env }), league: String(leagueId), reason: reason ?? null };
   const why = fallbackReason(table);
   // Logged once per table read (per adapter build / finder search), not per offer.
   if (why) console.warn(`[p-yes] league ${leagueId}: serving the clone band, not the activity baseline: ${why}`);

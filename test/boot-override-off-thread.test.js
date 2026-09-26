@@ -88,10 +88,13 @@ test('the same live-tier job WITH the override leaves the loop responsive', asyn
   assert.equal(result.ran, true);
   assert.equal(result.error, undefined, `override job should succeed: ${result.error}`);
   assert.equal(result.detail?.burned_ms, BURN_MS, 'the worker must return the job result to the main thread');
-  // Loose on purpose: spawning a thread costs something and CI runners are
-  // shared. It is still an order of magnitude below the control, which is the
-  // claim being made.
-  assert.ok(peak < 300, `expected a responsive loop while the worker burned, got ${peak}ms of lag`);
+  // The bar is the control's own, from the other side (see scheduler-off-thread.test.js):
+  // an inline burn blocks for about BURN_MS and the control requires more than half of it,
+  // so anything under half cannot be the burn on this thread. A flat 300 ms flaked once on
+  // a starved CI runner (346 ms on #421, green on the re-run). A dropped override still
+  // fails by name: the job's main-thread `run` throws.
+  assert.ok(peak < BURN_MS / 2,
+    `expected a responsive loop while the worker burned, got ${peak}ms of lag (an inline burn is ~${BURN_MS}ms)`);
 });
 
 test('an explicit false override keeps a heavy job on the main thread', async () => {

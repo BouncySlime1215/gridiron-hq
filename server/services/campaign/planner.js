@@ -34,13 +34,15 @@ import { makeGetsFloor, heldAtEnd, makeStranded, floorRead, DEFAULT_GET_FLOOR } 
 import { AJ_ID, AJ_CARDS_MAX, ajPickOn, givesAj } from './aj-pick.js';
 import { moveId } from './view.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
-import { withNeverGive } from './never-give.js';
+import { withNeverGive, perLeagueRulesOn, resolveLeagueRules } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
 import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability,
   claimRule, strandedBranch, CLAIM_CONFIRM_MAX } from './search-wide.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+import { playoffPathFor } from '../playoff-path.js';
+import { wantsOn, wantsShadow } from './wants.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
 const yesPoint = curve => {
@@ -157,8 +159,16 @@ export function planLeague(adapter, settings) {
   // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
   const CP = adapter.counterparts ?? null;
   if (CP) adapter = withCounterparts(adapter, CP);
+  // PER-LEAGUE RULES (flag GRIDIRON_PER_LEAGUE_RULES=1; never-give.js#resolveLeagueRules): the league's own
+  // never-give / never-get ids, floor and overpay caps from its objectives row, tighten-only. Off, or no block:
+  // null, and every line below runs exactly as before. A block that does not read fails closed: no plan.
+  const leagueRules = perLeagueRulesOn(settings.env ?? {}) && settings.objective?.rules != null
+    ? resolveLeagueRules(settings.objective.rules) : null;
+  if (leagueRules?.errors.length) {
+    return { league: adapter.league.id, me: adapter.league.me, error: `league rules block invalid: ${leagueRules.errors.join('; ')}` };
+  }
   // NEVER-GIVE: Nico Collins, Chase Brown and A.J. Brown are never offered, notes or no notes.
-  adapter = withNeverGive(adapter);
+  adapter = withNeverGive(adapter, leagueRules);
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -185,11 +195,14 @@ export function planLeague(adapter, settings) {
 
   // NO-OVERPAY: Nick's cap on market value given (destination tolerance max_overpay; default 0).
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
-  const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
+  const capOf = (v, rule) => (leagueRules ? Math.min(v, rule) : v);
+  const maxOverpay = capOf(maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay }), leagueRules?.overpay_cap);
   const overpay = newOverpaySink(maxOverpay);
   // GETS-FLOOR (flag GRIDIRON_GETS_FLOOR: 1 on, shadow, unset off): the final get must score 83+ on the blue-chip
   // score. On, a target under the floor is never searched and the next one that passes takes its slot.
-  const floor = makeGetsFloor(adapter, { env, tolerances: objective.tolerances });
+  const floor = makeGetsFloor(adapter, { env, tolerances: leagueRules
+    ? { ...objective.tolerances, min_get_score: Math.max(objective.tolerances?.min_get_score ?? leagueRules.floor, leagueRules.floor) }
+    : objective.tolerances });
   const floorOn = floor.sink.mode === 'on';
   // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
   const getOk = floor.sink.mode === 'off' ? null : floor.keep;
@@ -198,7 +211,7 @@ export function planLeague(adapter, settings) {
   // strands him under it. Shadow counts; '0' is off, loudly.
   const stranded = makeStranded(adapter, { env, tolerances: objective.tolerances });
   // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
-  const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
+  const depthPremium = capOf(depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium }), leagueRules?.depth_premium_max);
   const board = boardOf(adapter);
   const premium = newPremiumSink(depthPremium, board);
   overpay.depth_premium = premium;
@@ -889,6 +902,9 @@ export function planLeague(adapter, settings) {
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),
+    // PLAYOFF-SEEDING (shadow, GRIDIRON_PLAYOFF_SEEDING): the world's seed values, win targets and must-win
+    // weeks for Nick (ids only); the producer writes it to _run.inputs.playoff_path and nothing served reads it.
+    playoff_path: playoffPathFor(W.base, me),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     ...(ladders ? { ladders } : {}),
     // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).
@@ -913,6 +929,9 @@ export function planLeague(adapter, settings) {
     trade_block: adapter.tradeBlock ?? null,
     // CHAT-TRADE-INTEREST (shadow): the adapter's read of chat_trade_interest (null: not read).
     chat_interest: adapter.chatInterest ?? null,
+    // U8 WANTS-MENU (flag GRIDIRON_WANTS=1 only, SHADOW): stated vs revealed menus and the tie-break it would make; nothing served reads it.
+    ...(wantsOn(env) ? { wants: wantsShadow(adapter, { me, ranked, models: CP ? [...CP.values()].map(publicModel) : null,
+      sold: TM ? new Set([...TM.sold.keys()]) : null }) } : {}),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

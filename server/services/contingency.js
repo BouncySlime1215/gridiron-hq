@@ -22,6 +22,7 @@ import { espnStatusById } from './player-availability.js';
 import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
 import { activeInjuryFlagIds } from './injury-flags.js';
 import { availHorizonFlag, availHorizonPreviewFields, ratioReturnProbability, servedReturnCurve } from './availability-return.js';
+import { handcuffWorkload } from './waiver-perishable.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -1180,6 +1181,9 @@ export function handcuffValue({ through = SEASON - 1 } = {}) {
         starter_miss_rate: +missRate.toFixed(3),
         opportunity_gain: b.gain,
         multiplier: b.multiplier,
+        // The evidence the workload test reads (plan item 13).
+        opportunity_without: b.opportunity_without,
+        games_observed: b.games_observed,
         // Expected extra opportunity per game across the season, and the same figure
         // converted to fantasy points so positions can be ranked against each other.
         expected_gain: +(missRate * b.gain).toFixed(2),
@@ -1191,6 +1195,8 @@ export function handcuffValue({ through = SEASON - 1 } = {}) {
   for (const e of byBackup.values()) {
     e.paths.sort((a, b) => b.expected_points - a.expected_points);
     e.contingent_score = +e.paths.reduce((s, p) => s + p.expected_points, 0).toFixed(2);
+    // Plan item 13: a backup is a handcuff only after he has carried the work (shadow label).
+    e.workload_test = handcuffWorkload(e);
   }
   return [...byBackup.values()].sort((a, b) => b.contingent_score - a.contingent_score);
 }

@@ -23,6 +23,8 @@
  *                    his reply history on War Room records
  *   nick_rules       never-give / never-get ids, the overpay cap, the depth premium
  *                    and the blue-chip floor
+ *   proj_duel        PROJ-DUEL: one line per rostered player, "ESPN 14.2, our model 9.1 (shadow;
+ *                    ours 2-3 vs ESPN so far)"; the shadow model is in testing and feeds no number
  *
  * The bundle is recorded under the `plan_read` brain tool, so a label that
  * carries a digit ("P21 (WR)") names, not claims (verify.js's brain-tool rule).
@@ -33,6 +35,8 @@ import { warRoomPlansPath } from '../warroom-flag.js';
 import { PINNED_NEVER_GIVE, PINNED_NEVER_GET } from '../campaign/never-give.js';
 import { DEPTH_PREMIUM_MAX, BLUE_CHIP_SCORE } from '../campaign/search.js';
 import { teamOf } from './brief-claims.js';
+import { duelFacts } from '../proj-duel/index.js';
+import { tradeWeekContext } from '../trade-engine.js';
 
 const ok = f => f?.status === 'ok';
 const val = f => (ok(f) ? f.value : null);
@@ -89,6 +93,24 @@ function myRoster(leagueId) {
       prediction: p?.prediction ?? null, floor_80: p?.lower_80 ?? null, ceiling_80: p?.upper_80 ?? null, prediction_week: p?.week ?? null };
   });
   return { rows: out, reason: out.length ? null : 'the roster snapshot is empty' };
+}
+
+/** PROJ-DUEL: ESPN vs our shadow model for Nick's rostered players this week (read, never used for a number). */
+function duelRows(leagueId) {
+  const lg = row('SELECT season, my_team_id FROM leagues WHERE id = ?', leagueId);
+  const ids = lg?.my_team_id != null && tableIn('league_roster_snapshots')
+    ? rows(`SELECT player_id FROM league_roster_snapshots WHERE league_id = ? AND season = ? AND team_id = ? AND player_id IS NOT NULL
+            AND scoring_period_id = (SELECT MAX(scoring_period_id) FROM league_roster_snapshots WHERE league_id = ? AND season = ? AND team_id = ?)`,
+    leagueId, lg.season, Number(lg.my_team_id), leagueId, lg.season, Number(lg.my_team_id)).map(r => r.player_id)
+    : [];
+  if (!lg || !ids.length) return { rows: [], reason: 'no rostered players to compare' };
+  try {
+    const out = duelFacts(lg.season, tradeWeekContext().week, ids);
+    return { rows: out, reason: out.length ? null : 'no shadow forecast beside an ESPN projection for your players this week' };
+  } catch (e) {
+    console.warn(`[coach] preload: the projection duel could not be read (${e?.message ?? e})`);
+    return { rows: [], reason: 'the projection duel could not be read' };
+  }
 }
 
 /** Nick's War Room records about moves that go to this partner: sent and each reply kind. */
@@ -165,6 +187,8 @@ export async function preloadContext({ leagueId, focus = {}, ledger, plansPath =
   const pf = partnerFocus(entry, leagueId, focus);
   if (pf) parts.push(rec('partner_focus', [pf], ''));
   parts.push(rec('nick_rules', [rulesRow()], ''));
+  const duel = duelRows(leagueId);
+  parts.push(rec('proj_duel', duel.rows, duel.reason));
   const text = parts.map(p => `${p.id} (${p.table}): ${JSON.stringify(p.rows)}`).join('\n');
   return { text, queries: parts.map(p => p.id) };
 }

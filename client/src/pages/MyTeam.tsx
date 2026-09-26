@@ -6,6 +6,7 @@ import { useLeague } from '../state/league';
 import { playoffWeeksText } from '../copy-constants';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
+import ProjDuel from '../components/lineup/ProjDuel';
 import PostDraftPlan from '../components/PostDraftPlan';
 import { PageError, PageLoading } from '../components/PageState';
 import { sanitizedAlert } from '../lib/errorSanitize';
@@ -31,12 +32,14 @@ import { Button, Card, Chip, EmptyState, Fold, PageHeader, Skeleton, Stat, Tabs,
  * My Team (docs/ui/CONSOLIDATION-MAP.md): one area for your team. Overview (title odds,
  * weekly points, the post-draft plan), Lineup (Start/Sit, merged in: this week's
  * lineup-vs-best card above the calls, the ceiling lineup under the ceiling objective, the
- * field view), Scouting, and Waivers (the wire and defence streaming). ?view= picks one;
+ * field view), Scouting, Waivers (the wire and defence streaming), and ESPN vs our model (PROJ-DUEL:
+ * the shadow model beside ESPN's projection; in testing, feeds no number). ?view= picks one;
  * /lineup redirects to ?view=lineup.
  */
-type View = 'overview' | 'lineup' | 'scouting' | 'waivers';
+type View = 'overview' | 'lineup' | 'scouting' | 'waivers' | 'duel';
 const VIEWS: { id: View; label: string }[] = [
   { id: 'overview', label: 'Overview' }, { id: 'lineup', label: 'Lineup' }, { id: 'scouting', label: 'Scouting' }, { id: 'waivers', label: 'Waivers' },
+  { id: 'duel', label: 'ESPN vs our model' },
 ];
 const isView = (v: string | null): v is View => VIEWS.some(x => x.id === v);
 
@@ -301,6 +304,7 @@ export default function MyTeam() {
       {view === 'scouting' && active && <TeamScout data={scout} loading={scoutLoading} />}
 
       {view === 'waivers' && <Lineup embedded view="waivers" />}
+      {view === 'duel' && active && <ProjDuel leagueId={active.id} />}
     </div>
   );
 }

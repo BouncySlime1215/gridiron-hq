@@ -67,6 +67,7 @@ const { default: replyLatencyRouter } = await import('./routes/reply-latency.js'
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
+const { default: projDuelRouter } = await import('./routes/proj-duel.js');
 const { default: numbersPeopleRouter } = await import('./routes/numbers-people.js');
 const { default: engineRouter } = await import('./routes/engine.js');
 const { default: warroomRouter } = await import('./routes/warroom.js');
@@ -185,6 +186,8 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 // Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
 // so it is mounted bare rather than behind legacyAuthenticated.
 app.use('/api/coach', coachRouter);
+// PROJ-DUEL: ESPN vs our shadow model (My team); read-only, own auth per route.
+app.use('/api/proj-duel', projDuelRouter);
 // NUMBERS-PEOPLE: both Coach lanes' reads side by side (Trades → Numbers & People); own auth per route.
 app.use('/api/numbers-people', numbersPeopleRouter);
 // ONE ENGINE reader (ENGINE-00a, EA-00): read-only world state for pages and Coach, with typed status.

@@ -53,6 +53,8 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
+  { unit: 'RB-DELTAS (GRIDIRON_RB_TITLE flag)', why: 'the per-step shadow table is written only with GRIDIRON_RB_TITLE=shadow or deltas; the fixture producer runs flag-off (test/u1d-rb-deltas-shadow.test.js validates the rows)',
+    path: /^leagues\[\]\._run\.rb_shadow$/ },
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
   { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ },

@@ -42,6 +42,7 @@
     "check:benchmarks": "node scripts/check-benchmarks.mjs",
     "check:names-leak": "node scripts/check-names-leak.mjs",
     "check:secrets": "node scripts/check-secrets.mjs --tracked",
+    "deps:report": "node scripts/dep-hygiene.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs",
     "build:manager-signals": "node --env-file-if-exists=.env scripts/build-manager-signals.mjs",

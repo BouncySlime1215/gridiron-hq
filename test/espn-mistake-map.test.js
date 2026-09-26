@@ -5,10 +5,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   SPOTS, PREREG, refuseHoldout, parseEspnArchive, benjaminiHochberg, ksUniform, clusteredMean,
-  empiricalPit, ladFit, spotTest, spotVerdicts, normCdf, normInv, rng, teamTotalMoves, moveDirection
+  empiricalPit, ladFit, spotTest, spotVerdicts, normCdf, normInv, rng, teamTotalMoves, moveDirection,
+  CONFIRM_2025_SPOTS, CONFIRM_2025_ENV, confirm2025Verdict
 } from '../scripts/rnd/espn-mistake-map.mjs';
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SCRIPT = path.join(REPO, 'scripts/rnd/espn-mistake-map.mjs');
+const runCli = (args, env = {}) => {
+  const base = { ...process.env };
+  delete base[CONFIRM_2025_ENV];
+  return spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO, encoding: 'utf8', env: { ...base, ...env } });
+};
 
 test('the spot table in the script matches the committed pre-registration (ids and predicted signs)', () => {
   const md = fs.readFileSync(new URL(`../${PREREG}`, import.meta.url), 'utf8');
@@ -140,4 +152,59 @@ test('a signed spot tests direction x excess error', () => {
   assert.ok(Math.abs(t.pooled_excess.mean - 1.5) < 0.05);
   assert.equal(t.per_season[2022].n, 40);
   assert.equal(spotVerdicts([t])[0].proven, true);
+});
+
+// ---------------------------------------------------------------- PROJ-01-a-2025 (--confirm-2025)
+
+test('CONFIRM_2025_SPOTS is exactly the two spots PR #222 proved (frozen), and stays in SPOTS with its original sign', () => {
+  assert.deepEqual([...CONFIRM_2025_SPOTS], ['qb_change', 'blowout_underdog_rb']);
+  for (const id of CONFIRM_2025_SPOTS) {
+    const spot = SPOTS.find(s => s.id === id);
+    assert.ok(spot, `${id} is still in SPOTS`);
+    assert.equal(spot.sign, -1, `${id} keeps its frozen predicted sign`);
+  }
+});
+
+test('confirm2025Verdict: same sign as predicted is confirmed, flipped sign is not', () => {
+  const rows = [];
+  let id = 0;
+  // qb_change: spot rows well below the complement -> negative excess, matches predicted sign -1
+  for (let i = 0; i < 20; i++) {
+    rows.push({ season: 2025, position: 'RB', player: id++, error: -3, spots: { qb_change: true, blowout_underdog_rb: false } });
+    rows.push({ season: 2025, position: 'RB', player: id++, error: 0, spots: { qb_change: false, blowout_underdog_rb: false } });
+  }
+  // blowout_underdog_rb: spot rows above the complement -> positive excess, flips the predicted sign -1
+  for (let i = 0; i < 20; i++) {
+    rows.push({ season: 2025, position: 'RB', player: id++, error: 3, spots: { qb_change: false, blowout_underdog_rb: true } });
+    rows.push({ season: 2025, position: 'RB', player: id++, error: 0, spots: { qb_change: false, blowout_underdog_rb: false } });
+  }
+  const v = confirm2025Verdict(rows);
+  assert.equal(v.qb_change.predicted_sign, -1);
+  assert.equal(v.qb_change.sign, -1);
+  assert.equal(v.qb_change.same_sign, true);
+  assert.equal(v.blowout_underdog_rb.predicted_sign, -1);
+  assert.equal(v.blowout_underdog_rb.sign, 1);
+  assert.equal(v.blowout_underdog_rb.same_sign, false);
+});
+
+test('--confirm-2025 refuses without the default-off flag', () => {
+  const r = runCli(['--confirm-2025', 'L163', '--db', '.local-db/data.sqlite']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, new RegExp(`${CONFIRM_2025_ENV}=1`));
+});
+
+test('--confirm-2025 refuses a ledger row id that does not exist in HOLDOUT-LEDGER.md', () => {
+  const r = runCli(['--confirm-2025', 'L999999', '--db', '.local-db/data.sqlite'], { [CONFIRM_2025_ENV]: '1' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /no such row in docs\/evidence\/HOLDOUT-LEDGER\.md/);
+});
+
+test('--confirm-2025 requires a ledger row id argument', () => {
+  const r = runCli(['--confirm-2025', '--db', '.local-db/data.sqlite'], { [CONFIRM_2025_ENV]: '1' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /requires a docs\/evidence\/HOLDOUT-LEDGER\.md row id/);
+});
+
+test('the --grade/--baseline path is unaffected by --confirm-2025 (refuseHoldout still default for every other path)', () => {
+  assert.throws(() => refuseHoldout(2025), /never opens 2025/);
 });

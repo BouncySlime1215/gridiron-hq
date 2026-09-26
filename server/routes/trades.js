@@ -727,12 +727,13 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
 r.get('/:leagueId/title-trades', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    const out = titleOddsTrades(lg.id, {
+    const args = {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
       runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
-    });
-    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id });
+    };
+    const out = titleOddsTrades(lg.id, args);
+    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id }, { args });
     res.json(out);
   } catch (e) { next(e); }
 });
@@ -808,7 +809,7 @@ r.get('/:leagueId/find', (req, res, next) => {
     // as an info-only hint and ?sort=value_gain also orders by it (offer-value-gain.js). Without
     // either the response is the finder's, unchanged. Rule-gated ideas only, as before.
     const sortByGain = req.query.sort === 'value_gain';
-    const found = findTrades(lg, {
+    const findArgs = {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -823,13 +824,17 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
-    });
+    };
+    const found = findTrades(lg, findArgs);
     const out = sortByGain || req.query.value_gain === '1'
       ? withValueGainHint(found, { sort: sortByGain ? 'value_gain' : null }) : found;
     recordRoute('find', lg, out);
     // Queued before res.json, extracted at flush — after serialisation has already
     // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
-    recordServed(res, 'trade_find', lg, out);
+    // The pin keeps the finder's arguments (the Set as a list); the value-gain hint adds no served number.
+    recordServed(res, 'trade_find', lg, out, {}, { args: { ...findArgs,
+      excludeIds: findArgs.excludeIds ? [...findArgs.excludeIds] : null, value_gain: req.query.value_gain ?? null,
+      sort: req.query.sort ?? null } });
     res.json(out);
   } catch (e) { next(e); }
 });

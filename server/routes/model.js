@@ -474,7 +474,8 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     const ignored = Object.fromEntries(['runs', 'seed', 'from_week']
       .filter(k => req.query[k] != null).map(k => [k, req.query[k]]));
     const world = oneWorldTitleOdds(lg, { ignored });
-    recordServed(res, 'title_odds', lg, world);
+    // SERVE-LOG REPRO: the pin records the world id (the week's seed) the odds were drawn on.
+    recordServed(res, 'title_odds', lg, world, {}, { args: { one_world: true }, seed: world?.one_world?.world_id ?? null });
     return res.json(world);
   } catch (e) { next(e); }
 });
@@ -494,7 +495,8 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       iGive: i_give, iGet: i_get, runs: ONE_WORLD_RUNS, scoring: scoringFor(lg), world: leagueWorld(lg)
     });
     recordServed(res, 'trade_impact', lg, impact,
-      { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get });
+      { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get },
+      { args: { one_world: true, myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get } });
     res.json(impact);
   } catch (e) { next(e); }
 });

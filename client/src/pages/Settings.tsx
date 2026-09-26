@@ -7,6 +7,7 @@ import NumberHealthCard from '../components/NumberHealth';
 import { DataFreshnessDetail } from '../components/DataFreshnessBanner';
 import { DevPanel } from '../components/DevHub';
 import ApiSpend from '../components/settings/ApiSpend';
+import ProtectedPlayers from '../components/settings/ProtectedPlayers';
 import ManagerDataSources from '../components/brain/ManagerDataSources';
 import { COST_NOTE } from '../components/brain/ProposalSlate';
 import { api } from '../api';
@@ -16,7 +17,8 @@ import { useCoach } from '../state/coach';
 
 /**
  * The Settings area (docs/ui/CONSOLIDATION-MAP.md): Connections (sign-in, the one ESPN flow, phone
- * access, league chat, the player database), Health (number health and data freshness, one view),
+ * access, league chat, the player database), Trade rules (PROTECTED-UPGRADE: Locked / Blue chips only per
+ * protected player), Health (number health and data freshness, one view),
  * and AI & developer (API spend, daily budgets and the API key first, then workspace, live data and the
  * identity audit).
  *
@@ -28,9 +30,9 @@ import { useCoach } from '../state/coach';
  * a single global settings row nothing read any more; it was removed earlier. ESPN news is pulled in
  * one place, Players → News, so this page no longer has its own "Pull ESPN news".
  */
-type View = 'connections' | 'health' | 'dev';
+type View = 'connections' | 'trades' | 'health' | 'dev';
 const VIEWS: { id: View; label: string }[] = [
-  { id: 'connections', label: 'Connections' }, { id: 'health', label: 'Health' },
+  { id: 'connections', label: 'Connections' }, { id: 'trades', label: 'Trade rules' }, { id: 'health', label: 'Health' },
   { id: 'dev', label: 'AI & developer' }
 ];
 
@@ -42,7 +44,7 @@ export default function Settings() {
 
   return (
     <div className={view === 'dev' ? 'max-w-6xl' : 'max-w-3xl'}>
-      <PageHeader title="Settings" description="Connections, the health of every number, and AI and developer settings." />
+      <PageHeader title="Settings" description="Connections, your trade rules, the health of every number, and AI and developer settings." />
       <div className="mb-5"><Tabs label="Settings views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
       {view === 'connections' && <div className="space-y-4">
@@ -54,6 +56,11 @@ export default function Settings() {
         <PlayerDatabase />
         <PhoneAccess />
         <LeagueChatPull />
+      </div>}
+
+      {/* PROTECTED-UPGRADE: Nick's trade rules that are his to set (Locked / Blue chips only per protected player). */}
+      {view === 'trades' && <div className="space-y-4">
+        <ProtectedPlayers />
       </div>}
 
       {view === 'health' && <div className="space-y-4">

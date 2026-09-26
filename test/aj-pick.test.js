@@ -61,7 +61,7 @@ test.after(() => wr.cleanup());
 /* ------------------------------------------------------------ 1. requests */
 
 test('requests: aj.allow / aj.revoke / aj.confirm are Nick\'s alone', () => {
-  assert.deepEqual([...NICK_ONLY_REQUESTS], ['aj.allow', 'aj.revoke', 'aj.confirm']);
+  assert.deepEqual([...NICK_ONLY_REQUESTS], ['aj.allow', 'aj.revoke', 'aj.confirm', 'protect.mode']); // PROTECTED-UPGRADE adds Nick's setting
   assert.deepEqual(validateRequest('aj.allow', { player_id: '101' }), { ok: true, kind: 'aj.allow', payload: { player_id: '101' } });
   assert.equal(validateRequest('aj.revoke', { player_id: 101 }).ok, true);
   assert.equal(validateRequest('aj.confirm', { move_id: 'L4-abc' }).ok, true);
@@ -295,7 +295,7 @@ test('plans schema: a waiting A.J. card is never next_move and never ahead of a 
   bad.alternatives.value = swapped;
   bad.next_move = { ...bad.next_move, value: swapped[0] };
   const errs = validatePlans(plansFile([bad], { generated_at: '2026-09-25T00:00:00Z' })).errors.map(e => e.message).join(' | ');
-  assert.match(errs, /without Nick's OK/);
+  assert.match(errs, /needs Nick's OK \(A\.J\. Brown or a protected player\) and has none/);
   assert.match(errs, /must come after every other card/);
 });
 

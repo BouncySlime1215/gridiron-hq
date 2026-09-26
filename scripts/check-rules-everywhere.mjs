@@ -22,6 +22,12 @@
  *   odds on its own (a step at or below 0 breaks "every move beats doing nothing")
  *   STEP-OVERPAY: every served step of the War Room plan passes the overpay rule on its own (cap 0; +12%
  *   only on a depth-only 2-for-1 whose served lineup-points and title-odds deltas both rise)
+ *   PROTECTED-UPGRADE (Nick 2026-09-26): outside the War Room plan 160 and 80 are still never given (no
+ *   surface there carries a step's rise). In the served plan a step may give one only when his setting
+ *   (warroom_requests protect.mode, Nick's rows; none -> Blue chips only) is Blue chips only, a get
+ *   scores 83+ AND above him on the served board AND has a higher fc_value, the step's served
+ *   confirmed lineup-points and playoff-odds deltas are both > 0, and the card needs Nick's OK (it is
+ *   next_move only once he OK'd it)
  *
  * FantasyPros exposure (Nick's rule: never displayed or committed): the War Room view and Coach's
  * plan_read of the blue-chip board, as served, must carry no key matching /^fp_|fantasypros/i.
@@ -248,6 +254,53 @@ const stepOverpayResult = (name, entry) => {
 stepOverpayResult('war-room plans file: STEP-OVERPAY (every step)', fs.existsSync(plansFile)
   ? (JSON.parse(fs.readFileSync(plansFile, 'utf8')).leagues ?? []).find(l => S(l.league) === S(LEAGUE)) : null);
 
+/* ------------------------------------------------------------ PROTECTED-UPGRADE on the served plan */
+// Restated from the raw tables: Nick's setting per protected player (latest protect.mode row he wrote and
+// did not take back; none -> Blue chips only), the served board and fc_value.
+const PROTECTED = ['160', '80'];
+const protectMode = (() => {
+  const mode = new Map(PROTECTED.map(id => [id, 'blue_chips_only']));
+  const has = rows(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'warroom_requests'`).length;
+  if (!has) return mode;
+  const list = rows(`SELECT id, kind, payload, source FROM warroom_requests WHERE league_id = ? AND kind IN ('protect.mode', 'retract') ORDER BY id`, LEAGUE);
+  const pj = t => { try { return JSON.parse(t); } catch { return null; } };
+  const gone = new Set(list.filter(r => r.kind === 'retract').map(r => Number(pj(r.payload)?.request_id)));
+  for (const r of list) {
+    const p = pj(r.payload);
+    if (r.kind !== 'protect.mode' || r.source !== 'nick' || gone.has(r.id) || !p || !PROTECTED.includes(S(p.player_id))) continue;
+    if (p.mode === 'locked' || p.mode === 'blue_chips_only') mode.set(S(p.player_id), p.mode);
+  }
+  return mode;
+})();
+const protectedStepResult = (name, entry) => {
+  if (!entry) { results.push({ name, skip: 'not run: no plans entry for this league' }); return; }
+  const moves = [...(entry.next_move?.status === 'ok' ? [['next_move', entry.next_move.value]] : []),
+    ...(entry.alternatives?.status === 'ok' ? (entry.alternatives.value ?? []).map((m, i) => [`alternatives[${i}]`, m]) : [])];
+  const firsts = entry.risk_modes?.status === 'ok' ? (entry.risk_modes.value ?? []).filter(m => m?.first_step).map(m => [`${m.mode}.first_step`, { steps: [m.first_step] }]) : [];
+  const bad = [];
+  let n = 0;
+  for (const [where, m] of [...moves, ...firsts]) {
+    (m.steps ?? []).forEach((st, k) => {
+      const g = (st.give ?? []).map(S), r = (st.get ?? []).map(S);
+      for (const id of g.filter(x => PROTECTED.includes(x))) {
+        n++;
+        const v = [];
+        if (protectMode.get(id) !== 'blue_chips_only') v.push(`gives ${id} (Locked)`);
+        const up = r.some(x => score.has(x) && score.has(id) && fc.has(x) && fc.has(id) && score.get(x) >= 83 && score.get(x) > score.get(id) && fc.get(x) > fc.get(id));
+        if (!up) v.push(`gives ${id} without a true tier up`);
+        const pu = st.protected_upgrade?.status === 'ok' ? st.protected_upgrade.value : null;
+        if (!(Number(pu?.confirmed_lineup_points_delta) > 0 && Number(pu?.confirmed_playoff_odds_delta) > 0)) v.push(`gives ${id} without a confirmed rise in lineup points and playoff odds`);
+        if (!m.requires_nick_confirm && !st.requires_nick_confirm) v.push(`gives ${id} without needing Nick's OK`);
+        if (where === 'next_move' && !m.nick_confirmed) v.push(`gives ${id} as the next move before Nick's OK`);
+        if (v.length) bad.push({ give: g, get: r, v: v.map(x => `${where} step ${k + 1} ${x}`) });
+      }
+    });
+  }
+  results.push({ name, n, dropped: null, bad });
+};
+protectedStepResult('war-room plans file: PROTECTED-UPGRADE (every step)', fs.existsSync(plansFile)
+  ? (JSON.parse(fs.readFileSync(plansFile, 'utf8')).leagues ?? []).find(l => S(l.league) === S(LEAGUE)) : null);
+
 /* ------------------------------------------------------------ FantasyPros exposure */
 // Nick's rule: FantasyPros is never displayed or committed, so no client payload carries its fields.
 // Each client-facing view is built as the route serves it (through the /api guard when it exists) and
@@ -284,7 +337,10 @@ await fpSurface('fantasypros: war-room view', async () => {
   process.env[WARROOM_ENV] = '1';
   const { warRoomView } = await import('../server/services/war-room-view.js');
   const view = await warRoomView(LEAGUE);
-  if (view?.enabled) stepRegretResult('war-room view as served: STEP-REGRET', view);
+  if (view?.enabled) {
+    stepRegretResult('war-room view as served: STEP-REGRET', view);
+    protectedStepResult('war-room view as served: PROTECTED-UPGRADE', view);
+  }
   else results.push({ name: 'war-room view as served: STEP-REGRET', skip: 'not run: War Room view is off' });
 }
 await fpSurface('fantasypros: coach plan_read blue_chips', async () => {

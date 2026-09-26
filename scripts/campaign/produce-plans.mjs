@@ -345,7 +345,8 @@ export async function buildPlansFile(leagues, {
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
       // AJ-PICK: Nick's picks for A.J. Brown and the cards he OK'd (requests.js#leagueInputs; files only -> none).
-      res = planLeague(adapter, { objective, skips: ins.weights, budget, env, ...(ins.aj ? { aj: ins.aj } : {}) });
+      // PROTECTED-UPGRADE: Nick's setting for 160 / 80 (files only -> none: both stay locked).
+      res = planLeague(adapter, { objective, skips: ins.weights, budget, env, ...(ins.aj ? { aj: ins.aj } : {}), ...(ins.protect ? { protect: ins.protect } : {}) });
       // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only, never preview): buy_low on Go get targets, a tie-breaker only.
       const blPositions = buyLowPositions(env);
       const buyLow = blPositions.length > 0 && typeof adapter.buyLow === 'function' && !res.error ? buyLowForRun(res, adapter, { positions: blPositions }) : null;

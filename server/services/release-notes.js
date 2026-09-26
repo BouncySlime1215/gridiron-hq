@@ -106,6 +106,7 @@ function secondPerson(text) {
   return text
     .replace(/\bNick's\b/g, 'your')
     .replace(/\bNick (is|has|was|does)\b/g, (_, v) => `you ${{ is: 'are', has: 'have', was: 'were', does: 'do' }[v]}`)
+    .replace(/\bNick (\w+?(?:ss|sh|ch|x))es\b/g, 'you $1')
     .replace(/\bNick (\w+?[^s])s\b/g, 'you $1')
     .replace(/\bNick\b/g, 'you');
 }

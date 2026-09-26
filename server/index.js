@@ -55,6 +55,7 @@ const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
 const { default: numberAuditRouter } = await import('./routes/number-audit.js');
 const { default: dataQualityRouter } = await import('./routes/data-quality.js');
+const { default: releaseNotesRouter } = await import('./routes/release-notes.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -186,6 +187,8 @@ app.use('/api/number-audit', ...legacyAuthenticated, numberAuditRouter);
 // DATA QUALITY PANEL (item 35, GRIDIRON_DATA_QUALITY, off): freshness, offer orphans, number-health
 // trend and last-good fallbacks in one read-only report for Settings -> Health.
 app.use('/api/data-quality', ...legacyAuthenticated, dataQualityRouter);
+// RELEASE NOTES (item 60, GRIDIRON_RELEASE_NOTES, off): Today's "what changed for you" note, shown once.
+app.use('/api/release-notes', ...legacyAuthenticated, releaseNotesRouter);
 // Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);

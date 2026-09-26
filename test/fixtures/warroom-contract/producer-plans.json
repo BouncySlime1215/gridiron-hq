@@ -1467,11 +1467,11 @@
       "stop_label": "Switch to Balanced",
       "cost": {
        "status": "ok",
-       "value": -0.0013970669630690713,
+       "value": 0.028189795936662848,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "extra_steps": 2,
+      "extra_steps": 1,
       "gain": {
        "status": "ok",
        "value": 0,
@@ -1480,14 +1480,14 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.0013970669630690713,
+       "value": -0.028189795936662848,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "verdict": "close",
-      "because": "the difference in expected gain is inside the simulation noise",
-      "new_next_move_changes": false,
-      "gain_text": "If it lands: 30.0 pts of title odds against 17.3 pts of title odds; it lands 1% of the time against 59%."
+      "verdict": "not_worth_it",
+      "because": "it gives up expected gain",
+      "new_next_move_changes": true,
+      "gain_text": "If it lands: 19.0 pts of title odds against 17.3 pts of title odds; it lands 18% of the time against 59%."
      },
      "mode:all_in": {
       "stop_label": "Switch to Fuck it, let's go",
@@ -2815,19 +2815,19 @@
       "active": false,
       "expected": {
        "status": "ok",
-       "value": 0.10413138848897327,
+       "value": 0.07454452558924135,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "if_complete": {
        "status": "ok",
-       "value": 0.3000916685782523,
+       "value": 0.18964802027447958,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "p_complete": {
        "status": "ok",
-       "value": 0.011537217391304354,
+       "value": 0.17804347826086955,
        "source": "plan.path",
        "unit": "probability",
        "guess": true
@@ -2836,10 +2836,10 @@
        "partner": "3",
        "give": [
         "4",
-        "7"
+        "5"
        ],
        "get": [
-        "22"
+        "21"
        ]
       },
       "no_trade": {
@@ -3608,7 +3608,8 @@
          "confirm": {
           "checked": 7,
           "failed": 0,
-          "not_above_no_trade": 0
+          "not_above_no_trade": 0,
+          "step_regret": 0
          }
         },
         "balanced": {
@@ -4083,14 +4084,28 @@
         "source": "plan.template"
        },
        "opening": {
-        "status": "unknown",
-        "source": "clone.price",
-        "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+        "status": "ok",
+        "value": {
+         "give": [
+          "3"
+         ],
+         "get": [
+          "12"
+         ],
+         "text": "Open with P3 (RB) for P12 (QB) (his screen -8%)."
+        },
+        "source": "clone.price"
        },
        "walk_away": {
-        "status": "unknown",
-        "source": "clone.price",
-        "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+        "status": "ok",
+        "value": {
+         "text": "Stop at P5 + P6: past that, your backup plan is worth more.",
+         "max_give": [
+          "5",
+          "6"
+         ]
+        },
+        "source": "clone.price"
        },
        "send_when": {
         "status": "ok",
@@ -4118,20 +4133,19 @@
          "decline": {
           "status": "ok",
           "value": {
-           "do": "Log the reason, then offer Team 3 instead.",
-           "odds_after": {
-            "status": "ok",
-            "value": 105.00151182065217,
-            "source": "plan.path",
-            "unit": "points_per_week"
-           }
+           "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
           },
           "source": "plan.path"
          },
          "counter": {
           "status": "ok",
           "value": {
-           "do": "No walk-away could be priced; decline any counter that adds players on your side."
+           "do": "Check his ask against the walk-away.",
+           "counter_rules": {
+            "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +25%)",
+            "counter_with": "the next rung: 22 (his screen -4%)",
+            "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+           }
           },
           "source": "plan.path"
          },
@@ -4155,7 +4169,7 @@
          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
          "news_check": "Act now: no pending news on the players you get.",
          "confidence": "Chance he says yes is 7%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+         "counter": "If he counters, counter with the next rung: 22 (his screen -4%).",
          "cites": [
           "steps[0].p_yes",
           "steps[0].title_odds_delta"
@@ -4399,14 +4413,28 @@
          "source": "plan.template"
         },
         "opening": {
-         "status": "unknown",
-         "source": "clone.price",
-         "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+         "status": "ok",
+         "value": {
+          "give": [
+           "3"
+          ],
+          "get": [
+           "12"
+          ],
+          "text": "Open with P3 (RB) for P12 (QB) (his screen -8%)."
+         },
+         "source": "clone.price"
         },
         "walk_away": {
-         "status": "unknown",
-         "source": "clone.price",
-         "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+         "status": "ok",
+         "value": {
+          "text": "Stop at P5 + P6: past that, your backup plan is worth more.",
+          "max_give": [
+           "5",
+           "6"
+          ]
+         },
+         "source": "clone.price"
         },
         "send_when": {
          "status": "ok",
@@ -4434,20 +4462,19 @@
           "decline": {
            "status": "ok",
            "value": {
-            "do": "Log the reason, then offer Team 3 instead.",
-            "odds_after": {
-             "status": "ok",
-             "value": 105.00151182065217,
-             "source": "plan.path",
-             "unit": "points_per_week"
-            }
+            "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
            },
            "source": "plan.path"
           },
           "counter": {
            "status": "ok",
            "value": {
-            "do": "No walk-away could be priced; decline any counter that adds players on your side."
+            "do": "Check his ask against the walk-away.",
+            "counter_rules": {
+             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +25%)",
+             "counter_with": "the next rung: 22 (his screen -4%)",
+             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            }
            },
            "source": "plan.path"
           },
@@ -4471,7 +4498,7 @@
           "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
           "news_check": "Act now: no pending news on the players you get.",
           "confidence": "Chance he says yes is 7%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+          "counter": "If he counters, counter with the next rung: 22 (his screen -4%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -7414,7 +7441,8 @@
          "confirm": {
           "checked": 7,
           "failed": 0,
-          "not_above_no_trade": 0
+          "not_above_no_trade": 0,
+          "step_regret": 0
          }
         },
         "all_in": {
@@ -10804,7 +10832,8 @@
          "confirm": {
           "checked": 7,
           "failed": 0,
-          "not_above_no_trade": 0
+          "not_above_no_trade": 0,
+          "step_regret": 0
          }
         },
         "all_in": {
@@ -12512,7 +12541,8 @@
          "confirm": {
           "checked": 0,
           "failed": 0,
-          "not_above_no_trade": 0
+          "not_above_no_trade": 0,
+          "step_regret": 0
          }
         },
         "all_in": {
@@ -16139,7 +16169,8 @@
          "confirm": {
           "checked": 7,
           "failed": 0,
-          "not_above_no_trade": 0
+          "not_above_no_trade": 0,
+          "step_regret": 0
          }
         },
         "all_in": {

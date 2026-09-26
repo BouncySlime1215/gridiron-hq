@@ -21,7 +21,7 @@
  */
 import { askCoach, COACH_MODEL } from './ask.js';
 import { newLedger } from './ledger.js';
-import { recordCoachAnswer } from './audit.js';
+import { recordCoachAnswer, appendAuditEvents } from './audit.js';
 import { groundStarter, planEntry, identitiesFor, starterIntent, partnerAnswer } from './starter-answers.js';
 import { answerWithLanes, lanesOn } from './lanes.js';
 import { activeThread, appendTurn, recentTurns, summaryText, threadTurnLimit } from './threads.js';
@@ -30,6 +30,7 @@ import { whyClaims, ifNoClaims, otherOneClaims, partnerSwitchClaims, followupsFo
 import { teamOf } from './brief-claims.js';
 import { withIdentityTeams } from './partner.js';
 import { routeIntent } from '../warroom-actions/intent.js';
+import { holdToRules, coachRules } from './rules-check.js';
 import { LlmBudgetError } from '../llm-budget.js';
 
 /** Models per message (COACH-CHAT model routing). All three are priced in llm-budget.js. */
@@ -203,7 +204,21 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   delete result.nextFocus;
   const intent = result.intent ?? result.verification?.intent ?? null;
   const followups = followupsFor(intent, nextFocus, entry);
-  const proposals = proposalsFor(intent, nextFocus, entry);
+  let proposals = proposalsFor(intent, nextFocus, entry);
+  // COACH-V2 [5] RULES-CHECK: every move line and card against Nick's rules, in code; each drop logged with its rule.
+  const rules = entry ? coachRules(leagueId) : null;
+  if (rules) {
+    const held = holdToRules({ answer: result.answer, proposals, ledger: result.ledger, entry, rules });
+    result.answer = held.answer;
+    proposals = held.proposals;
+    if (held.drops.length) {
+      result.rule_drops = held.drops;
+      const events = held.drops.map(d => ({ t: 'rule_drop', ...d }));
+      result.plan = [...(result.plan ?? []), ...events];
+      if (result.audit_id) appendAuditEvents(result.audit_id, events);
+      console.info(`[coach] rules-check dropped ${held.drops.length} line(s) or card(s): ${[...new Set(held.drops.flatMap(d => d.rules))].join(', ')}`);
+    }
+  }
   const replyText = [...result.answer.claims.map(c => c.text), ...result.answer.refusals].join(' ');
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
     followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}) };

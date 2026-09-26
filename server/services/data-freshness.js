@@ -1,6 +1,9 @@
 import { db as defaultDb } from '../db/index.js';
 import * as registry from './source-registry.js';
-import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
+import { MARKET_FRESH_MINUTES } from './dynasty-value-history.js';
+
+// A fixed fragment written in this file (never built from input): the fc_value rows of player_metrics.
+const FC_VALUE_SCOPE = "source = 'fc_value'";
 
 /**
  * Whether the data the app serves is actually current — read from the tables
@@ -201,7 +204,10 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
   if (!present) return { ...base, note: 'table not present in this database' };
   base.present = true;
 
-  base.row_count = database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+  // `scope`: an optional fixed WHERE fragment from this file's registry, for a table that holds
+  // several sources' rows (player_metrics), so the counts and stamps are that source's only.
+  const where = typeof entry.scope === 'string' && entry.scope.trim() !== '' ? ` WHERE ${entry.scope}` : '';
+  base.row_count = database.prepare(`SELECT COUNT(*) AS n FROM ${table}${where}`).get().n;
   if (base.row_count === 0) return base;
 
   // Order by a real timestamp when the table has one, else by the season
@@ -210,13 +216,13 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
     : entry.season_col ? ident(entry.season_col, 'season_col') : null;
   if (orderCol) {
     const span = database.prepare(
-      `SELECT MIN(${orderCol}) AS lo, MAX(${orderCol}) AS hi FROM ${table}`).get();
+      `SELECT MIN(${orderCol}) AS lo, MAX(${orderCol}) AS hi FROM ${table}${where}`).get();
     base.earliest = span.lo;
     base.latest = span.hi;
   }
   if (entry.updated_col) {
     base.last_write = database.prepare(
-      `SELECT MAX(${ident(entry.updated_col, 'updated_col')}) AS w FROM ${table}`).get().w ?? null;
+      `SELECT MAX(${ident(entry.updated_col, 'updated_col')}) AS w FROM ${table}${where}`).get().w ?? null;
   }
 
   // No rule, or one in a shape this file does not know, is a fault and not a
@@ -378,10 +384,10 @@ export const FALLBACK_REGISTRY = [
     }
   },
   // FC-SNAP: the market price every trade card is gated, ranked and labelled on. Its
-  // job (scheduler.js fantasycalc_dynasty) runs daily; the window is that job's budget,
-  // MARKET_MAX_AGE_MINUTES, never a second constant. No retired_at filter is needed: a
-  // retired row is one the latest pull did not return, so its fetched_at is older than
-  // that pull's by construction.
+  // job (scheduler.js fantasycalc_dynasty) runs daily, so the rule is an AGE, not a week:
+  // MARKET_FRESH_MINUTES (the daily budget plus the refresh loop's slack), never a second
+  // constant. No retired_at filter is needed: a retired row is one the latest pull did not
+  // return, so its fetched_at is older than that pull's by construction.
   {
     table: 'dynasty_values',
     label: 'FantasyCalc market values',
@@ -390,10 +396,30 @@ export const FALLBACK_REGISTRY = [
     week_col: null,
     updated_col: 'fetched_at',
     current_rule: {
-      description: `Fetched from FantasyCalc in the last ${MARKET_MAX_AGE_MINUTES / 60} hours.`,
-      predicate: `julianday(fetched_at) >= julianday('now', '-${MARKET_MAX_AGE_MINUTES} minutes')`,
+      description: `Fetched from FantasyCalc in the last ${MARKET_FRESH_MINUTES / 60} hours.`,
+      predicate: `julianday(fetched_at) >= julianday('now', '-${MARKET_FRESH_MINUTES} minutes')`,
       bind: []
     }
+  },
+  // The redraft half: player_metrics source 'fc_value', the value Nick's hard rules are priced on
+  // (fc-value.js, the one reader never-give.js gates every trade surface with). It had no entry, so
+  // a stale overpay currency never showed on the panel. Written by the daily fantasycalc_values job
+  // (scheduler.js), so the same age rule and window as the market price above.
+  {
+    table: 'player_metrics',
+    label: 'FantasyCalc redraft values (your trade rules)',
+    grain: 'static',
+    season_col: null,
+    week_col: null,
+    updated_col: 'fetched_at',
+    current_rule: {
+      description: `FantasyCalc redraft values fetched in the last ${MARKET_FRESH_MINUTES / 60} hours.`,
+      predicate: `${FC_VALUE_SCOPE} AND julianday(fetched_at) >= julianday('now', '-${MARKET_FRESH_MINUTES} minutes')`,
+      bind: []
+    },
+    // player_metrics holds every source's metrics (ADP, Sleeper rank, ...); the counts and the
+    // last-write stamp on the panel are this source's only.
+    scope: FC_VALUE_SCOPE
   }
 ];
 

@@ -23,9 +23,14 @@
  *   E4       the historical replay (fit 2021-22, graded 2023-24, 2025 untouched),
  *            stored as a FIXED row (source 'historical_fixed', like E3). Numbers are
  *            frozen in HISTORICAL by scripts/eval/e4-planner-replay.mjs.
- *   E4-live  the target league in 2026: one row per graded week in
- *            `planner_move_outcomes` (not built yet). not_enough_data until
- *            LIVE_MIN_WEEKS weeks exist.
+ *   E4-live  2026: one row per graded league-week in `planner_move_outcomes`
+ *            (sources/planner-move-outcomes.js). From the first graded week it
+ *            reports the number with its n (served move vs the finder's best vs
+ *            doing nothing, re-priced on paired seeds), but it is never a gate
+ *            before n allows: status stays not_enough_data until LIVE_GATE
+ *            is met (E4-LIVE, pre-registered in its PR), so an early 'failing'
+ *            can never push the plan to Balanced (brain-rule.js). Behind its own flag,
+ *            GRIDIRON_E4_LIVE=1; off (default) serves the pre-E4-LIVE row (liveLegacy).
  *
  * Pass bar (pre-registered in the replay script header and the PR before the
  * graded run): planner minus the BEST baseline (highest mean on the graded rows),
@@ -40,7 +45,17 @@ export const LIVE_CHECK = 'E4-live';
 export const NAME = 'Planner vs simple baselines';
 export const BASELINES = Object.freeze(['finder', 'nothing', 'greedy']);
 export const ARMS = Object.freeze(['planner', ...BASELINES]);
-export const LIVE_MIN_WEEKS = 4;
+/**
+ * E4-LIVE gate (pre-registered): the live row may say passing or failing only once it
+ * holds at least `weeks` graded league-weeks spanning at least `nflWeeks` distinct NFL
+ * weeks. A percentile bootstrap over fewer clusters under-covers, and one NFL week's news
+ * moves every league at once. Before that the number is shown, labelled early, never graded.
+ */
+export const LIVE_GATE = Object.freeze({ weeks: 8, nflWeeks: 3 });
+/** Kept for callers of the old name: the gate's league-week minimum (flag on). */
+export const LIVE_MIN_WEEKS = LIVE_GATE.weeks;
+/** The minimum main served before E4-LIVE; still in force while GRIDIRON_E4_LIVE is off. */
+export const LEGACY_MIN_WEEKS = 4;
 export const BOOT = Object.freeze({ reps: 2000, seed: 404 });
 export const PASS_BAR = 'planner minus the best simple baseline (finder best offer, do nothing, greedy fair 1-for-1): '
   + 'realized title gain, league-clustered 95% CI > 0';
@@ -336,14 +351,53 @@ export function historical(h = HISTORICAL) {
   });
 }
 
+const LIVE_COLUMNS = ['league_id', 'season', 'week', 'planner_gain', 'finder_gain', 'greedy_gain'];
+const OPTIONAL_COLUMNS = ['planner_gain_se', 'finder_gain_se', 'greedy_gain_se', 'settled_at', 'settle_note'];
+const finite = v => v != null && Number.isFinite(Number(v));
+/** Title-odds share (0-1) as signed percentage points with one decimal, for plain text. */
+const pts = x => `${x >= 0 ? '+' : ''}${(Math.round(x * 1000) / 10).toFixed(1)}`;
+
 /**
- * E4-live: the target league's 2026 weeks. Source table (not built yet):
- *   planner_move_outcomes(league_id, season, week, planner_gain, finder_gain, greedy_gain)
- * one row per league-week once the week's realized outcome is known.
+ * How complete the source is for one season: captured, settled, graded, ungraded (with the
+ * kind of each reason) and still open. Reads the optional columns only when present.
  */
-export function live(database, { season = 2026, minWeeks = LIVE_MIN_WEEKS } = {}) {
+export function liveCoverage(rows, have) {
+  const settledKnown = have.has('settled_at');
+  const graded = rows.filter(r => LIVE_COLUMNS.slice(3).every(c => finite(r[c])));
+  const settled = settledKnown ? rows.filter(r => r.settled_at != null) : graded;
+  const reasons = {};
+  if (have.has('settle_note')) {
+    for (const r of settled) {
+      if (graded.includes(r)) continue;
+      // One bucket per kind of reason: ids masked, first clause only ("planner: give # no longer on team #").
+      const k = String(r.settle_note ?? '').split(' | ')[0].replace(/\d+/g, '#').slice(0, 60).trim() || 'no reason stored';
+      reasons[k] = (reasons[k] ?? 0) + 1;
+    }
+  }
+  return { captured: rows.length, settled: settled.length, graded: graded.length,
+    ungraded: settled.length - graded.length, open: rows.length - settled.length, ungraded_reasons: reasons };
+}
+
+/** Mean dice noise (standard error) of each arm's re-priced gain, when the producer stored it. */
+function simNoise(rows, have) {
+  const out = {};
+  for (const a of ['planner', 'finder', 'greedy']) {
+    const c = `${a}_gain_se`;
+    if (!have.has(c)) continue;
+    const v = rows.map(r => r[c]).filter(finite).map(Number);
+    out[a] = v.length ? round(mean(v), 5) : null;
+  }
+  return out;
+}
+
+/** E4-LIVE's own switch. Off (default): the row main served before E4-LIVE (liveLegacy). */
+export const LIVE_FLAG = 'GRIDIRON_E4_LIVE';
+export const liveFlagOn = (env = process.env) => env[LIVE_FLAG] === '1';
+
+/** The pre-E4-LIVE row, byte-for-byte: 4 graded weeks, no early number, no coverage. */
+export function liveLegacy(database, { season = 2026, minWeeks = LEGACY_MIN_WEEKS } = {}) {
   const common = { check: LIVE_CHECK, name: `${NAME} (2026, live)`, metricName: 'title_gain_planner_minus_best_baseline', passBar: PASS_BAR };
-  const src = readSource(database, 'planner_move_outcomes', ['league_id', 'season', 'week', 'planner_gain', 'finder_gain', 'greedy_gain']);
+  const src = readSource(database, 'planner_move_outcomes', LIVE_COLUMNS);
   if (!src.ok) return waiting({ ...common, minN: minWeeks, unit: 'weeks', reason: src.reason });
   const rows = src.rows.filter(r => Number(r.season) === season
     && [r.planner_gain, r.finder_gain, r.greedy_gain].every(v => v != null && Number.isFinite(Number(v))));
@@ -355,6 +409,68 @@ export function live(database, { season = 2026, minWeeks = LIVE_MIN_WEEKS } = {}
   return result({ ...common, status, metric: s.vs_best.mean, ci: s.vs_best.ci, n: weeks,
     ...(status === STATUS.NOT_ENOUGH_DATA ? { needsN: s.vs_best.ci ? moreNeeded(weeks, s.vs_best.ci[1] - s.vs_best.ci[0], Math.max(Math.abs(s.vs_best.mean), 1e-3) * 2) : minWeeks, needsUnit: 'weeks' } : {}),
     detail: roundSummary(s) });
+}
+
+/**
+ * The E4-live row. `flag` (default: GRIDIRON_E4_LIVE === '1') picks E4-LIVE's early-number
+ * row (liveEarly) over the legacy one; nothing else changes with it.
+ */
+export function live(database, { flag = liveFlagOn(), ...opts } = {}) {
+  return flag ? liveEarly(database, opts) : liveLegacy(database, opts.minWeeks != null ? { season: opts.season, minWeeks: opts.minWeeks } : { season: opts.season });
+}
+
+/**
+ * E4-live: every league's 2026 graded weeks in planner_move_outcomes (one row per
+ * league-week; a row counts only when all three arms were re-priced). The number is
+ * reported with n from the first graded week; it becomes a grade (passing / failing)
+ * only once LIVE_GATE is met. `gate` overrides LIVE_GATE (tests only).
+ */
+export function liveEarly(database, { season = 2026, gate = LIVE_GATE, minWeeks = null } = {}) {
+  const g = { weeks: minWeeks ?? gate.weeks, nflWeeks: gate.nflWeeks };
+  const common = { check: LIVE_CHECK, name: `${NAME} (2026, live)`, metricName: 'title_gain_planner_minus_best_baseline', passBar: PASS_BAR };
+  const src = readSource(database, 'planner_move_outcomes', LIVE_COLUMNS);
+  if (!src.ok) return waiting({ ...common, minN: g.weeks, unit: 'weeks', reason: src.reason });
+  const have = new Set(database.prepare('SELECT name FROM pragma_table_info(?)').all('planner_move_outcomes').map(c => c.name));
+  const extra = OPTIONAL_COLUMNS.filter(c => have.has(c));
+  const all = database.prepare(`SELECT ${[...LIVE_COLUMNS, ...extra].join(', ')} FROM planner_move_outcomes WHERE season = ?`).all(season);
+  const coverage = liveCoverage(all, have);
+  const rows = all.filter(r => LIVE_COLUMNS.slice(3).every(c => finite(r[c])));
+  const n = new Set(rows.map(r => `${r.league_id}:${r.week}`)).size;
+  const nflWeeks = new Set(rows.map(r => Number(r.week))).size;
+  const gate_detail = { min_league_weeks: g.weeks, min_nfl_weeks: g.nflWeeks, league_weeks: n, nfl_weeks: nflWeeks };
+  if (!n) {
+    return waiting({ ...common, minN: g.weeks, n: 0, unit: 'weeks',
+      reason: coverage.captured ? `0 graded weeks so far (${coverage.open} waiting for the week to finish, ${coverage.ungraded} ungraded)` : '0 graded weeks so far',
+      detail: { coverage, gate: gate_detail } });
+  }
+  const s = summarize(rows.map(r => ({ cluster: `${r.league_id}:${r.week}`, season: r.season,
+    planner: { title: Number(r.planner_gain) }, finder: { title: Number(r.finder_gain) }, greedy: { title: Number(r.greedy_gain) } })));
+  const byLeague = {};
+  for (const r of rows) {
+    const k = String(r.league_id);
+    (byLeague[k] ??= []).push(r);
+  }
+  const by_league = Object.fromEntries(Object.entries(byLeague).map(([k, rs]) => [k, { n: rs.length,
+    served_minus_nothing: round(mean(rs.map(r => Number(r.planner_gain))), 5),
+    served_minus_finder: round(mean(rs.map(r => Number(r.planner_gain) - Number(r.finder_gain))), 5) }]));
+  const detail = { ...roundSummary(s), coverage, gate: gate_detail, by_league, sim_noise_se: simNoise(rows, have),
+    served_minus_finder: round(s.vs.finder.mean, 5), served_minus_nothing: round(s.vs.nothing.mean, 5),
+    repriced: 'first step of each arm, if accepted, on the week\'s paired seed (season-sim tradeImpact)' };
+  const gateMet = n >= g.weeks && nflWeeks >= g.nflWeeks;
+  if (!gateMet) {
+    const needs = Math.max(1, g.weeks - n);
+    const moreNfl = Math.max(0, g.nflWeeks - nflWeeks);
+    return result({ ...common, status: STATUS.NOT_ENOUGH_DATA, metric: s.vs_best.mean, ci: s.vs_best.ci, n,
+      needsN: needs, needsUnit: 'weeks',
+      needsText: `early number, not a grade: over ${n} graded week${n === 1 ? '' : 's'} the served move changed title odds `
+        + `${pts(s.vs.nothing.mean)} points vs doing nothing and ${pts(s.vs.finder.mean)} vs the finder's best deal; `
+        + `graded after ${needs} more week${needs === 1 ? '' : 's'}${moreNfl ? ` across at least ${g.nflWeeks} NFL weeks` : ''}`,
+      detail: { ...detail, provisional: true } });
+  }
+  const status = verdict(s.vs_best);
+  return result({ ...common, status, metric: s.vs_best.mean, ci: s.vs_best.ci, n,
+    ...(status === STATUS.NOT_ENOUGH_DATA ? { needsN: s.vs_best.ci ? moreNeeded(n, s.vs_best.ci[1] - s.vs_best.ci[0], Math.max(Math.abs(s.vs_best.mean), 1e-3) * 2) : g.weeks, needsUnit: 'weeks' } : {}),
+    detail: { ...detail, provisional: false } });
 }
 
 /** opts.historical: the frozen replay result (default HISTORICAL); the runner passes none. */

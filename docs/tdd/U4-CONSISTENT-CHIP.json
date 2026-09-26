@@ -1,0 +1,277 @@
+{
+  "prereg": "docs/tdd/U4-CONSISTENT-CHIP-PREREG.md",
+  "rule_version": 1,
+  "seasons": [
+    2024,
+    2025
+  ],
+  "weeks": {
+    "from": 4,
+    "to": 14
+  },
+  "k": 1.71,
+  "bootstrap": {
+    "resamples": 2000,
+    "seed": 20260925,
+    "cluster": "player-season"
+  },
+  "baselines": {
+    "2024": {
+      "QB": {
+        "median": 20.52,
+        "line": 18.12,
+        "n": 10
+      },
+      "RB": {
+        "median": 17.8,
+        "line": 15.35,
+        "n": 10
+      },
+      "TE": {
+        "median": 11.5,
+        "line": 10.38,
+        "n": 10
+      },
+      "WR": {
+        "median": 15.95,
+        "line": 14.45,
+        "n": 20
+      }
+    },
+    "2025": {
+      "QB": {
+        "median": 21.28,
+        "line": 17.72,
+        "n": 10
+      },
+      "RB": {
+        "median": 17.75,
+        "line": 17.01,
+        "n": 10
+      },
+      "TE": {
+        "median": 12.35,
+        "line": 10.46,
+        "n": 10
+      },
+      "WR": {
+        "median": 16.6,
+        "line": 15,
+        "n": 20
+      }
+    }
+  },
+  "universe": {
+    "rows": 1047,
+    "flagged": 69,
+    "flagged_d0": 21,
+    "league_seasons": [
+      "1:2024",
+      "2:2024",
+      "1:2025",
+      "2:2025",
+      "3:2025"
+    ],
+    "not_consistent_reasons": {
+      "history": 368,
+      "p25": 919,
+      "window_missing": 282,
+      "inactive": 59,
+      "hurt": 18
+    }
+  },
+  "primary": {
+    "primary": {
+      "n_flagged": 69,
+      "n_unflagged": 978,
+      "flagged_clusters": 9,
+      "clusters": 64,
+      "estimate": 0.056,
+      "lo": -3.636,
+      "hi": 4.271,
+      "se": 1.982,
+      "mde80": 5.549,
+      "mean_flagged": 13.529,
+      "mean_unflagged": 13.473
+    },
+    "secondary_shortfall": {
+      "n_flagged": 69,
+      "n_unflagged": 978,
+      "flagged_clusters": 9,
+      "clusters": 64,
+      "estimate": 1.601,
+      "lo": -0.457,
+      "hi": 4.014,
+      "se": 1.142,
+      "mde80": 3.199,
+      "mean_flagged": -2.936,
+      "mean_unflagged": -4.537
+    },
+    "too_few": true,
+    "pass": false
+  },
+  "per_position": {
+    "QB": {
+      "primary": {
+        "n_flagged": 0,
+        "n_unflagged": 133,
+        "flagged_clusters": 0,
+        "estimate": null,
+        "lo": null,
+        "hi": null,
+        "se": null
+      },
+      "secondary_shortfall": {
+        "n_flagged": 0,
+        "n_unflagged": 133,
+        "flagged_clusters": 0,
+        "estimate": null,
+        "lo": null,
+        "hi": null,
+        "se": null
+      },
+      "too_few": true,
+      "pass": false,
+      "serve": false
+    },
+    "RB": {
+      "primary": {
+        "n_flagged": 31,
+        "n_unflagged": 423,
+        "flagged_clusters": 3,
+        "clusters": 26,
+        "estimate": -0.048,
+        "lo": -4.074,
+        "hi": 4.878,
+        "se": 2.459,
+        "mde80": 6.886,
+        "mean_flagged": 13.771,
+        "mean_unflagged": 13.819
+      },
+      "secondary_shortfall": {
+        "n_flagged": 31,
+        "n_unflagged": 423,
+        "flagged_clusters": 3,
+        "clusters": 26,
+        "estimate": 1.31,
+        "lo": -1.019,
+        "hi": 4.249,
+        "se": 1.453,
+        "mde80": 4.069,
+        "mean_flagged": -3.152,
+        "mean_unflagged": -4.462
+      },
+      "too_few": true,
+      "pass": false,
+      "serve": false
+    },
+    "WR": {
+      "primary": {
+        "n_flagged": 25,
+        "n_unflagged": 387,
+        "flagged_clusters": 4,
+        "clusters": 26,
+        "estimate": 1.129,
+        "lo": -4.788,
+        "hi": 9.13,
+        "se": 4.297,
+        "mde80": 12.032,
+        "mean_flagged": 13.548,
+        "mean_unflagged": 12.419
+      },
+      "secondary_shortfall": {
+        "n_flagged": 25,
+        "n_unflagged": 387,
+        "flagged_clusters": 4,
+        "clusters": 26,
+        "estimate": 1.171,
+        "lo": -2.001,
+        "hi": 5.525,
+        "se": 2.159,
+        "mde80": 6.046,
+        "mean_flagged": -3.456,
+        "mean_unflagged": -4.627
+      },
+      "too_few": true,
+      "pass": false,
+      "serve": false
+    },
+    "TE": {
+      "primary": {
+        "n_flagged": 13,
+        "n_unflagged": 35,
+        "flagged_clusters": 2,
+        "clusters": 4,
+        "estimate": -0.905,
+        "lo": -9.564,
+        "hi": -0.06,
+        "se": 3.498,
+        "mde80": 9.793,
+        "mean_flagged": 12.915,
+        "mean_unflagged": 13.82
+      },
+      "secondary_shortfall": {
+        "n_flagged": 13,
+        "n_unflagged": 35,
+        "flagged_clusters": 2,
+        "clusters": 4,
+        "estimate": 0.113,
+        "lo": -3.09,
+        "hi": 0.283,
+        "se": 1.258,
+        "mde80": 3.523,
+        "mean_flagged": -1.419,
+        "mean_unflagged": -1.532
+      },
+      "too_few": true,
+      "pass": false,
+      "serve": false
+    }
+  },
+  "served_positions": [],
+  "reported": {
+    "by_season": {
+      "2024": {
+        "n_flagged": 13,
+        "n_unflagged": 406,
+        "flagged_clusters": 3,
+        "clusters": 33,
+        "estimate": 3.438,
+        "lo": -12.03,
+        "hi": 7.235,
+        "se": 4.892,
+        "mde80": 13.696,
+        "mean_flagged": 17.023,
+        "mean_unflagged": 13.585
+      },
+      "2025": {
+        "n_flagged": 56,
+        "n_unflagged": 572,
+        "flagged_clusters": 6,
+        "clusters": 31,
+        "estimate": -0.675,
+        "lo": -4.517,
+        "hi": 5.184,
+        "se": 2.414,
+        "mde80": 6.758,
+        "mean_flagged": 12.718,
+        "mean_unflagged": 13.393
+      }
+    },
+    "mean_adjusted": {
+      "n_flagged": 69,
+      "n_unflagged": 978,
+      "flagged_clusters": 9,
+      "clusters": 64,
+      "estimate": -0.835,
+      "lo": -4.472,
+      "hi": 3.792,
+      "se": 2.123,
+      "mde80": 5.944,
+      "mean_flagged": -0.78,
+      "mean_unflagged": 0.055
+    },
+    "weekly_bar_share_at_median": 0.522,
+    "weekly_bar_share_at_median_unflagged": 0.462
+  }
+}

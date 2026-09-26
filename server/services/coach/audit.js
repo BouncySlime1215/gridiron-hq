@@ -28,6 +28,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS coach_answers (
   warnings_json TEXT NOT NULL,
   cost_usd REAL)`);
 
+/** COACH-V2 RULES-CHECK: add events (rule drops) to an answer's recorded plan. */
+export function appendAuditEvents(id, events) {
+  const r = row('SELECT plan_json FROM coach_answers WHERE id = ?', id);
+  if (!r) return;
+  run('UPDATE coach_answers SET plan_json = ? WHERE id = ?', JSON.stringify([...JSON.parse(r.plan_json), ...events]), id);
+}
+
 export function recordCoachAnswer({ question, route = null, leagueId = null, model = null,
   answer, ledger, plan, verification, costUsd = null }) {
   run(`INSERT INTO coach_answers

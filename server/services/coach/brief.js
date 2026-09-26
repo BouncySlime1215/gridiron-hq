@@ -32,6 +32,7 @@
  * GRIDIRON_COACH_BRIEF_ENABLED=0 vetoes preview. Off -> nothing is read or written.
  * Public repo: teams are "Team <roster id>"; chat names and text never appear.
  */
+import { holdStepRegret } from '../campaign/serve-regret.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { previewUnconfirmed, previewFields, previewText } from '../preview-mode.js';
@@ -103,7 +104,9 @@ export async function readPlansFile(file) {
 }
 
 export function leagueEntry(file, leagueId) {
-  return (file?.leagues ?? []).find(e => String(e.league) === String(leagueId)) ?? null;
+  const entry = (file?.leagues ?? []).find(e => String(e.league) === String(leagueId)) ?? null;
+  // STEP-REGRET at the serve step (campaign/serve-regret.js): Coach never reads out a move that loses to doing nothing.
+  return entry ? holdStepRegret(entry).entry : null;
 }
 
 /* ---------------------------------------------------------------- cache */

@@ -33,7 +33,7 @@ export function teamOf(entry, id) {
   return manager || name || `Team ${id}`;
 }
 /** Planner prose writes rosters as "Team N"; the brief says them by name when the map has one. */
-const namedTeams = (entry, text) => (text == null ? text : String(text).replace(/\bTeam (\d+)\b/g, (_, id) => teamOf(entry, id)));
+export const namedTeams = (entry, text) => (text == null ? text : String(text).replace(/\bTeam (\d+)\b/g, (_, id) => teamOf(entry, id)));
 
 /** Record rows under a tool name; returns cite(i, col). */
 function record(ledger, tool, rows) {
@@ -66,7 +66,7 @@ export function nextMove(entry, ledger, section) {
 }
 
 /** The producer's template writes "all N step(s)"; Coach says "the step" or "all N steps". */
-const plainSteps = text => (typeof text === 'string'
+export const plainSteps = text => (typeof text === 'string'
   ? text.replace(/\ball 1 step\(s\) land\b/g, 'the step lands').replace(/\b1 step\(s\)/g, '1 step').replace(/step\(s\)/g, 'steps')
   : text);
 
@@ -588,7 +588,7 @@ export function deckMoves(entry) {
 }
 
 /** A served move's claims ordered like the next-move answer: offer, where it sits, then the rest. */
-function servedMoveClaims(entry, ledger, section, move, k) {
+export function servedMoveClaims(entry, ledger, section, move, k) {
   const isNext = ok(entry.next_move) && entry.next_move.value?.move_id === move.move_id;
   const draft = moveClaims(entry, ledger, section, move, { k, isNext });
   const out = [...draft];

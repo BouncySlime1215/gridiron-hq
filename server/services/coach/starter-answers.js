@@ -138,7 +138,8 @@ export const starterActions = intent => ACTIONS[intent] ?? [];
  *
  * @returns {Promise<{answer, ledger, verification, dropped, preview?, preview_reason?}>}
  */
-export async function starterAnswer({ question, intent, leagueId = null, plansPath = warRoomPlansPath(), context = null }) {
+export async function starterAnswer({ question, intent, leagueId = null, plansPath = warRoomPlansPath(), context = null,
+  noModelRefusal = null }) {
   const flag = coachBriefFlag();
   const ledger = newLedger();
   const preview = flag.preview ? previewFields(BRIEF_PREVIEW_REASON) : {};
@@ -148,6 +149,7 @@ export async function starterAnswer({ question, intent, leagueId = null, plansPa
     return alternativeAnswer({ question, leagueId, plansPath, deckIndex: context?.deck_index, moveId: context?.move_id });
   }
   if (!intent) {
+    if (noModelRefusal) return refuse(noModelRefusal);
     return refuse('Coach has no model key here, so it answers only from the plan: ' +
       `${STARTER_QUESTIONS.map(q => `"${q}"`).join(', ')}. Add a key in the Dev Hub for anything else.`);
   }
@@ -177,7 +179,7 @@ const cardOf = (entry, moveId) => {
   return i < 0 ? null : i;
 };
 
-async function planEntry({ leagueId, plansPath }) {
+export async function planEntry({ leagueId, plansPath = warRoomPlansPath() }) {
   let file;
   try { file = await readPlansFile(plansPath); } catch (e) {
     console.warn(`[coach] plans file ${plansPath} could not be read: ${e?.message ?? e}`);
@@ -193,7 +195,7 @@ async function planEntry({ leagueId, plansPath }) {
   return { file, entry, league };
 }
 
-function identitiesFor(league) {
+export function identitiesFor(league) {
   try { return identityRows(league); } catch (e) {
     console.warn(`[coach] identity rows for league ${league} could not be read, so names resolve from the plans file only: ${e?.message ?? e}`);
     return [];
@@ -237,7 +239,7 @@ export async function partnerAnswer({ question, leagueId = null, plansPath = war
   const actions = out.source === 'flip_leg' ? [['warroom_view', { type: 'focus_panel', panel: 'flip_map' }]]
     : [['warroom_view', { type: 'focus_panel', panel: 'next_move' }]];
   return shipped({ draft: out.claims, ledger, file, question, intent: 'partner', preview,
-    extra: { actions, partner: { roster: who.roster, source: out.source } } });
+    extra: { actions, partner: { roster: who.roster, source: out.source, move_id: out.move_id ?? null } } });
 }
 
 /**
@@ -272,5 +274,5 @@ export async function alternativeAnswer({ question, leagueId = null, plansPath =
   }
   const moved = known != null && next < deck.length;
   return shipped({ draft, ledger, file, question, intent: 'next_alternative', preview,
-    extra: { actions: moved ? ACTIONS.next_alternative : [] } });
+    extra: { actions: moved ? ACTIONS.next_alternative : [], shown_move_id: next < deck.length ? String(deck[next].move_id) : null } });
 }

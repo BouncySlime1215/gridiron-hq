@@ -47,9 +47,11 @@ score.delete('607');                                                            
 fc.delete('608');                                                                             // no FantasyCalc value
 for (const id of ['511', '512', '513']) score.set(id, 70);                                  // depth
 
+// AJ-PICK (#487): the players Nick approved A.J. Brown for (one blue chip, one under the floor).
+const AJ_ALLOW = new Set(['601', '605']);
 const rules = {
   neverGive: new Set([...PINNED_GIVE, AJ, OBJECTIVE]), neverGet: new Set([NEVER_GET]), sold: new Set([SOLD]),
-  fc, scoreOf: id => score.get(String(id)) ?? null, closed: null
+  fc, scoreOf: id => score.get(String(id)) ?? null, closed: null, ajAllow: AJ_ALLOW
 };
 
 /* ------------------------------------------------ the oracle (independent of rules-check.js) */
@@ -61,7 +63,11 @@ function oracle(s, served) {
   const step = served.find(x => key(x.give) === key(give) && key(x.get) === key(get) && x.partner === String(s.partner) && x.move_id === String(s.move_id));
   if (!step) why.add('not_served');
   if (give.some(id => PINNED_GIVE.includes(id) || id === OBJECTIVE)) why.add('never_give');
-  if (give.includes(AJ) && !(s.kind === 'needs_ok' && get.length && get.every(id => (score.get(id) ?? -1) >= 83))) why.add('aj_needs_ok');
+  if (give.includes(AJ)) {
+    const pick = get.some(id => AJ_ALLOW.has(id) && (score.get(id) ?? -1) >= 83);
+    if (!pick) why.add('never_give');
+    else if (s.kind !== 'needs_ok') why.add('aj_needs_ok');
+  }
   if (get.includes(NEVER_GET)) why.add('never_get');
   if (get.includes(SOLD)) why.add('sold_this_season');
   for (const id of get) { const sc = score.get(id); if (sc == null) why.add('unscored'); else if (sc < 83) why.add('below_blue_chip'); }
@@ -162,14 +168,18 @@ test('the same cases as answers and cards: every violating line or card is dropp
   assert.ok(held.drops.every(d => d.rules.length && d.rules.every(r => COACH_RULES.includes(r))), 'every drop names its rule');
 });
 
-test('a closed rule source drops everything, and A.J. only ever shows as a Needs-your-OK card', () => {
+test('a closed rule source drops everything, and A.J. shows only for an approved pick, as a Needs-your-OK card', () => {
   const closed = { ...rules, closed: 'the sold-this-season ledger could not be read' };
   for (const s of served.slice(0, 20)) assert.equal(checkSuggestion(s, { rules: closed, served }).ok, false);
   const aj = { move_id: 'AJ1', steps: [{ partner: '4', give: [AJ], get: ['601'], title_odds_delta: ok(0.05) }] };
+  fc.set(AJ, fc.get('601')); // an even swap, so only the A.J. rule is in play
   const e2 = { next_move: ok(aj), alternatives: ok([]), flip_map: ok([]) };
   const s2 = servedSteps(e2);
   assert.deepEqual(checkSuggestion({ ...s2[0], kind: null }, { rules, served: s2 }).reasons, ['aj_needs_ok']);
   assert.equal(checkSuggestion({ ...s2[0], kind: 'needs_ok' }, { rules, served: s2 }).ok, true, 'an approved 83+ pick as a Needs-your-OK card');
+  assert.equal(checkSuggestion({ ...s2[0], nick_confirmed: true }, { rules, served: s2 }).ok, true, 'or a move Nick already OK\'d');
+  const notPicked = { ...rules, ajAllow: new Set() };
+  assert.deepEqual(checkSuggestion({ ...s2[0], kind: 'needs_ok' }, { rules: notPicked, served: s2 }).reasons, ['never_give'], 'no approval: never');
 });
 
 test('flip routes: a line about a flip that breaks a rule on either leg is dropped, and the hidden routes are counted in one plain line', async () => {

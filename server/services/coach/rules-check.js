@@ -10,8 +10,9 @@
  *                     trade of its own
  *   never_give        Nick gives a pinned player (Nico Collins 160, Chase Brown 80) or one
  *                     of his objectives' untouchables
- *   aj_needs_ok       A.J. Brown (277) is in the give and the card is not a Needs-your-OK
- *                     card for an approved pick (83+): he never shows as a plain offer
+ *   aj_needs_ok       A.J. Brown (277) for a player Nick approved (AJ-PICK #487), on a card that is
+ *                     neither a Needs-your-OK card nor a move Nick already OK'd: never a plain offer
+ *                     (for anyone else, 277 is never_give)
  *   never_get         Nick gets a pinned never-get player (Chris Olave 290)
  *   sold_this_season  Nick gets back a player he sold this season
  *   below_blue_chip   a get scores under the 83 floor on the served board
@@ -27,7 +28,6 @@
  * doing-nothing floor. Nothing here loosens a rule.
  */
 import { ruleVerdict, ruleGate } from '../campaign/never-give.js';
-import { BLUE_CHIP_SCORE } from '../campaign/search.js';
 import { db, row, rows } from '../../db/index.js';
 
 export const COACH_RULES = Object.freeze(['not_served', 'never_give', 'aj_needs_ok', 'never_get', 'sold_this_season',
@@ -46,7 +46,7 @@ export function servedSteps(entry) {
       // CAP-1C: a depth-only 2-for-1 the planner allowed at up to +12% carries its lineup and title gains.
       const dp = ok(s.depth_premium) ? s.depth_premium.value : null;
       out.push({ move_id: S(m.move_id), step: k, partner: S(s.partner), give: (s.give ?? []).map(S), get: (s.get ?? []).map(S),
-        delta: ok(s.title_odds_delta) ? s.title_odds_delta.value : null,
+        delta: ok(s.title_odds_delta) ? s.title_odds_delta.value : null, nick_confirmed: m.nick_confirmed === true,
         premium: dp ? { points_delta: dp.lineup_points_delta, title_delta: dp.title_odds_delta } : null });
     });
   }
@@ -73,16 +73,10 @@ export function checkSuggestion(s, { rules, served }) {
     && (s.move_id == null || x.move_id === S(s.move_id)));
   if (!step) reasons.add('not_served');
   const v = ruleVerdict(rules, { give, get, premium: s.premium ?? null });
-  for (const r of v.reasons) {
-    // 277 is never_give to ruleVerdict unless a consistency reader clears the return; Coach may show him only
-    // as a Needs-your-OK card, for gets that are all on the 83 floor.
-    if (r === 'never_give' && give.includes(AJ) && give.filter(id => rules.neverGive.has(id) && id !== AJ).length === 0) continue;
-    reasons.add(r);
-  }
-  if (give.includes(AJ)) {
-    const approvedPick = get.length > 0 && get.every(id => (rules.scoreOf(id) ?? -Infinity) >= BLUE_CHIP_SCORE);
-    if (s.kind !== 'needs_ok' || !approvedPick) reasons.add('aj_needs_ok');
-  }
+  for (const r of v.reasons) reasons.add(r);
+  // AJ-PICK (#487): A.J. Brown moves only for a player Nick approved who is 83+ now (ruleVerdict says
+  // requires_nick_confirm), and even then only as a Needs-your-OK card until Nick OKs that move.
+  if (give.includes(AJ) && v.requires_nick_confirm && !(s.kind === 'needs_ok' || s.nick_confirmed === true)) reasons.add('aj_needs_ok');
   if (step && !(Number(step.delta) > 0)) reasons.add('loses_to_nothing');
   return { ok: reasons.size === 0, reasons: [...reasons] };
 }
@@ -121,7 +115,8 @@ export function holdToRules({ answer, proposals = [], ledger, entry, rules, part
     if (stepIx === 'both') return flipVerdict(moveId);
     const st = byMove.get(`${moveId}:${stepIx ?? 0}`) ?? served.find(x => x.move_id === S(moveId));
     if (!st) return { ok: false, reasons: ['not_served'], step: null };
-    return { ...checkSuggestion({ give: st.give, get: st.get, partner: st.partner, move_id: st.move_id, kind, premium: st.premium ?? null }, { rules, served }), step: st };
+    return { ...checkSuggestion({ give: st.give, get: st.get, partner: st.partner, move_id: st.move_id, kind, premium: st.premium ?? null,
+      nick_confirmed: st.nick_confirmed }, { rules, served }), step: st };
   };
   const claims = [];
   for (const c of answer?.claims ?? []) {

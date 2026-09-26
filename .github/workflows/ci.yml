@@ -94,6 +94,24 @@ jobs:
       - name: Build client
         run: npm run build
 
+      # Plan item 57: first-load gzip bytes of each of the seven area routes
+      # against perf-budgets.json; more than +10% on any area fails the PR. An
+      # intended growth commits a new baseline (node scripts/perf-budgets.mjs
+      # --update) with the change, so the reviewer sees it in the diff.
+      - name: Perf budgets
+        run: npm run check:perf
+        env:
+          GRIDIRON_PERF_BUDGETS: enforce
+
+      # Long tasks on each area switch, in headless Chrome against the built
+      # client and a fresh temp database. Report only until it is shown to be
+      # stable on runners (GRIDIRON_PERF_LONGTASKS unset); prints NOT RUN when
+      # no Chrome is installed.
+      - name: Perf long tasks (report only)
+        run: npm run check:longtasks
+        env:
+          SCHEDULER_DISABLED: '1'
+
       - name: Fresh-install startup smoke test
         # Boots the real server against a brand-new isolated temp SQLite
         # database (never the tracked/live one) and confirms one real

@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   root: path.dirname(fileURLToPath(import.meta.url)),
   plugins: [react()],
+  // .vite/manifest.json: scripts/perf-budgets.mjs reads it to size each area's first load.
+  build: { manifest: true },
   server: {
     // Overridable so a second dev instance (e.g. a background verification
     // session) can run alongside the usual one without a port clash.

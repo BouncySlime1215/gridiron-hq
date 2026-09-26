@@ -114,6 +114,13 @@ startDraftFinalizeJob();
 
 app.get('/api/health', healthHandler());
 
+// STARTUP HEALTH (plan item 56, flag GRIDIRON_STARTUP_HEALTH, off by default): the trade-card routes
+// answer 503 with a plain banner instead of a card while the rules module, the FantasyCalc value reader
+// or the season trade ledger fails to load. Off, tradeSafety.gate is a pass-through and nothing is probed.
+const { createTradeSafety, startupHealthOn } = await import('./services/startup-health.js');
+const tradeSafety = createTradeSafety({ db: await import('./db/index.js') });
+if (startupHealthOn()) await tradeSafety.probe();
+
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
@@ -123,6 +130,10 @@ app.use('/api/auth', localAuthRouter);
 // established either way is the same `auth_sessions` row underneath.
 app.use('/api/auth', googleAuthRouter);
 
+// STARTUP HEALTH gate: matches only the trade-card paths (startup-health.js#CARD_ROUTES) and passes
+// everything else through. Mounted once, ahead of the routers, so their auth mounts stay as they are;
+// its 503 carries the fixed banner text only, never data.
+app.use(tradeSafety.gate);
 app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
@@ -146,6 +157,10 @@ app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/grades', ...legacyAuthenticated, gradesRouter);
+// The banner's source: { enabled: false } with the flag off, else { status: 'ok' | 'fail_closed', banner }.
+app.get('/api/trade-safety', ...legacyAuthenticated, async (_req, res, next) => {
+  try { res.json(await tradeSafety.status()); } catch (e) { next(e); }
+});
 app.use('/api/warroom', ...legacyAuthenticated, warroomNegotiateRouter);
 app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);

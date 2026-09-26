@@ -30,6 +30,7 @@ import { ladderSection } from './ladder.js';
 import { floorName as getsFloorName } from './gets-floor.js';
 import { hisSide, hisSideSummary } from './his-side.js';
 import { deadlineSummary } from './deadline-mode.js';
+import { neutral } from '../people/neutral.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -175,6 +176,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const waiting = c => !!c?.aj && !c.aj.nick_confirmed;
   const idByFirstKey = new Map(deck.map((c, j) => [dealKey(c.plan.steps[0]), moveIds[j]]));
 
+  // WARROOM-PRONOUN-FIX: a league-mate reads "they", never "he" — same guard as Coach's answers
+  // (coach/answer-shape.js#neutralLine). A template line this fixed vocabulary cannot ever break
+  // (no raw name is fed through it here), so the `?? text` fallback is defensive, not expected to fire.
+  const nz = text => neutral(text) ?? text;
   const reasoning = ({ team, p, pBasis, delta, clears, pb, verdict, whole }) => {
     const needs = needsOf(team);
     const shrank = verdict?.verdict === 'shrank';
@@ -183,17 +188,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       his_side: (needs.length ? `${tl(team)}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
         : `There is no read of ${tl(team)}'s needs, so the offer leans on market value alone.`)
         + (pb?.nick_shift ? ` ${pb.nick_shift.text}` : ''), // FIX-02c: Nick's read shifts the price (hand-set)
-      devils_advocate: shrank ? `On fresh dice the plan shrank by ${fmt(verdict.shrink)}: the first read was lucky.`
+      devils_advocate: nz(shrank ? `On fresh dice the plan shrank by ${fmt(verdict.shrink)}: the first read was lucky.`
         : clears === false ? 'The gain does not clear two standard errors of simulation noise.'
           : verdict?.verdict === 'holds' ? 'The gain clears the noise and held on fresh dice; the weak link is whether he says yes.'
-            : 'The gain clears the noise but was not re-checked on fresh dice.',
+            : 'The gain clears the noise but was not re-checked on fresh dice.'),
       news_check: pb?.wait ? (pb.wait.flag === 'wait' ? `Wait ${pb.wait.days} days: ${pb.wait.reason}.` : `Act now: ${pb.wait.reason}.`)
         : 'Not checked: this offer has no playbook yet.',
-      confidence: `Chance he says yes is ${pct(p)}, from ${pLabelOf(pBasis)}.`,
-      counter: (() => {
+      confidence: nz(`Chance he says yes is ${pct(p)}, from ${pLabelOf(pBasis)}.`),
+      counter: nz((() => {
         const row = pb?.replies?.find(r => r.kind === 'counter');
         return row?.counter_rules ? `If he counters, counter with ${row.counter_rules.counter_with}.` : row?.do ?? 'No counter plan: decline any counter that adds players on your side.';
-      })(),
+      })()),
       cites: ['steps[0].p_yes', 'steps[0].title_odds_delta'],
       check_first: clears === false || shrank,
     }, 'plan.template');
@@ -220,7 +225,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       out.message = pb.message ? ok(pb.message.text, 'plan.template') : unknown('No message was written for this step.', 'plan.template');
       out.opening = pb.opening
         ? ok({ give: ids(pb.opening.give), get: ids(st.get),
-          text: `Open with ${list(pb.opening.give)} for ${list(st.get)} (his screen ${signed(pb.opening.his_pct)}).` }, 'clone.price')
+          text: nz(`Open with ${list(pb.opening.give)} for ${list(st.get)} (his screen ${signed(pb.opening.his_pct)}).`) }, 'clone.price')
         : unknown(`No opening price: ${pb.ladder?.reason ?? 'the ladder is empty'}.`, 'clone.price');
       out.walk_away = pb.walk_away ? ok({ text: pb.walk_away.text, max_give: ids(pb.walk_away.give) }, 'clone.price')
         : unknown(`No walk-away: ${pb.ladder?.reason ?? 'the ladder is empty'}.`, 'clone.price');
@@ -363,9 +368,13 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     ? [{ week: w, planned: nowMetric }, { week: Math.min(18, Math.max(res.speed[0]?.arrive_by ?? w, w + 1)), planned: nowMetric + res.best.expected }]
     : [{ week: w, planned: nowMetric }];
   const path = (prevTraj ?? trajectory).map(p => ({ week: p.week, planned: p.planned, ...(p.week === w ? { actual: nowMetric } : {}) }));
-  const goal = o.kind === 'player' ? { kind: 'get_player', label: objectiveLabel(o, names), ...(inNames(o.target) ? { player_id: String(o.target) } : {}) }
-    : o.kind === 'points' ? { kind: 'points', label: objectiveLabel(o, names), points_per_week: o.points_per_week }
-      : { kind: o.goal === 'playoffs' ? 'playoffs' : 'title', label: objectiveLabel(o, names) };
+  // WARROOM-LABEL-FIX: `metric` ('title' | 'playoff' | 'points') is the same value that decides
+  // every title_odds_delta / title_after / title_now field below (metricKey(o), line ~154), so a
+  // card's "Title odds ..." vs "Playoff odds ..." label is derived from this, never hard-coded.
+  const metricLabel = metric === 'playoff' ? 'Playoff odds' : 'Title odds';
+  const goal = o.kind === 'player' ? { kind: 'get_player', label: objectiveLabel(o, names), metric, metric_label: metricLabel, ...(inNames(o.target) ? { player_id: String(o.target) } : {}) }
+    : o.kind === 'points' ? { kind: 'points', label: objectiveLabel(o, names), metric, metric_label: metricLabel, points_per_week: o.points_per_week }
+      : { kind: o.goal === 'playoffs' ? 'playoffs' : 'title', label: objectiveLabel(o, names), metric, metric_label: metricLabel };
   const tolerances = Object.fromEntries(TOLERANCE_KEYS.filter(k => fin(res.tolerances?.[k])).map(k => [k, res.tolerances[k]]));
   const destination = ok({
     goal: ok(goal, 'campaign.plan'),

@@ -75,7 +75,7 @@ export function priceLadder(curve, { batna = 0, mode = 'balanced', hard = false 
   const ladder = worth.filter(c => c.his_pct >= opening.his_pct && c.his_pct <= walk_away.his_pct);
   return { ...L, opening, walk_away, ladder,
     nick_shift: { reason: HARD_REASON, shift_pct: HARD_SHIFT_PCT, basis: 'hand-set, not fitted',
-      text: `${HARD_REASON}: open ${HARD_SHIFT_PCT} pts lower on his screen and walk away ${HARD_SHIFT_PCT} pts sooner (hand-set).` } };
+      text: `${HARD_REASON}: open ${HARD_SHIFT_PCT} pts lower on their screen and walk away ${HARD_SHIFT_PCT} pts sooner (hand-set).` } };
 }
 
 function baseLadder(curve, { batna, mode }) {
@@ -117,7 +117,7 @@ export function stepMessage(step, ctx) {
   if (fits.length) {
     const g = fits[0];
     lines.push(`Looks like you could use a ${g.position}.`);
-    facts.push({ text: `his roster read lists ${g.position} as a need`, field: 'counterparty.needs' });
+    facts.push({ text: `their roster read lists ${g.position} as a need`, field: 'counterparty.needs' });
   }
   for (const g of gives) {
     if (Number.isFinite(g.ros_ppg) && g.ros_ppg > 0) {
@@ -144,17 +144,17 @@ export function replyTable(step, ctx) {
   rows.push(ctx.backup?.step
     ? { kind: 'decline', do: declineDo(ctx.backup.step.team, ctx.teams), next: deal(ctx.backup.step),
       expected_after: ctx.backup.expected ?? null,
-      learn: 'a decline lowers his estimated yes-rate for packages this size' }
+      learn: 'a decline lowers their estimated yes-rate for packages this size' }
     : { kind: 'decline', do: 'Log the reason. No backup clears the sliders this week; the brain replans on the next refresh.',
-      learn: 'a decline lowers his estimated yes-rate for packages this size' });
+      learn: 'a decline lowers their estimated yes-rate for packages this size' });
   const L = ctx.ladder ?? {};
   if (L.walk_away) {
     const nextRung = (L.ladder ?? []).find(c => c.his_pct > (L.opening?.his_pct ?? -Infinity)) ?? null;
-    rows.push({ kind: 'counter', do: 'Check his ask against the walk-away.',
+    rows.push({ kind: 'counter', do: 'Check their ask against the walk-away.',
       counter_rules: {
-        accept_if: `his ask is no richer than the walk-away package (walk_away_give; his screen ${L.walk_away.his_pct >= 0 ? '+' : ''}${L.walk_away.his_pct.toFixed(0)}%)`,
-        counter_with: nextRung ? `the next rung: ${nextRung.give.join(' + ')} (his screen ${nextRung.his_pct >= 0 ? '+' : ''}${nextRung.his_pct.toFixed(0)}%)` : 'repeat the opening once, then hold',
-        walk_away_if: 'his ask is richer than the walk-away package: your backup plan is worth more',
+        accept_if: `their ask is no richer than the walk-away package (walk_away_give; their screen ${L.walk_away.his_pct >= 0 ? '+' : ''}${L.walk_away.his_pct.toFixed(0)}%)`,
+        counter_with: nextRung ? `the next rung: ${nextRung.give.join(' + ')} (their screen ${nextRung.his_pct >= 0 ? '+' : ''}${nextRung.his_pct.toFixed(0)}%)` : 'repeat the opening once, then hold',
+        walk_away_if: 'their ask is richer than the walk-away package: your backup plan is worth more',
       },
       walk_away_give: L.walk_away.give, next_rung_give: nextRung?.give ?? null });
   } else {

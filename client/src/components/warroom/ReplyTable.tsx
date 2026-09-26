@@ -6,9 +6,9 @@ import { pts } from './format';
 const ROWS = [['accept', 'Accepts'], ['decline', 'Declines'], ['counter', 'Counters'], ['silence', 'No reply 24 h']] as const;
 
 /**
- * "If he says...": what to do for each answer, from the step's `reply_table`. Rows with
+ * "If they say...": what to do for each answer, from the step's `reply_table`. Rows with
  * no plan say so ("not computed yet"), never hidden, so it is visible the table is
- * incomplete. Once the card is picked, "He did this" logs his actual answer as an
+ * incomplete. Once the card is picked, "They did this" logs their actual answer as an
  * `offer.reply` request (onLog); otherwise tapping a row only opens it.
  */
 export default function ReplyTable({ replies, onLog }: {
@@ -20,7 +20,7 @@ export default function ReplyTable({ replies, onLog }: {
   return (
     <FieldBlock f={replies} label="The reply plan">
       {table => (
-        <table className="wr-rt" aria-label="If he says">
+        <table className="wr-rt" aria-label="If they say">
           <tbody>
             {ROWS.map(([k, label]) => {
               const f = table[k];
@@ -37,7 +37,7 @@ export default function ReplyTable({ replies, onLog }: {
                     <td>
                       <button type="button" className="wr-btn wr-sm" disabled={logged != null}
                         onClick={e => { e.stopPropagation(); setLogged(k); onLog(k); }}>
-                        {logged === k ? 'Logged' : 'He did this'}
+                        {logged === k ? 'Logged' : 'They did this'}
                       </button>
                     </td>
                   )}

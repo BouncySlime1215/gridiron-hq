@@ -115,7 +115,7 @@ test('"I sent it" posts offer.sent once; a logged reply posts offer.reply; Do it
   const v = viewOf();
   const picked = render({ view: v, initialState: deckReducer(initialDeck(), { type: 'do_it', card: 'L1-m1', at: 1 }) });
   assert.match(picked.text, /I sent it/);
-  assert.match(picked.text, /He did this/);
+  assert.match(picked.text, /They did this/);
   assert.equal(typeof postWarRoomRequest, 'function');
 });
 
@@ -206,10 +206,10 @@ test('render: the playbook and numbers come from the move; missing ones say "not
     l.next_move.value = structuredClone(l.alternatives.value[0]);
   });
   const { html, text } = render({ view: v });
-  const tile = textOf(html.split('Chance he says yes')[1].split('Title odds')[0]);
+  const tile = textOf(html.split('Chance they say yes')[1].split('Title odds')[0]);
   assert.match(tile, /not computed yet/);
   assert.doesNotMatch(tile, /\b0%/);
-  for (const label of ['Walk away at', 'Case for', 'His side of the table', "Devil's advocate", 'News check', 'Confidence, explained', 'If he counters']) {
+  for (const label of ['Walk away at', 'Case for', 'Their side of the table', "Devil's advocate", 'News check', 'Confidence, explained', 'If they counter']) {
     const after = text.split(label)[1] ?? '';
     assert.match(after.slice(0, 40), /not computed yet/, `${label} reads not computed yet`);
   }

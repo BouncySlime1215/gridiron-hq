@@ -3,7 +3,7 @@ import { NOT_COMPUTED } from './format';
 
 /** Plain names for E1-E7 (WAR-ROOM-UI.md 3.7), used when the report omits a check. Statuses come from `brain_report`. */
 export const CHECKS = [
-  ['E1', 'Does 40% mean 40%? (chance he says yes)'],
+  ['E1', 'Does 40% mean 40%? (chance they say yes)'],
   ['E2', 'Are our offers priced right?'],
   ['E3', 'Does 20% title odds mean 20%?'],
   ['E4', 'Does the planner beat simple moves?'],

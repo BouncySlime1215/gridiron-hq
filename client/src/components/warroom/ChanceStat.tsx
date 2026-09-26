@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
+import { CHANCE_THEY_SAY_YES } from './copy';
 
 /**
- * ChanceStat (docs/ui/CONSOLIDATION-MAP.md section 6): "chance he says yes", drawn the same way
+ * ChanceStat (docs/ui/CONSOLIDATION-MAP.md section 6): "chance they say yes", drawn the same way
  * everywhere it appears: the planner's hero card (Today, Trades → Next move), Go get's plan steps, the
  * finder's trade card (ManagerRead) and Trades → People. The served value (a point, or a low–high
  * band), a "guess" pill when it rests on an unvalidated model, and what it rests on (basis, n). It
@@ -11,7 +12,7 @@ import type { ReactNode } from 'react';
  */
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-export default function ChanceStat({ value, low, high, guess = false, basis, n, why, size = 'line', label = 'Chance he says yes', big, testid }: {
+export default function ChanceStat({ value, low, high, guess = false, basis, n, why, size = 'line', label = CHANCE_THEY_SAY_YES, big, testid }: {
   value?: number | null; low?: number | null; high?: number | null; guess?: boolean;
   basis?: string | null; n?: number | null; why?: string | null;
   size?: 'big' | 'line'; label?: string;

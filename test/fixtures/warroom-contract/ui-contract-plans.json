@@ -225,7 +225,7 @@
        "walk_away": {
         "status": "ok",
         "value": {
-         "text": "Stop if he asks for more than these two.",
+         "text": "Stop if they ask for more than these two.",
          "max_give": [
           "601",
           "604"
@@ -277,9 +277,9 @@
           "value": {
            "do": "Answer by the counter rules.",
            "counter_rules": {
-            "accept_if": "He adds nothing and drops the tight end ask.",
+            "accept_if": "They add nothing and drop the tight end ask.",
             "counter_with": "Swap the bench receiver for the tight end.",
-            "walk_away_if": "He asks for your starting back."
+            "walk_away_if": "They ask for your starting back."
            }
           },
           "source": "coach.text"
@@ -299,12 +299,12 @@
        "reasoning": {
         "status": "ok",
         "value": {
-         "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-         "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-         "devils_advocate": "The back you give could win his job back in two weeks.",
+         "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+         "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+         "devils_advocate": "The back you give could win their job back in two weeks.",
          "news_check": "No news in the last two days contradicts the numbers.",
-         "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-         "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+         "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+         "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
          "cites": [
           "alternatives.value[0].steps[0].p_yes",
           "alternatives.value[0].steps[0].title_odds_delta"
@@ -362,7 +362,7 @@
        "walk_away": {
         "status": "ok",
         "value": {
-         "text": "Stop if he asks for more than these two.",
+         "text": "Stop if they ask for more than these two.",
          "max_give": [
           "502",
           "604b"
@@ -414,9 +414,9 @@
           "value": {
            "do": "Answer by the counter rules.",
            "counter_rules": {
-            "accept_if": "He adds nothing and drops the tight end ask.",
+            "accept_if": "They add nothing and drop the tight end ask.",
             "counter_with": "Swap the bench receiver for the tight end.",
-            "walk_away_if": "He asks for your starting back."
+            "walk_away_if": "They ask for your starting back."
            }
           },
           "source": "coach.text"
@@ -436,12 +436,12 @@
        "reasoning": {
         "status": "ok",
         "value": {
-         "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-         "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-         "devils_advocate": "The back you give could win his job back in two weeks.",
+         "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+         "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+         "devils_advocate": "The back you give could win their job back in two weeks.",
          "news_check": "No news in the last two days contradicts the numbers.",
-         "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-         "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+         "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+         "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
          "cites": [
           "alternatives.value[0].steps[0].p_yes",
           "alternatives.value[0].steps[0].title_odds_delta"
@@ -475,12 +475,12 @@
      "reasoning": {
       "status": "ok",
       "value": {
-       "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-       "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-       "devils_advocate": "The back you give could win his job back in two weeks.",
+       "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+       "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+       "devils_advocate": "The back you give could win their job back in two weeks.",
        "news_check": "No news in the last two days contradicts the numbers.",
-       "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-       "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+       "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+       "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
        "cites": [
         "alternatives.value[0].steps[0].p_yes",
         "alternatives.value[0].steps[0].title_odds_delta"
@@ -550,7 +550,7 @@
         "walk_away": {
          "status": "ok",
          "value": {
-          "text": "Stop if he asks for more than these two.",
+          "text": "Stop if they ask for more than these two.",
           "max_give": [
            "601",
            "604"
@@ -602,9 +602,9 @@
            "value": {
             "do": "Answer by the counter rules.",
             "counter_rules": {
-             "accept_if": "He adds nothing and drops the tight end ask.",
+             "accept_if": "They add nothing and drop the tight end ask.",
              "counter_with": "Swap the bench receiver for the tight end.",
-             "walk_away_if": "He asks for your starting back."
+             "walk_away_if": "They ask for your starting back."
             }
            },
            "source": "coach.text"
@@ -624,12 +624,12 @@
         "reasoning": {
          "status": "ok",
          "value": {
-          "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-          "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-          "devils_advocate": "The back you give could win his job back in two weeks.",
+          "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+          "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+          "devils_advocate": "The back you give could win their job back in two weeks.",
           "news_check": "No news in the last two days contradicts the numbers.",
-          "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-          "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+          "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+          "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
           "cites": [
            "alternatives.value[0].steps[0].p_yes",
            "alternatives.value[0].steps[0].title_odds_delta"
@@ -687,7 +687,7 @@
         "walk_away": {
          "status": "ok",
          "value": {
-          "text": "Stop if he asks for more than these two.",
+          "text": "Stop if they ask for more than these two.",
           "max_give": [
            "502",
            "604b"
@@ -739,9 +739,9 @@
            "value": {
             "do": "Answer by the counter rules.",
             "counter_rules": {
-             "accept_if": "He adds nothing and drops the tight end ask.",
+             "accept_if": "They add nothing and drop the tight end ask.",
              "counter_with": "Swap the bench receiver for the tight end.",
-             "walk_away_if": "He asks for your starting back."
+             "walk_away_if": "They ask for your starting back."
             }
            },
            "source": "coach.text"
@@ -761,12 +761,12 @@
         "reasoning": {
          "status": "ok",
          "value": {
-          "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-          "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-          "devils_advocate": "The back you give could win his job back in two weeks.",
+          "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+          "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+          "devils_advocate": "The back you give could win their job back in two weeks.",
           "news_check": "No news in the last two days contradicts the numbers.",
-          "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-          "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+          "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+          "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
           "cites": [
            "alternatives.value[0].steps[0].p_yes",
            "alternatives.value[0].steps[0].title_odds_delta"
@@ -800,12 +800,12 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-        "devils_advocate": "The back you give could win his job back in two weeks.",
+        "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+        "devils_advocate": "The back you give could win their job back in two weeks.",
         "news_check": "No news in the last two days contradicts the numbers.",
-        "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-        "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+        "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+        "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
         "cites": [
          "alternatives.value[0].steps[0].p_yes",
          "alternatives.value[0].steps[0].title_odds_delta"
@@ -870,7 +870,7 @@
         "walk_away": {
          "status": "ok",
          "value": {
-          "text": "Stop if he asks for more than these two.",
+          "text": "Stop if they ask for more than these two.",
           "max_give": [
            "601",
            "605"
@@ -922,9 +922,9 @@
            "value": {
             "do": "Answer by the counter rules.",
             "counter_rules": {
-             "accept_if": "He adds nothing and drops the tight end ask.",
+             "accept_if": "They add nothing and drop the tight end ask.",
              "counter_with": "Swap the bench receiver for the tight end.",
-             "walk_away_if": "He asks for your starting back."
+             "walk_away_if": "They ask for your starting back."
             }
            },
            "source": "coach.text"
@@ -1079,7 +1079,7 @@
        "source": "sim.title"
       },
       "verdict": "not_worth_it",
-      "because": "he costs the tight end",
+      "because": "they cost the tight end",
       "new_next_move_changes": false
      },
      "remove:s3": {
@@ -1145,7 +1145,7 @@
        "source": "sim.title"
       },
       "verdict": "not_worth_it",
-      "because": "his owner rarely trades",
+      "because": "their owner rarely trades",
       "new_next_move_changes": true
      }
     },
@@ -1204,12 +1204,12 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-        "devils_advocate": "The back you give could win his job back in two weeks.",
+        "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+        "devils_advocate": "The back you give could win their job back in two weeks.",
         "news_check": "No news in the last two days contradicts the numbers.",
-        "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-        "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+        "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+        "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
         "cites": [
          "alternatives.value[0].steps[0].p_yes",
          "alternatives.value[0].steps[0].title_odds_delta"
@@ -1280,12 +1280,12 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
-        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
-        "devils_advocate": "The back you give could win his job back in two weeks.",
+        "case_for": "They fill the flex hole for the next four weeks and cost a bench piece.",
+        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs they cannot start.",
+        "devils_advocate": "The back you give could win their job back in two weeks.",
         "news_check": "No news in the last two days contradicts the numbers.",
-        "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
-        "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+        "confidence": "The chance they say yes is a guess: the trade model has not passed E1.",
+        "counter": "They will likely ask for the tight end back; the plan says decline and go to the backup.",
         "cites": [
          "alternatives.value[0].steps[0].p_yes",
          "alternatives.value[0].steps[0].title_odds_delta"
@@ -1390,7 +1390,7 @@
      "checks": [
       {
        "id": "E1",
-       "name": "Does 40% mean 40%? (chance he says yes)",
+       "name": "Does 40% mean 40%? (chance they say yes)",
        "status": "not_enough_data",
        "bar": "Brier beats base rate on 50+ offers",
        "n": 12,

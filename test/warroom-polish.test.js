@@ -201,16 +201,16 @@ test('8: targets never show a player the plan marks untouchable on his roster', 
   // (a) a per-roster list on the entry
   const listed = viewOf({ ...structuredClone(LEAGUE4), untouchables_by_roster: { [first.owner]: [first.player] } });
   assert.equal(listed.targets.value.some(t => t.player === first.player), false);
-  assert.deepEqual(listed.targets.hidden_untouchable, [{ player: first.player, owner: first.owner, label: 'on his untouchable list' }]);
+  assert.deepEqual(listed.targets.hidden_untouchable, [{ player: first.player, owner: first.owner, label: 'on their untouchable list' }]);
   const text = textOf(render(React.createElement(TargetPicker, { field: listed.targets, names: LEAGUE4.names, big: true })));
   assert.doesNotMatch(text.replace(/1 hidden:.*$/, ''), new RegExp(`Player ${first.player} `));
-  assert.match(text, new RegExp(`1 hidden: Player ${first.player} \\(\\w+\\) \\(Team ${first.owner}, on his untouchable list\\)`));
+  assert.match(text, new RegExp(`1 hidden: Player ${first.player} \\(\\w+\\) \\(Team ${first.owner}, on their untouchable list\\)`));
   // (a2) the producer's own per-manager list: partners[].untouchable (RULINGS 17, integration batch 4)
   const viaPartners = viewOf({ ...structuredClone(LEAGUE4),
     partners: { status: 'ok', source: 'campaign.plan', value: [{ team: first.owner, p_responds: 0.5, basis: 'fixture',
       edge: { status: 'ok', value: 0, source: 'plan.path', unit: 'title_odds' }, untouchable: [first.player] }] } });
   assert.equal(viaPartners.targets.value.some(t => t.player === first.player), false);
-  assert.deepEqual(viaPartners.targets.hidden_untouchable, [{ player: first.player, owner: first.owner, label: 'on his untouchable list' }]);
+  assert.deepEqual(viaPartners.targets.hidden_untouchable, [{ player: first.player, owner: first.owner, label: 'on their untouchable list' }]);
   // (b) a label on the target row itself (batch 4), even if a view slipped it through
   const marked = structuredClone(LEAGUE4.targets);
   marked.value[0].untouchable = true;

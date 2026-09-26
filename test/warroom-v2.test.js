@@ -138,7 +138,7 @@ globalThis.__warRoomApi['/trades/4/war-room'] = v4;
 // League 7 (the page's map only): league 4's view with one target hidden as untouchable.
 const t0 = v4.targets.value[0];
 const v7 = { ...structuredClone(v4), league: 7, league_id: 7,
-  targets: { ...structuredClone(v4.targets), hidden_untouchable: [{ player: t0.player, owner: t0.owner, label: 'on his untouchable list' }] } };
+  targets: { ...structuredClone(v4.targets), hidden_untouchable: [{ player: t0.player, owner: t0.owner, label: 'on their untouchable list' }] } };
 v7.targets.value = v7.targets.value.slice(1);
 globalThis.__warRoomApi['/trades/7/war-room'] = v7;
 // The hero's value edge reads the real his-screen route (default-off here: it answers why).
@@ -299,23 +299,23 @@ test('V5: Go get: target -> paths -> the offer composer; a picked deck card logs
   assert.equal(tl.length, firstPath.steps.length, 'one timeline row per step');
   assert.ok(textOf(tl[0]).includes(`Team ${firstPath.steps[0].partner}`), 'step partner');
   assert.ok(textOf(tl[0]).includes(`${(firstPath.steps[0].p_yes.value * 100).toFixed(0)}%`), 'step chance');
-  // The composer: message, walk-away ladder, "If he says..." for the chosen path.
+  // The composer: message, walk-away ladder, "If they say..." for the chosen path.
   const comp = await waitFor(() => one(p, 'data-panel', 'composer'), 2000, 'the composer');
   const s1 = firstPath.steps[0];
   assert.ok(one(comp, 'aria-label', 'Negotiation ladder'), 'the ladder');
   if (s1.walk_away.status === 'ok') assert.ok(textOf(comp).includes(`${n(s1.walk_away.value.max_give)} for ${n(s1.get)}`), 'walk-away package');
-  assert.ok(one(comp, 'aria-label', 'If he says'), 'the reply table');
+  assert.ok(one(comp, 'aria-label', 'If they say'), 'the reply table');
   if (s1.message.status === 'ok') assert.ok(textOf(comp).includes(s1.message.value), 'the message text');
   // Replies log only for the deck's picked card, from Trades → Next move's offer fold (the War Room
   // shell used to relay the picked card to Go get; the deck and its offer now sit together).
   {
     const nx = await go(ui, 'next');
     const fold = await waitFor(() => one(nx, 'data-panel', 'composer'), 2000, 'the offer fold under the deck');
-    assert.equal(button(fold, 'He did this'), null, 'replies log only once the card is picked');
+    assert.equal(button(fold, 'They did this'), null, 'replies log only once the card is picked');
     click(button(nx, /^Copy (message|blocked)$/));
     await waitFor(() => button(nx, 'I sent it'), 2000, 'picked');
-    await waitFor(() => button(one(nx, 'data-panel', 'composer'), 'He did this'), 2000, 'the reply buttons');
-    click(button(one(nx, 'data-panel', 'composer'), 'He did this'));
+    await waitFor(() => button(one(nx, 'data-panel', 'composer'), 'They did this'), 2000, 'the reply buttons');
+    click(button(one(nx, 'data-panel', 'composer'), 'They did this'));
     await waitFor(() => requestsOf(4, 'offer.reply').length === 1, 3000, 'the offer.reply row');
     assert.equal(requestsOf(4, 'offer.reply')[0].payload.move_id, nm.move_id);
     await go(ui, 'goget');
@@ -368,7 +368,7 @@ test('V7: untouchable targets stay hidden with their label; FantasyPros is never
   await go(ui, 'goget');
   await waitFor(() => one(ui.container, 'data-testid', 'targets-untouchable'), 2000, 'the hidden-untouchable line');
   const name = v7.names[t0.player] ?? `Player ${t0.player}`;
-  assert.equal(textOf(one(ui.container, 'data-testid', 'targets-untouchable')), `1 hidden: ${name} (Team ${t0.owner}, on his untouchable list)`);
+  assert.equal(textOf(one(ui.container, 'data-testid', 'targets-untouchable')), `1 hidden: ${name} (Team ${t0.owner}, on their untouchable list)`);
   assert.equal(one(ui.container, 'data-target-player', t0.player), null, 'the untouchable player is not a target card');
   let seen = textOf(ui.container);
   for (const id of ['today', 'goget', 'market']) {

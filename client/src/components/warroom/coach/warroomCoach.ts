@@ -325,7 +325,7 @@ export function dispatch(s: CoachSession, raw: unknown, ctx: CoachCtx, asked: st
       break;
     case 'sort':
       ui.sorts[a.panel] = a.by;
-      message = a.by === 'engine' ? `${PANEL_NAMES[a.panel]} is back in the engine's order.` : `${PANEL_NAMES[a.panel]} sorted by ${a.by === 'p_yes' ? 'chance he says yes' : a.by}.`;
+      message = a.by === 'engine' ? `${PANEL_NAMES[a.panel]} is back in the engine's order.` : `${PANEL_NAMES[a.panel]} sorted by ${a.by === 'p_yes' ? 'chance they say yes' : a.by}.`;
       break;
     case 'pin_card': {
       const pin = { player_id: a.player_id ?? null, move_id: a.move_id ?? null };

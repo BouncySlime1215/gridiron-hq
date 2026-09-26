@@ -633,7 +633,7 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   const e1Cites = e1 == null ? [] : [citeOf(brain, `brain_report_checks_${e1}_id`), citeOf(brain, `brain_report_checks_${e1}_status`)].filter(Boolean);
   const proven = e1Status === 'passing';
   const pLabel = proven ? 'E1 is passing on the report card'
-    : e1Status ? `unproven: E1 (chance he says yes is calibrated) is ${String(e1Status).replace(/_/g, ' ')} on the report card`
+    : e1Status ? `unproven: E1 (chance they say yes is calibrated) is ${String(e1Status).replace(/_/g, ' ')} on the report card`
       : 'unproven: the report card is not in the plan';
 
   const nameOf = pid => nameCore(names[pid] ?? `player ${pid}`);
@@ -832,7 +832,7 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
         cites: [wc(k, 'title_before'), wc(k, 'title_after'), wc(k, 'title_delta')].filter(Boolean) });
       if (ourPrice.p_yes != null) {
         const band = ourPrice.p_yes_low != null && ourPrice.p_yes_high != null ? ` (band ${pct(ourPrice.p_yes_low)}% to ${pct(ourPrice.p_yes_high)}%)` : '';
-        claims.push({ text: `Chance he says yes to it, from the one counterpart model: ${pct(ourPrice.p_yes)}%${band}; ${pLabel}.`,
+        claims.push({ text: `Chance they say yes to it, from the one counterpart model: ${pct(ourPrice.p_yes)}%${band}; ${pLabel}.`,
           cites: [wc(k, 'p_yes'), wc(k, 'p_yes_low'), wc(k, 'p_yes_high'), ...e1Cites].filter(Boolean) });
       }
     }

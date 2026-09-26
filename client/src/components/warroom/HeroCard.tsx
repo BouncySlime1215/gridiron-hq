@@ -14,6 +14,7 @@ import Icon from './icons';
 import { useSpotlight } from './spotlight';
 import CountUp from './CountUp';
 import ChanceStat from './ChanceStat';
+import { oddsIfTheySayYes } from './copy';
 
 /**
  * WAR-ROOM-UI v2: the NEXT MOVE as one clean hero card. Only what decides the send is
@@ -45,6 +46,10 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
   const clock = view.reply_clock?.[String(s.partner)] ?? null;
   const status = heroStatus(s);
   const titleNow = isOk(view.destination) ? view.destination.value.title_now : undefined;
+  // WARROOM-LABEL-FIX: the label reads the plan's own objective (goal.metric_label), so league 4
+  // (goal=playoffs) shows "Playoff odds", not "Title odds", for the same number.
+  const goalField = isOk(view.destination) ? view.destination.value.goal : undefined;
+  const oddsLabel = oddsIfTheySayYes(isOk(goalField) ? goalField.value : undefined);
   const noise = isOk(s.title_odds_delta) && s.title_odds_delta.clears_2se === false;
   const both = isOk(titleNow) && isOk(s.title_after);
   const spot = useSpotlight<HTMLElement>();
@@ -74,7 +79,7 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
       <div className="wr-hero-nums">
         <ChanceStat size="big" testid="hero-chance" value={isOk(s.p_yes) ? s.p_yes.value : null}
           big={<BigVal f={s.p_yes} fmt={v => pct(v)} />} guess={isGuess(s.p_yes)} />
-        <Metric label="Title odds if he says yes" testid="hero-odds"
+        <Metric label={oddsLabel} testid="hero-odds"
           big={both
             ? <><BigVal f={titleNow} fmt={v => pct(v, 1)} /><span className="wr-hero-to"> → </span><BigVal f={s.title_after} fmt={v => pct(v, 1)} /></>
             : <BigVal f={s.title_odds_delta} fmt={pts} />}
@@ -140,7 +145,7 @@ export function MoveDetails({ move, view, leagueId, onReply, negotiating }: {
         </details>
         {!negotiating && (
           <details className="wr-acc-i" data-acc="replies">
-            <summary><span className="wr-acc-t">If he says…</span><span className="wr-acc-h">{onReply ? 'tap what happened' : 'accept, decline, counter, silence'}</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+            <summary><span className="wr-acc-t">If they say…</span><span className="wr-acc-h">{onReply ? 'tap what happened' : 'accept, decline, counter, silence'}</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
             <div className="wr-acc-b"><ReplyTable replies={s.reply_table} onLog={onReply} /></div>
           </details>
         )}
@@ -210,8 +215,8 @@ export function ValueEdge({ leagueId, offer, waitMs = VALUE_EDGE_WAIT_MS }: { le
   const market = data?.enabled && !data.error ? data.market : undefined;
   const slow = timedOut === path && !data && !error;
   const reason = error ?? data?.error ?? (data && !data.enabled ? data.reason : undefined)
-    ?? (market && market.pct == null ? 'He gives nothing with a market value.' : undefined)
-    ?? (slow ? `His screen has not answered in ${Math.round(waitMs / 1000)} s; open His screen to try again.` : undefined);
+    ?? (market && market.pct == null ? 'They give nothing with a market value.' : undefined)
+    ?? (slow ? `Their screen has not answered in ${Math.round(waitMs / 1000)} s; open their screen to try again.` : undefined);
   const edge = market && market.pct != null ? valueEdgeText(market.pct) : null;
   return (
     <div className="wr-metric" data-testid="hero-value">

@@ -15,6 +15,7 @@ import SwipeDeck from './SwipeDeck';
 import HeroCard from './HeroCard';
 import { CopyBlock, Ladder, messageLabel } from './cardParts';
 import { AjOkBanner, needsAjOk } from './AjPick';
+import { CHANCE_THEY_SAY_YES, oddsIfTheySayYes } from './copy';
 
 /** WAR-ROOM-UI v2: the card on screen, for the page's Details disclosure (MoveDetails). */
 export interface CurrentMove { move: Move; index: number; onReply?: (reply: ReplyKind) => void; negotiating: boolean }
@@ -234,6 +235,10 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     }
 
     const titleNow = isOk(view.destination) ? view.destination.value.title_now : undefined;
+    // WARROOM-LABEL-FIX: the label reads the plan's own objective (goal.metric_label), so league 4
+    // (goal=playoffs) shows "Playoff odds", not "Title odds", for the same number.
+    const goalField = isOk(view.destination) ? view.destination.value.goal : undefined;
+    const oddsLabel = oddsIfTheySayYes(isOk(goalField) ? goalField.value : undefined);
     const target = m.target != null ? n.one(m.target) : null;
     const messageText = isOk(s.message) ? s.message.value : dealLine;
     return (
@@ -246,12 +251,12 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
         )}
         <div className="wr-tiles wr-tiles-2">
           <div className="wr-tile">
-            <div className="wr-l">Chance he says yes</div>
+            <div className="wr-l">{CHANCE_THEY_SAY_YES}</div>
             <div className="wr-v wr-amber"><Val f={s.p_yes} fmt={v => pct(v)} /></div>
             <div className="wr-s"><SourceTag id={s.p_yes.source} /></div>
           </div>
           <div className="wr-tile">
-            <div className="wr-l">Title odds if he says yes</div>
+            <div className="wr-l">{oddsLabel}</div>
             <div className="wr-v"><Val f={s.title_odds_delta} fmt={pts} /></div>
             <div className="wr-s">
               {isOk(titleNow) || isOk(s.title_after)
@@ -278,7 +283,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
         />}
         {buttons}
         {!thread && <>
-          <div className="wr-cap">If he says… (tap what happened)</div>
+          <div className="wr-cap">If they say… (tap what happened)</div>
           <ReplyTable replies={s.reply_table} onLog={deck.chosen === i ? reply => dispatch({ type: 'reply', card: m.move_id, reply, at: Date.now() }) : undefined} />
         </>}
         <div className="wr-cap">Reasoning</div>

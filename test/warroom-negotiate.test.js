@@ -586,8 +586,8 @@ test('the thread renders branches, the countdown from his reply times, and Undo 
   const html = renderToStaticMarkup(React.createElement(Negotiate, { thread: t, onThread() {}, now: Date.parse(t.sent_at) + 3600_000 }));
   const text = textOf(html);
   assert.match(text, /Waiting on Team 3/);
-  assert.match(text, /Follow up in 4 h if he has not answered/);
-  assert.match(text, /He usually answers in 1 h 30 min, slow is 5 h/);
+  assert.match(text, /Follow up in 4 h if they have not answered/);
+  assert.match(text, /They usually answer in 1 h 30 min, slow is 5 h/);
   assert.match(text, /his answers to 7 of your ESPN offers/);
   for (const k of ['He accepts', 'He declines', 'He counters', 'No reply']) assert.match(text, new RegExp(k));
   assert.match(text, /Log the reason, then offer Team 3 instead/);
@@ -599,14 +599,14 @@ test('the thread renders branches, the countdown from his reply times, and Undo 
 
 test('a logged counter makes its branch live and shows its rules', () => {
   const t = threadFixture({ events: [{ kind: 'reply', reply: 'counter', give_json: '["5","6"]', get_json: '["21"]', note: null, at: '2026-09-24T12:30:00.000Z' }] });
-  t.branches.find(b => b.kind === 'counter').plan = { status: 'ok', source: 'plan.path', value: { do: 'Check his ask against the walk-away.',
+  t.branches.find(b => b.kind === 'counter').plan = { status: 'ok', source: 'plan.path', value: { do: 'Check their ask against the walk-away.',
     counter_rules: { accept_if: 'no richer than the walk-away', counter_with: 'the next rung', walk_away_if: 'richer than the walk-away' } } };
   const html = renderToStaticMarkup(React.createElement(Negotiate, { thread: t, onThread() {}, now: Date.parse('2026-09-24T13:00:00Z') }));
   const text = textOf(html);
   assert.match(html, /data-branch="counter" data-live="true"/);
   assert.match(text, /Take it if no richer than the walk-away/);
-  assert.match(text, /He countered: wants P5 \(RB\) \+ P6 \(WR\), gives P21 \(WR\)/);
-  assert.match(text, /He answered\. The clock is stopped\./);
+  assert.match(text, /They countered: wants P5 \(RB\) \+ P6 \(WR\), gives P21 \(WR\)/);
+  assert.match(text, /They answered\. The clock is stopped\./);
 });
 
 test('the counter builder draws the live numbers, the yes-point and the walk-away line; unknown says why', () => {
@@ -624,8 +624,8 @@ test('the counter builder draws the live numbers, the yes-point and the walk-awa
   assert.match(text, /42\.0% → 47\.0%/);
   assert.match(text, /55%/);
   assert.match(text, /45%–65%/);
-  assert.match(text, /His yes-point -6%/);
-  assert.match(text, /package now \+8% on his screen/);
+  assert.match(text, /Their yes-point -6%/);
+  assert.match(text, /package now \+8% on their screen/);
   assert.match(html, /style="left:36\.25%" data-testid="yes-point"/);
   assert.match(html, /style="left:68\.75%" data-testid="walk-away-line"/);
   assert.match(html, /style="left:53\.75%" data-testid="package-dot"/);
@@ -657,7 +657,7 @@ test('package edits: never empty a side, at most four a side; slider and time he
   assert.equal(neg.span(190), '3 h 10 min');
   assert.equal(neg.span(3000), '2 d 2 h');
   const c = { phase: 'move_on', from: '2026-09-24T12:00:00Z', follow_up_at: '2026-09-24T17:00:00Z', move_on_at: '2026-09-24T22:00:00Z' };
-  assert.equal(neg.countdownText(c, Date.parse('2026-09-25T00:00:00Z')), 'Move on: 2 h past his window');
+  assert.equal(neg.countdownText(c, Date.parse('2026-09-25T00:00:00Z')), 'Move on: 2 h past their window');
   assert.equal(neg.elapsed(c, Date.parse('2026-09-24T17:00:00Z')), 0.5);
 });
 
@@ -688,12 +688,12 @@ test('a sent card flips to the live thread; without negotiation mode the reply t
     view: served, big: true, negotiation: { enabled: true, threads: [t] }
   })));
   assert.match(on, /Waiting on Team 3/);
-  assert.doesNotMatch(on, /If he says… \(tap what happened\)/);
+  assert.doesNotMatch(on, /If they say… \(tap what happened\)/);
   const off = textOf(renderToStaticMarkup(React.createElement(NextMoveDeck, {
     view: served, big: true, negotiation: { enabled: false }
   })));
   assert.doesNotMatch(off, /Waiting on Team/);
-  assert.match(off, /If he says… \(tap what happened\)/);
+  assert.match(off, /If they say… \(tap what happened\)/);
   const undone = { ...t, status: 'closed', closed_reason: 'undone' };
   const u = textOf(renderToStaticMarkup(React.createElement(NextMoveDeck, { view: served, big: true, negotiation: { enabled: true, threads: [undone] } })));
   assert.doesNotMatch(u, /Waiting on Team/, 'an undone thread gives the card back');

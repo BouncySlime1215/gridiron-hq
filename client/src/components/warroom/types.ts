@@ -23,11 +23,11 @@ export interface PlayerRef { id: string; name: string }
 
 export const REASONING_SLOTS = [
   ['case_for', 'Case for'],
-  ['his_side', 'His side of the table'],
+  ['his_side', 'Their side of the table'],
   ['devils_advocate', "Devil's advocate"],
   ['news_check', 'News check'],
   ['confidence', 'Confidence, explained'],
-  ['counter', 'If he counters'],
+  ['counter', 'If they counter'],
 ] as const;
 export type ReasoningSlot = typeof REASONING_SLOTS[number][0];
 export type Reasoning = Record<ReasoningSlot, string> & { cites: string[]; check_first?: boolean };
@@ -172,7 +172,10 @@ export interface Attention { rank: number; of: number; reason: string }
 
 export type RiskMode = 'safe' | 'balanced' | 'all_in';
 export interface Destination {
-  goal: Field<{ kind: 'title' | 'playoffs' | 'get_player' | 'points'; label: string; player_id?: string; points_per_week?: number }>;
+  // WARROOM-LABEL-FIX: `metric` is the same 'title' | 'playoff' | 'points' key the served
+  // title_odds_delta / title_after numbers are scored on, so a card's odds label reads it here
+  // instead of assuming "title" (metric_label is the ready-made "Title odds" / "Playoff odds").
+  goal: Field<{ kind: 'title' | 'playoffs' | 'get_player' | 'points'; label: string; player_id?: string; points_per_week?: number; metric?: 'title' | 'playoff' | 'points'; metric_label?: string }>;
   risk_mode: Field<{ mode: RiskMode; until_week?: number }>;
   tolerances: Field<Record<string, number>>;
   arrive_by: Num;

@@ -226,7 +226,10 @@ const move = obj({
 });
 
 const destination = obj({
-  goal: field(obj({ kind: oneOf(GOALS), label: str }, { player_id: pid, points_per_week: num })),
+  // WARROOM-LABEL-FIX: metric/metric_label are the same 'title' | 'playoff' | 'points' key that
+  // every title_odds_delta / title_after / title_now field is scored on (metricKey(o)), so a War
+  // Room card's odds label reads it from here instead of assuming "title".
+  goal: field(obj({ kind: oneOf(GOALS), label: str }, { player_id: pid, points_per_week: num, metric: oneOf(['title', 'playoff', 'points']), metric_label: str })),
   risk_mode: field(obj({ mode: oneOf(RISK_MODES) }, { until_week: int(1, 18) })),
   tolerances: field(obj({}, Object.fromEntries(TOLERANCE_KEYS.map(k => [k, num])))),
   arrive_by: field(int(1, 18)),

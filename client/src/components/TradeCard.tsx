@@ -319,7 +319,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           {senseBusy ? 'Checking…' : '🔍 AI sense check'}
         </button>
         <button className="btn-ghost text-xs" onClick={() => setHisOpen(v => !v)} aria-expanded={hisOpen}>
-          👁 His screen
+          👁 Their screen
         </button>
         {/* CLONE-01b b1 "I sent this"; absent unless GRIDIRON_OFFER_LOOP is on (FIX-10). */}
         <SentOfferButton deal={deal} leagueId={leagueId} onError={setErr} />

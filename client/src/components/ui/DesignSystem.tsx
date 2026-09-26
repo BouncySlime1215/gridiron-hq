@@ -1,5 +1,6 @@
-import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
+import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import Icon, { type IconName } from '../warroom/icons';
+import { rovingIndex, trapTab } from '../../lib/rovingFocus';
 
 /**
  * The app's primitives, on styles/tokens.css and styles/ui.css (docs/ui/DESIGN-SYSTEM.md):
@@ -87,8 +88,16 @@ export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs:
     const ro = new ResizeObserver(measure); ro.observe(row.current);
     return () => ro.disconnect();
   }, [measure]);
-  return <div ref={row} className="ds-tabs" role="tablist" aria-label={label} data-fade={fade} onScroll={measure}>
-    {tabs.map(t => <button key={t.id} type="button" role="tab" className="ds-tab" aria-selected={t.id === value} onClick={() => onChange(t.id)}>{t.label}</button>)}
+  // One tab stop for the row; arrows, Home and End move between tabs and select (WAI-ARIA tabs).
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const next = rovingIndex(e.key, Math.max(0, tabs.findIndex(t => t.id === value)), tabs.length);
+    if (next == null) return;
+    e.preventDefault();
+    onChange(tabs[next].id);
+    row.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
+  };
+  return <div ref={row} className="ds-tabs" role="tablist" aria-label={label} data-fade={fade} onScroll={measure} onKeyDown={onKeyDown}>
+    {tabs.map(t => <button key={t.id} type="button" role="tab" className="ds-tab" aria-selected={t.id === value} tabIndex={t.id === value ? 0 : -1} onClick={() => onChange(t.id)}>{t.label}</button>)}
   </div>;
 }
 
@@ -179,11 +188,30 @@ export function ErrorState({ title = 'Could not load this', message, retry, retr
   return <div className="ds-error" role="alert"><div className="ds-error-t">{title}</div><p className="mt-1 text-sm">{message}</p>{retry && <Button size="sm" className="mt-3" onClick={retry}>{retryLabel}</Button>}</div>;
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (!open) return; closeRef.current?.focus(); const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose(); window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, [open, onClose]);
+  const panel = useRef<HTMLElement>(null);
+  // Read through a ref so a parent's new onClose each render does not re-run the effect (and move focus).
+  const close = useRef(onClose); close.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    // Focus moves in on open, Tab stays inside while open, and focus returns to what opened it.
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { close.current(); return; }
+      if (e.key !== 'Tab' || !panel.current) return;
+      const items = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      const to = trapTab(items, document.activeElement as HTMLElement, e.shiftKey);
+      if (to) { e.preventDefault(); to.focus(); }
+    };
+    window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('keydown', key); if (returnTo?.isConnected) returnTo.focus(); };
+  }, [open]);
   if (!open) return null;
-  return <div className="ds-scrim" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()} className="ds-sheet">
+  return <div className="ds-scrim" onMouseDown={onClose}><aside ref={panel} role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()} className="ds-sheet">
     <div className="ds-sheet-h"><h2 className="ds-section-t">{title}</h2><IconButton ref={closeRef} icon="close" label={`Close ${title}`} onClick={onClose} /></div>{children}</aside></div>;
 }
 

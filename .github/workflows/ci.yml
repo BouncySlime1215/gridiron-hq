@@ -69,6 +69,16 @@ jobs:
       - name: Wiring check
         run: npm run check:wiring
 
+      # Item 58 ACCESSIBILITY PASS: token contrast (WCAG AA, light and dark), the keyboard path
+      # through the seven areas, and a scan of every client TSX file for unnamed icon buttons,
+      # click-only elements, missing alt, positive tabIndex and unlabeled controls. Files local
+      # builders own (Trades client, War Room, Coach, Numbers & People, AI spend) are listed but
+      # never fail it. Reads source only: no network, no database, no browser.
+      - name: Accessibility check
+        run: npm run check:a11y
+        env:
+          GRIDIRON_A11Y_CHECK: 'enforce'
+
       - name: Test
         # Every *.test.js file in this repo builds its own isolated temp
         # SQLite database via GRIDIRON_DB_PATH before importing app code

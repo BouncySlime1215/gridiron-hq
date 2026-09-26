@@ -162,6 +162,11 @@ button.ds-chip:active { transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) { .ds-bar > i, .ds-stagger > *, .ds-fold-b, .ds-xrow-b { animation: none; } }
 
 /* ---------- app shell (App.tsx) ---------- */
+/* Skip link (item 58): off-screen until it takes focus, then the first thing on the page. */
+.ds-skip { position: fixed; left: 12px; top: 12px; z-index: 60; padding: 8px 14px; border-radius: var(--r-ctl); background: var(--c-accent); color: var(--c-accent-ink);
+  font-size: 14px; font-weight: 600; text-decoration: none; box-shadow: var(--e2); transform: translateY(-200%); }
+.ds-skip:focus, .ds-skip:focus-visible { transform: none; }
+main#main:focus { outline: none; }
 .app-side { background: color-mix(in srgb, var(--c-card) 70%, transparent); box-shadow: 1px 0 0 var(--c-line); }
 .app-brand { font: 700 18px/1.1 var(--font-display); letter-spacing: -.03em; color: var(--c-ink); }
 .app-brand b { color: var(--c-accent); font-weight: 700; }

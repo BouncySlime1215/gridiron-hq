@@ -15,7 +15,7 @@ export const STATUS = Object.freeze({
   FAILING: 'failing',
 });
 
-export const NEEDS_UNITS = Object.freeze(['offers', 'weeks', 'team_seasons', 'steps', 'decisions', 'league_seasons', 'runs']);
+export const NEEDS_UNITS = Object.freeze(['offers', 'weeks', 'team_seasons', 'steps', 'decisions', 'league_seasons', 'runs', 'matchups']);
 
 /** The row shape stored in brain_report and served by GET /api/brain-report. */
 export function result({ check, name, status, metricName, metric = null, ci = null, n = 0,

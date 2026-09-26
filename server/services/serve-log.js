@@ -23,6 +23,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { db as processDb } from '../db/index.js';
+import { calMonitorEnabled, matchupPostures } from './eval/calibration-monitor.js';
 
 /** Payload entries, not rows: one entry is one response. */
 export const SERVE_LOG_QUEUE_CAP = 500;
@@ -146,6 +147,18 @@ const EXTRACTORS = {
     const dest = v(p.destination);
     if (dest) numbers.push([`team:${p.me}`, 'title_now', v(dest.title_now)]);
     return { model: 'campaign-producer.plans', version: String(p.plans_version ?? ''), numbers };
+  },
+  /**
+   * CAL-MON (eval/calibration-monitor.js): one matchup's win probability, as
+   * lineup-posture.js#lineupPosture served it, logged by the weekly snapshot
+   * while GRIDIRON_CAL_MONITOR=1. Entity `matchup:<week>:<roster>|<opponent>`.
+   */
+  matchup_win: p => {
+    if (p.roster_id == null || p.week == null) throw new Error('matchup_win payload has no roster or week');
+    if (p.opponent_roster_id == null || p.win_probability == null) return { model: 'lineup-posture.lineupPosture', version: '', numbers: [] };
+    const e = `matchup:${p.week}:${p.roster_id}|${p.opponent_roster_id}`;
+    return { model: 'lineup-posture.lineupPosture', version: String(p.sd_model ?? ''),
+      numbers: [[e, 'win_prob', num(p.win_probability) == null ? null : num(p.win_probability) / 100], [e, 'edge', p.edge]] };
   },
 };
 export const SERVED_SURFACES = Object.keys(EXTRACTORS);
@@ -310,6 +323,10 @@ export async function snapshotServedNumbers({ database = processDb } = {}) {
     add('title_odds', simulateSeason(lg, { runs: 2000, scoring: scoringFor(lg) }));
     add('title_trades', titleOddsTrades(lg.id, { teamId: myTeamId }), { myTeamId });
     add('trade_find', findTrades(lg, { myTeamId, limit: 20 }));
+    if (calMonitorEnabled()) {
+      const { lineupPosture } = await import('./lineup-posture.js');
+      for (const m of matchupPostures(lg, lineupPosture)) add('matchup_win', m);
+    }
     const rows = writeEntries(entries, database);
     out.push({ league_id: lg.id, week, state: rows ? 'snapshotted' : 'nothing_served', rows, request_id: requestId });
   }

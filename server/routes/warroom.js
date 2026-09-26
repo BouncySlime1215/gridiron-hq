@@ -12,6 +12,9 @@
  *   POST /api/warroom/:leagueId/action-log        log one Coach UI action
  *   GET  /api/warroom/:leagueId/action-log        this user's action log for the league
  *
+ * LAST-GOOD: with GRIDIRON_LAST_GOOD=1, "I sent it" (offer.sent) answers 409 while a refresh step
+ * has failed (campaign/last-good.js); every other kind records as before.
+ *
  * No handler reads a plan, prices anything or replans. The offline campaign
  * producer reads warroom_requests and does that work. Flag off -> every route
  * answers { enabled: false } and records nothing.
@@ -24,6 +27,7 @@ import {
 } from '../services/warroom-actions/store.js';
 import { loadPlans } from '../services/war-room-view.js';
 import { ajState } from '../services/campaign/aj-pick.js';
+import { currentLastGood } from '../services/campaign/last-good.js';
 import { rows } from '../db/index.js';
 
 const r = Router();
@@ -54,6 +58,14 @@ r.post('/:leagueId/requests', async (req, res, next) => {
     const body = req.body ?? {};
     // Only a request that names a card reads the plans file (one cached read).
     const plans = CARD_KINDS.has(body.kind) ? await loadPlans() : null;
+    // LAST-GOOD: after a failed refresh, "I sent it" waits for a fresh plan (flag GRIDIRON_LAST_GOOD).
+    if (body.kind === 'offer.sent') {
+      const lastGood = await currentLastGood({ plansAsOf: plans?.status === 'ok' ? plans.as_of : null });
+      if (lastGood?.send_blocked) {
+        res.status(409).json({ enabled: true, ...warRoomPreview(), error: lastGood.reason, last_good: lastGood });
+        return;
+      }
+    }
     const request = recordRequest({
       userId: req.auth.userId, leagueId, kind: body.kind, payload: body.payload ?? {},
       source: body.source ?? 'nick', confirmed: body.confirmed === true, plans

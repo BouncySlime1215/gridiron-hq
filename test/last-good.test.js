@@ -122,6 +122,8 @@ test('B2/B5 jobFailure: error, running after an error, and stuck count; ok, fres
   assert.equal(LG.jobFailure(syncRow('warroom_plans', 'running', { last_detail: started(30) }), { now }), null);
   assert.equal(LG.jobFailure(syncRow('warroom_plans', 'running', { last_detail: started(LG.STUCK_MINUTES) }), { now }), null, '90 min is the edge');
   assert.equal(LG.jobFailure(syncRow('warroom_plans', 'running', { last_detail: started(LG.STUCK_MINUTES + 1) }), { now }).kind, 'stuck');
+  assert.equal(LG.jobFailure(syncRow('warroom_plans', 'running', { last_detail: 'not json' }), { now }).kind, 'stuck', 'undatable fails closed');
+  assert.equal(LG.jobFailure(syncRow('warroom_plans', 'running', { last_detail: '{}' }), { now }).kind, 'stuck');
 });
 
 test('B5 refreshState: no rows is ok (no evidence); an unreadable log is its own status', () => {
@@ -205,6 +207,7 @@ test('B3 flag on + a failed refresh: both send routes answer 409 with the reason
     const b = await openThread();
     assert.equal(b.status, 409);
     assert.equal(b.body.last_good.send_blocked, true);
+    assert.equal(b.body.last_good.as_of, AS_OF, 'the plans\' own time, read only because the send was blocked');
     assert.equal(negotiateGateCalls, calls + 1);
   });
   assert.equal(recorded(), before, 'nothing recorded');
@@ -227,6 +230,9 @@ test('B4 a later successful run clears the block on both routes', async () => {
     const b = await openThread();
     assert.equal(a.body.last_good, undefined, JSON.stringify(a.body));
     assert.equal(b.body.last_good, undefined, JSON.stringify(b.body));
+    assert.equal(a.status, 201, '"I sent it" is recorded again');
+    // Past the last-good gate, the route reaches Nick's rule gate (this made-up league prices no player).
+    assert.equal(b.status, 422);
   });
-  assert.ok(rows('SELECT job FROM sync_log').length === 2);
+  assert.equal(rows('SELECT job FROM sync_log').length, 2);
 });

@@ -31,6 +31,7 @@ import { previewFields, previewText } from './preview-mode.js';
 import { warRoomFlag, warRoomPlansPath, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
 import { SECTIONS, SOURCE_IDS, STATUSES, validateLeague } from './campaign/plans-schema.js';
 import { planAge, plansExpireFlag } from './campaign/plan-age.js';
+import { currentLastGood } from './campaign/last-good.js';
 
 /** Labels for every contract SourceId (WAR-ROOM-UI.md 2.3). Only the market value is calibrated today. */
 const SOURCE_LABELS = {
@@ -176,7 +177,7 @@ function sections(entry) {
  * decide whether the entry is out of date (campaign/plan-age.js); an out-of-date entry has every
  * section hidden with the reason and carries `plan_out_of_date` for the UI.
  */
-export function buildWarRoomView(leagueId, plans, flag, { now = Date.now(), env = process.env } = {}) {
+export function buildWarRoomView(leagueId, plans, flag, { now = Date.now(), env = process.env, lastGood = null } = {}) {
   if (!flag?.enabled) return { enabled: false };
   const base = {
     enabled: true, league_id: Number(leagueId),
@@ -220,6 +221,8 @@ export function buildWarRoomView(leagueId, plans, flag, { now = Date.now(), env 
   }
   guardAttention(view);
   hideUntouchableTargets(view, entry);
+  // LAST-GOOD (campaign/last-good.js): a failed refresh keeps the plan on screen, says so, and blocks sending.
+  if (lastGood) view.last_good = structuredClone(lastGood);
   return finalize(view, flag);
 }
 
@@ -314,7 +317,9 @@ export async function warRoomView(leagueId) {
   const plans = await loadPlans();
   const held = plans?.status === 'ok' && Array.isArray(plans.entries)
     ? { ...plans, entries: plans.entries.map(e => (e && !e.error ? holdStepRegret(e).entry : e)) } : plans;
-  const view = buildWarRoomView(leagueId, held, flag);
+  // LAST-GOOD: null unless GRIDIRON_LAST_GOOD=1 and a refresh step failed (then sync_log is read once per view).
+  const lastGood = await currentLastGood({ plansAsOf: plans?.status === 'ok' ? plans.as_of : null });
+  const view = buildWarRoomView(leagueId, held, flag, { lastGood });
   // Only when the plan has no usable number_health, and never over a planner that failed.
   if (view.number_health && view.number_health.status === 'unknown') {
     const live = await liveNumberHealth(leagueId);

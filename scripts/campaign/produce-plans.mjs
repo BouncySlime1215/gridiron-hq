@@ -425,6 +425,9 @@ export async function buildPlansFile(leagues, {
           // PLAYOFF-WEEK VALUE (shadow, GRIDIRON_PLAYOFF_WEEK_VALUE): same-season matchup read on the playoff weeks
           // for Nick's roster and this entry's targets, and the tiebreak it WOULD make (logged, never applied).
           ...(adapter.playoffWeek ? { playoff_week: playoffWeekBlock(adapter, entry, id, log) } : {}),
+          // BENCH-CONSOLIDATION + ROSTER-SPOT VALUE (shadow, GRIDIRON_CONSOLIDATION=1): the finder's report, ids only.
+          // Written only when the flag is on, so off the entry is byte-for-byte the incumbent's; nothing served reads it.
+          ...(res.consolidation ? { consolidation: res.consolidation } : {}),
         };
       }
       if (buyLow) {

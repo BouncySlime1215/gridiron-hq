@@ -40,7 +40,8 @@ test('a comment and an import are not call sites', () => {
 });
 
 test('call sites match the bare name, because a function passed as a value is used', () => {
-  assert.match(src, /git grep -n -E '\\\\b\$\{name\}\\\\b'/,
+  // Whole-word and fixed-string, not `name(`. Test 9 below pins why it is not -E '\b'.
+  assert.match(src, /'grep', '-n', '-w', '-F', '-e', name,/,
     'matching `name(` misses express middleware and every other callback');
 });
 

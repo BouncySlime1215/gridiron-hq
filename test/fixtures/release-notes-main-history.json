@@ -1,0 +1,286 @@
+{
+ "range": "18e9bcf1^..f2a5eb41",
+ "note": "Real main commits (no merges), subject + only the body lines that name a flag or shadow. Public repo history; no league-mate names.",
+ "commits": [
+  {
+   "sha": "f2a5eb419764",
+   "subject": "fix: STEP-OVERPAY, every served War Room step (kept leagues too) passes Nick's overpay rule at today's FantasyCalc prices (#521)",
+   "body": ""
+  },
+  {
+   "sha": "ef726b351532",
+   "subject": "feat: SPEND-UI, Settings > AI & developer (API spend > Daily budgets > API key) from the one spend summary + CLAUDE.md 2b exception + spend cross-links (#518)",
+   "body": ""
+  },
+  {
+   "sha": "46b394643556",
+   "subject": "fix: Start/Sit posture's P(win) projection counts a finished starter at his actual (settled-points.js, the range's producer) (#515)",
+   "body": "* test: ONE-NUMBER-FIX, legacy flag-off title-odds tests moved to the one-world contract (world binds the mocked sim; scoring checked at the world build)"
+  },
+  {
+   "sha": "334c31c4f390",
+   "subject": "feat: COACH-V2 unit 5, DRAWER v2 (thinking stages, lane 1 partial, failed + Try again, AI banner, empty state) + league-mates are \"they\" + \"(from chat, unverified)\" (#514)",
+   "body": ""
+  },
+  {
+   "sha": "e466da4b142c",
+   "subject": "fix: ONE-NUMBER-FIX, one producer for the weekly range's lineup (locks, settled points) and for title odds (league world everywhere) (#512)",
+   "body": "* test: ONE-NUMBER-FIX, legacy flag-off title-odds tests moved to the one-world contract (world binds the mocked sim; scoring checked at the world build)"
+  },
+  {
+   "sha": "932c8e41c2d8",
+   "subject": "feat: NUMBERS-PEOPLE best first (both say go -> both say avoid) (#505)",
+   "body": "* feat: JEV-01a Jev gateway as a shadow engine stage (rebuild of #441 on main)"
+  },
+  {
+   "sha": "392e585c0d50",
+   "subject": "feat: COACH-V2 unit 4, RECONCILE (Claude vs Jev in Numbers & People's one vocabulary) + the NumbersPeopleCard inline in shaped answers (#508)",
+   "body": ""
+  },
+  {
+   "sha": "721da970c393",
+   "subject": "feat: SPEND-SERVER, ai_usage.source + shared ledger for DB copies, New York days, today by model/feature/source, total budget, anomaly, credit errors, brief line (#502)",
+   "body": ""
+  },
+  {
+   "sha": "89faa170c052",
+   "subject": "feat: NUMBERS-PEOPLE, both models' reads side by side (agree/differ/same) now and over time (#493)",
+   "body": "* feat: JEV-01a Jev gateway as a shadow engine stage (rebuild of #441 on main)"
+  },
+  {
+   "sha": "1c4a6034380d",
+   "subject": "feat: COACH-V2 unit 1, PRELOAD + ROUTER + SHAPE (cited bundle, 7-intent router, answer format, $0 EXPLAIN/CHAT, no dev text) (#499)",
+   "body": ""
+  },
+  {
+   "sha": "3ac1016b4250",
+   "subject": "feat: COACH-V2 RULES-CHECK, every Coach line and card held to Nick's rules in code; STEP-REGRET held at the serve step (L3-lrer3n) (#497)",
+   "body": ""
+  },
+  {
+   "sha": "4acf399c71ca",
+   "subject": "feat: JEV-01a Jev gateway as a shadow engine stage (rebuild of #441 on main) (#489)",
+   "body": "* feat: JEV-01a Jev gateway as a shadow engine stage (rebuild of #441 on main)"
+  },
+  {
+   "sha": "123933c35573",
+   "subject": "feat: AJ-PICK, A.J. Brown only for players Nick approves, as Needs-your-OK cards (#487)",
+   "body": "  next_move. Kill switch GRIDIRON_AJ_PICK=0."
+  },
+  {
+   "sha": "fc561264c273",
+   "subject": "fix(int-e): PLAYOFF-SEEDING reaches plans.json on a real league (adapter exposes base.playoff_path)",
+   "body": "The wrapped world now carries only the base season's playoff_path block, and only when the flag\nput one there; flag off, the wrapped world is unchanged."
+  },
+  {
+   "sha": "8089afd02ca7",
+   "subject": "feat: COACH-LANES, lane 1 Claude solo + lane 2 Claude -> Jev, one reply comparing them (#488)",
+   "body": ""
+  },
+  {
+   "sha": "b369c6bfd62b",
+   "subject": "feat: COACH-CHAT, real conversations with context (threads, focus carry, $0 follow-ups) (#485)",
+   "body": ""
+  },
+  {
+   "sha": "5217f17d5df4",
+   "subject": "feat: RB-DELTAS, GRIDIRON_RB_TITLE=deltas (RB deltas, plain levels) + per-step shadow table for the 9/29 review (#484)",
+   "body": "* test: RB-DELTAS RED, deltas mode serves RB deltas with plain levels; per-step shadow table\n* feat: RB-DELTAS, GRIDIRON_RB_TITLE=deltas (RB deltas + SEs, plain levels) and the per-step shadow table (rb-shadow.jsonl, _run.rb_shadow)\n* test: declare _run.rb_shadow as flag-only in the War Room contract\n* feat: RB-DELTAS shadow logs every confirm-priced path (served: false beside served), plain_clears_2se column"
+  },
+  {
+   "sha": "67012b185f03",
+   "subject": "feat: U4 CONSISTENT-CHIP, the consistent-scorer reader that governs A.J. Brown (fails closed) (#483)",
+   "body": ""
+  },
+  {
+   "sha": "861d948a47fa",
+   "subject": "feat: U1b+U1c, batch SE + joint-round RB title estimator, 6-decimal title numbers, STEP-REGRET rule (#481)",
+   "body": ""
+  },
+  {
+   "sha": "40fa50a595f8",
+   "subject": "ui(draft): the mock and live draft rooms on the design system (#478)",
+   "body": ""
+  },
+  {
+   "sha": "18e9bcf10afc",
+   "subject": "perf(players): Rankings draws only the rows near the screen (in-repo list window) (#474)",
+   "body": ""
+  },
+  {
+   "sha": "ce8917edbbd4",
+   "subject": "feat: GREEN playoff seeding sim + must-win weeks, shadow behind GRIDIRON_PLAYOFF_SEEDING (plan items 47/48)",
+   "body": ""
+  },
+  {
+   "sha": "943b235e92f7",
+   "subject": "fix: U8 wants.js names the preview switch by its module, not its env var",
+   "body": ""
+  },
+  {
+   "sha": "81d87808d1bb",
+   "subject": "docs: U8 wants menu TDD record",
+   "body": ""
+  },
+  {
+   "sha": "602c10d9b7b3",
+   "subject": "refactor: U8 grader lives in wants.js so the wiring map sees it reached",
+   "body": ""
+  },
+  {
+   "sha": "991d190c4956",
+   "subject": "test: RED playoff seeding + must-win weeks (plan items 47/48) with pre-registration",
+   "body": ""
+  },
+  {
+   "sha": "7f6fcb9fc85c",
+   "subject": "feat: U8 wants menu (GREEN): stated vs revealed wants menus behind GRIDIRON_WANTS (shadow) + 7-day grader",
+   "body": ""
+  },
+  {
+   "sha": "6228c6015513",
+   "subject": "test: U8 wants menu (RED): stated vs revealed, rule filters, shadow tie-break, 7-day grader",
+   "body": ""
+  },
+  {
+   "sha": "58d07b86086c",
+   "subject": "feat: U6 IS-TITLE importance sampling behind GRIDIRON_IS_TITLE (off; bar missed)",
+   "body": "so the flag stays off."
+  },
+  {
+   "sha": "3ef77916b1a3",
+   "subject": "test: U6 IS-TITLE importance sampling for Nick's title odds (RED)",
+   "body": ""
+  },
+  {
+   "sha": "1c24286ae322",
+   "subject": "docs: U6 IS-TITLE pre-registration",
+   "body": ""
+  },
+  {
+   "sha": "ee2bcf627522",
+   "subject": "feat: per-league rules in never-give.js (item 36), tighten-only, flag GRIDIRON_PER_LEAGUE_RULES",
+   "body": ""
+  },
+  {
+   "sha": "11e6aeebfd52",
+   "subject": "test: RED per-league rules (item 36), tighten-only, flag GRIDIRON_PER_LEAGUE_RULES",
+   "body": ""
+  },
+  {
+   "sha": "c84295ea1ec1",
+   "subject": "feat: GREEN calibration monitor (weekly matchup + title-odds Brier decomposition, CUSUM drift alarm; shadow, flag off)",
+   "body": ""
+  },
+  {
+   "sha": "1128c2f7111c",
+   "subject": "test: RED calibration monitor (Brier decomposition, CUSUM drift, shadow rows)",
+   "body": ""
+  },
+  {
+   "sha": "13427eee2f0c",
+   "subject": "feat: waivers perishable (never advise saving priority, handcuff workload test, D/ST points allowed shadow)",
+   "body": ""
+  },
+  {
+   "sha": "745b4fe6bc01",
+   "subject": "feat: O1C-WIRE GREEN, validated radar cells into projection share through betting-fantasy-link.js (flag GRIDIRON_O1C_WIRE, every cell pending)",
+   "body": ""
+  },
+  {
+   "sha": "dd11deb14164",
+   "subject": "fix: renumber clone fits migration to 113; rename clone reply map after main's DECIDED",
+   "body": ""
+  },
+  {
+   "sha": "c13cc97573fd",
+   "subject": "test: O1C-WIRE RED, validated radar cells into share behind GRIDIRON_O1C_WIRE",
+   "body": ""
+  },
+  {
+   "sha": "9143aea485a8",
+   "subject": "test: RED for waivers perishable (priority wording, handcuff workload, D/ST points allowed)",
+   "body": ""
+  },
+  {
+   "sha": "08b61e86cf42",
+   "subject": "chore: retire the orphan Model diagnostics page (batch D 8c)",
+   "body": ""
+  },
+  {
+   "sha": "18a780709f8e",
+   "subject": "fix: FantasyCalc freshness is one age window (daily + loop slack); fc_value gets a row (batch D 8a)",
+   "body": ""
+  },
+  {
+   "sha": "84324530bbb4",
+   "subject": "test: RED for FC-FRESH-AGE, FantasyCalc freshness is an age with loop slack (batch D 8a)",
+   "body": ""
+  },
+  {
+   "sha": "1d11183abb83",
+   "subject": "fix: News edge rows pass Nick's rule gate before they are served (batch D 8d)",
+   "body": ""
+  },
+  {
+   "sha": "621294eea6ea",
+   "subject": "test: RED for NEWS-EDGE through the rule gate (batch D 8d)",
+   "body": ""
+  },
+  {
+   "sha": "24ed9d1837f4",
+   "subject": "test: loop-lag bar is half the burn, not a flat 300 ms (robust on busy CI)",
+   "body": ""
+  },
+  {
+   "sha": "8a71124f72d4",
+   "subject": "feat: E-BAYES pooled per-manager acceptance model, shadow only (GREEN)",
+   "body": "GRIDIRON_EBAYES_SHADOW=1 table on pYesTableFrom that no served reader uses."
+  },
+  {
+   "sha": "e3bd2b6e5445",
+   "subject": "feat: E-LATENCY reply-time table per manager and follow-up hint, shadow behind GRIDIRON_REPLY_LATENCY (GREEN)",
+   "body": ""
+  },
+  {
+   "sha": "404a6886b2ed",
+   "subject": "test: E-LATENCY reply-time table, follow-up hint and its forward grade (RED)",
+   "body": ""
+  },
+  {
+   "sha": "c17e838dc28e",
+   "subject": "test: E-BAYES pre-registration and failing tests (RED)",
+   "body": ""
+  },
+  {
+   "sha": "61b4ca40baed",
+   "subject": "test: rec-ledger rollback loop guard is a runaway guard, not a migration count",
+   "body": ""
+  },
+  {
+   "sha": "eb8a3bbcf007",
+   "subject": "docs: CLONE v2 challenger TDD record (prereg, RED/GREEN, what changed from #288)",
+   "body": ""
+  },
+  {
+   "sha": "16995a82b354",
+   "subject": "feat: CLONE v2 manager clones as a shadow LIVE-BLEND challenger (GRIDIRON_CLONE_V2)",
+   "body": "or the served P(yes). With GRIDIRON_CLONE_V2=1 the finder attaches it as"
+  },
+  {
+   "sha": "57f16ce8d0c4",
+   "subject": "test: CLONE v2 challenger RED (19 gates, shadow arm, own flag only)",
+   "body": ""
+  },
+  {
+   "sha": "6b9554aa08af",
+   "subject": "feat: E-DATA, every offer captured at first sight with every model's P(yes); FantasyCalc history (GREEN)",
+   "body": "loop only with GRIDIRON_OFFER_WATCH=1.\nLIVE-BLEND weights on those rows only with GRIDIRON_PYES_FORWARD=1 (off: served"
+  },
+  {
+   "sha": "81f01934536e",
+   "subject": "test: E-DATA pre-registration and failing tests (RED)",
+   "body": ""
+  }
+ ]
+}

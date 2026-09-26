@@ -132,7 +132,8 @@ const errorSanitizeUrl = compile('client/src/lib/errorSanitize.ts', 'errorSaniti
 
 // My team draws its tabs with the design system (compiled for real) and hosts Start/Sit (stubbed).
 const iconsUrl = compile('client/src/components/warroom/icons.tsx', 'icons.mjs', {});
-const designUrl = compile('client/src/components/ui/DesignSystem.tsx', 'DesignSystem.mjs', { "'../warroom/icons'": iconsUrl });
+const rovingUrl = compile('client/src/lib/rovingFocus.ts', 'rovingFocus.mjs', {});
+const designUrl = compile('client/src/components/ui/DesignSystem.tsx', 'DesignSystem.mjs', { "'../warroom/icons'": iconsUrl, "'../../lib/rovingFocus'": rovingUrl });
 const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
   "'../components/ui/DesignSystem'": designUrl,
   "'./Lineup'": stubUrl('Lineup.mjs', []),

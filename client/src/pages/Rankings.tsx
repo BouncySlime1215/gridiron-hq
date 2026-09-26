@@ -125,7 +125,7 @@ export default function Rankings() {
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h2 className="ds-h">Ranking set</h2>
-        <select className="input" value={setId ?? ''} onChange={e => setSetId(Number(e.target.value))}>
+        <select className="input" aria-label="Ranking set" value={setId ?? ''} onChange={e => setSetId(Number(e.target.value))}>
           {sets?.map(s => <option key={s.id} value={s.id}>{s.name} ({s.entry_count})</option>)}
         </select>
         {setsLoading && !sets && <span className="text-xs text-slate-500">Loading sets…</span>}
@@ -150,7 +150,7 @@ export default function Rankings() {
       </div>
 
       <div className="relative mb-4 max-w-md">
-        <input className="input w-full" placeholder="Add a player to this board… (search)"
+        <input className="input w-full" aria-label="Add a player to this board" placeholder="Add a player to this board… (search)"
           value={search} onChange={e => setSearch(e.target.value)} />
         {searchResults.length > 0 && (
           <div className="absolute z-10 top-full mt-1 w-full card p-1 shadow-lg">
@@ -203,7 +203,7 @@ export default function Rankings() {
                   <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1 justify-end">
                       {editing === e.player_id ? (
-                        <input autoFocus className="input py-0.5 text-xs w-32" placeholder="note…"
+                        <input autoFocus className="input py-0.5 text-xs w-32" aria-label="Note" placeholder="note…"
                           value={e.note ?? ''} onChange={ev => patch(e.player_id, { note: ev.target.value })}
                           onBlur={() => setEditing(null)}
                           onKeyDown={ev => { if (ev.key === 'Enter') setEditing(null); }} />

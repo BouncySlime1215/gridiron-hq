@@ -1187,7 +1187,10 @@ export function handcuffValue({ through = SEASON - 1 } = {}) {
         // Expected extra opportunity per game across the season, and the same figure
         // converted to fantasy points so positions can be ranked against each other.
         expected_gain: +(missRate * b.gain).toFixed(2),
-        expected_points: +(missRate * b.gain * (ppo[b.position] ?? 0.5)).toFixed(2)
+        expected_points: +(missRate * b.gain * (ppo[b.position] ?? 0.5)).toFixed(2),
+        // Points a game in the weeks the starter sits (INJURY INSURANCE, batch D item 27): his
+        // without-starter opportunity at the same points-per-opportunity.
+        points_without: +(b.opportunity_without * (ppo[b.position] ?? 0.5)).toFixed(2)
       });
       byBackup.set(b.player_id, entry);
     }

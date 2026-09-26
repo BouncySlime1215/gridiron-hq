@@ -448,11 +448,41 @@ export function writeAuditRows(leagueId, auditRows, { asOf = new Date().toISOStr
       stmt.run(Number(leagueId), r.check_id, r.status, r.inventory_row ?? null, r.title, r.detail, r.cause ?? null,
         r.trust ?? null, JSON.stringify(r.pages_affected ?? []), JSON.stringify(r.values ?? {}, jsonSafe), asOf, asOf);
     }
+    recordHealthDay(leagueId, asOf, database);
     database.exec('COMMIT');
   } catch (e) {
     database.exec('ROLLBACK');
     throw e;
   }
+}
+
+/**
+ * DATA QUALITY PANEL (item 35): the league's broken / warn / ok counts after this audit, as its
+ * UTC day's point in `number_health_daily` (migration 118). The last audit of a day wins. Runs
+ * inside writeAuditRows' transaction, so the point always matches the rows beside it. No table
+ * yet (migration not applied) -> nothing written; the audit rows themselves never depend on it.
+ */
+function recordHealthDay(leagueId, asOf, database) {
+  if (!database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='number_health_daily'").get()) return;
+  const day = new Date(asOf).toISOString().slice(0, 10);
+  const n = { broken: 0, warn: 0, ok: 0 };
+  for (const r of database.prepare('SELECT status, COUNT(*) AS c FROM number_audit WHERE league_id = ? GROUP BY status').all(Number(leagueId))) {
+    n[r.status] = r.c;
+  }
+  database.prepare(`INSERT INTO number_health_daily (league_id, day, broken, warn, ok, as_of) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(league_id, day) DO UPDATE SET broken = excluded.broken, warn = excluded.warn, ok = excluded.ok, as_of = excluded.as_of`)
+    .run(Number(leagueId), day, n.broken, n.warn, n.ok, asOf);
+}
+
+/**
+ * The daily points of the last `days` UTC days (today included), every league, oldest first.
+ * [] when the table is not built yet.
+ */
+export function readNumberHealthTrend(database = db, { days = 14, now = Date.now() } = {}) {
+  if (!database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='number_health_daily'").get()) return [];
+  const from = new Date(now - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  return database.prepare(`SELECT league_id, day, broken, warn, ok FROM number_health_daily
+    WHERE day >= ? ORDER BY league_id, day`).all(from).map(r => ({ ...r }));
 }
 
 /** JSON has no NaN: keep it visible as a string rather than letting it become null. */

@@ -49,6 +49,9 @@
  *                        tick at or after 03:00 local each day plans every league anyway, so
  *                        the kept leagues' plans never pass their 24 h expiry.
  *                        Marker: nightly-all.json next to the plans file.
+ *   8. daily_digest      DAILY DIGEST (scripts/campaign/daily-digest.mjs --apply): the 9 AM ET summary
+ *                        into pushes.jsonl, once a day, quiet if nothing changed. Only with
+ *                        GRIDIRON_DAILY_DIGEST=1; off, the step does nothing and starts no process
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -66,6 +69,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { warRoomFlag, warRoomPlansPath } from '../server/services/warroom-flag.js';
 import { sourceTablesEnabled } from '../server/services/eval/sources/flag.js';
+import { digestFlag } from '../server/services/campaign/daily-digest.js';
 import { reachFlag, REACH_TARGETS } from '../server/services/campaign/reach.js';
 
 // Before any server module is imported: the scheduler must never start in this process.
@@ -484,6 +488,23 @@ export function sourceTables({ spawn = spawnSync, log = console.log, record = re
   log(`${stamp()} ${'source_tables'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${line.slice(0, 300)} (${Date.now() - t0} ms)`);
 }
 
+// DAILY DIGEST: the 9 AM ET summary; the script itself decides whether this tick is the one.
+export function dailyDigest({ spawn = spawnSync, log = console.log, record = recordSync, env = process.env } = {}) {
+  if (!digestFlag(env)) return;
+  const t0 = Date.now();
+  const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/daily-digest.mjs', '--apply'],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 2 * 60 * 1000 });
+  const failed = spawnFailure(r);
+  if (failed) {
+    record('daily_digest', 'error', { error: failed.slice(0, 300), spawn_failed: true });
+    log(`${stamp()} ${'daily_digest'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${Date.now() - t0} ms)`);
+    return;
+  }
+  const line = outputLines(r).filter(l => /^daily_digest: /.test(l)).at(-1) ?? `exit ${r.status}`;
+  record('daily_digest', r.status === 0 ? 'ok' : 'error', { summary: line.slice(0, 300) });
+  log(`${stamp()} ${'daily_digest'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${line.slice(0, 300)} (${Date.now() - t0} ms)`);
+}
+
 // EVAL-01: the brain's report card. Last in the tick so it grades what this tick wrote.
 // The runner writes its own brain_report rows; the loop records only a failure to start.
 export function brainReport({ spawn = spawnSync, log = console.log, record = recordSync } = {}) {
@@ -555,6 +576,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('source_tables', () => sourceTables({ spawn, log, record }));
   step('brain_report', () => brainReport({ spawn, log, record }));
   step('warroom_plans', () => warRoomPlans({ log, record, ...(warRoomLaunch ? { launch: warRoomLaunch } : {}) }));
+  step('daily_digest', () => dailyDigest({ spawn, log, record }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 

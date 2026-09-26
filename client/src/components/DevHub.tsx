@@ -64,6 +64,7 @@ export function DevPanel() {
           <div className="flex gap-2">
             <input
               type="text"
+              aria-label="Workspace ID"
               value={workspaceInput}
               onChange={e => setWorkspaceInput(e.target.value)}
               placeholder="wrkspc-…"

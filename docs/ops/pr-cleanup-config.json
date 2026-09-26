@@ -1,0 +1,40 @@
+{
+ "keep": {
+  "148": "handoff branch; holds ONE-PLAN.md, the one plan",
+  "136": "snapshot kept on purpose so the jev/4b port work is not lost",
+  "248": "JEV-01a; #441 is being rebuilt locally as its replacement",
+  "264": "plan item 18 REP-01 rebase pending",
+  "284": "plan item 17 SELF-01b rebase pending",
+  "293": "plan item 16 PUSH-01 rebase on hold (WIP branch exists)",
+  "505": "Numbers & People view (owned locally)",
+  "508": "Coach v2 (owned locally)",
+  "193": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "249": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2); plan said close after #445 merged (it has): Nick decides",
+  "250": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "257": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "259": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "281": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "301": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "310": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "338": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)",
+  "366": "touches server/services/coach/ (owned locally since 2026-09-26 03:52, Coach v2)"
+ },
+ "superseded": {
+  "377": {
+   "by": 440,
+   "merged": true
+  },
+  "288": {
+   "by": 443,
+   "merged": true
+  },
+  "369": {
+   "by": 436,
+   "merged": true
+  },
+  "387": {
+   "by": 473,
+   "merged": true
+  }
+ }
+}

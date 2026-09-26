@@ -630,7 +630,9 @@ function flipLegClaims(entry, ledger, section, roster, flip) {
   const players = [{ pid: String(flip.player), name: nameOf(flip.player), side: 'flip' },
     ...give.map(pid => ({ pid, name: nameOf(pid), side: 'give' })), ...get.map(pid => ({ pid, name: nameOf(pid), side: 'get' }))];
   const p = record(ledger, 'plan_flip_players', players);
-  const t = record(ledger, 'plan_flip', [{ partner: roster, partner_label: teamOf(entry, roster), other, other_label: teamOf(entry, other),
+  // flip_key: which flip this is (player:buy_from:sell_to), so the rules check can hold the lines about it.
+  const t = record(ledger, 'plan_flip', [{ flip_key: `${flip.player}:${flip.buy_from}:${flip.sell_to}`,
+    partner: roster, partner_label: teamOf(entry, roster), other, other_label: teamOf(entry, other),
     leg: buyLeg ? 1 : 2, legs: 2,
     p_his: val(buyLeg ? legs.p1 : legs.p2) ?? null, guess: (buyLeg ? legs.p1 : legs.p2)?.guess === true,
     p_both: val(legs.p_both) ?? null, nick_after: val(legs.nick_after) ?? null, clears: legs.nick_after?.clears_2se === true,

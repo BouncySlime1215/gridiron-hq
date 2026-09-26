@@ -1,0 +1,29 @@
+{
+  "note": "Tests that failed somewhere they should have passed. Rules: test/flaky-register.test.js. Quarantine only a proven-flaky entry, and only takes effect with GRIDIRON_QUARANTINE=1 (off in CI).",
+  "entries": [
+    {
+      "id": "route-deletion-impact-survivor",
+      "file": "test/route-deletion-impact.test.js",
+      "test": "a call site inside an already-unreached function is a survivor, not a casualty",
+      "symptom": "Failed on the Mac, green on CI and in the cloud; recorded as pre-existing in the 2026-09-23 ux-11 and s19 TDD records.",
+      "status": "not-a-flake",
+      "cause": "scripts/route-deletion-impact.mjs ran git grep -E '\\bname\\b'; macOS POSIX regex has no \\b, so every symbol had zero call sites there. Fixed with git grep -w -F (plan item 37).",
+      "owner": "cloud thread, plan item 37",
+      "quarantined": false,
+      "review_by": "",
+      "evidence": "test/route-deletion-impact.test.js test 9 reproduces it on Linux with a BSD-regex git shim; real-repo report under that shim was 32 falling / 400 unreached before, 2 / 33 after (same as Linux)."
+    },
+    {
+      "id": "coach-mount-port",
+      "file": "test/coach-mount.test.js",
+      "test": "server mount (port chosen at line 24)",
+      "symptom": "Reported flaky on main (PLAN.md 'Open for Nick'): the spawned server sometimes does not answer.",
+      "status": "suspected",
+      "cause": "",
+      "owner": "Nick (local, Coach v2 owns the Coach area)",
+      "quarantined": false,
+      "review_by": "",
+      "evidence": "Hypothesis only, not proven: port 40000 + pid % 20000 is fixed per process and can collide with a port already in use. Next step: log the child's stderr on failure and check for EADDRINUSE."
+    }
+  ]
+}

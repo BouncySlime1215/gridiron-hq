@@ -20,10 +20,17 @@
  * GET /api/trades/:leagueId/served-numbers serves that state next to the rows.
  *
  * Table: served_numbers (server/migrations/079_served_numbers.js).
+ *
+ * SERVE-LOG REPRO (item 31, GRIDIRON_SERVE_PIN=1): each entry also carries a pin
+ * (serve-pin.js: code sha, league snapshot hash, producer args, seed), written to
+ * served_pins in the same transaction as its numbers; off, nothing about the
+ * queue or the rows changes.
  */
 import { randomUUID } from 'node:crypto';
+import { withRandomSeed } from './stats-util.js';
 import { db as processDb } from '../db/index.js';
 import { calMonitorEnabled, matchupPostures } from './eval/calibration-monitor.js';
+import { servePinOn, pinFor, pinRow, PIN_INSERT, titleOddsSeed } from './serve-pin.js';
 
 /** Payload entries, not rows: one entry is one response. */
 export const SERVE_LOG_QUEUE_CAP = 500;
@@ -189,16 +196,19 @@ const servable = payload => payload && typeof payload === 'object' && !payload.e
 const leagueWeek = lg => (Number(lg?.current_week) >= 1 ? Number(lg.current_week) : null);
 
 /**
- * Called by a route right before `res.json(payload)`. O(1): one header, one push.
+ * Called by a route right before `res.json(payload)`. O(1): one header, one push
+ * (with the pin flag on, plus one payload hash per league sync, memoised).
  * An error payload served no number, so it records none. Returns the request id.
+ * `args` / `seed`: the producer arguments and seed, kept only in the pin.
  */
-export function recordServed(res, surface, lg, payload, context = {}, { trigger = 'request' } = {}) {
+export function recordServed(res, surface, lg, payload, context = {}, { trigger = 'request', args = null, seed = null } = {}) {
   if (!servable(payload) || !lg) return null;
   const requestId = randomUUID();
   res?.setHeader?.('X-Served-Request-Id', requestId);
   if (queue.length >= SERVE_LOG_QUEUE_CAP) { queue.shift(); state.dropped++; }
   queue.push({ surface, payload, context, request_id: requestId, trigger, served_at: new Date().toISOString(),
-    league_id: lg.id, as_of: lg.fetched_at ?? null, season: lg.season ?? null, week: leagueWeek(lg) });
+    league_id: lg.id, as_of: lg.fetched_at ?? null, season: lg.season ?? null, week: leagueWeek(lg),
+    ...(servePinOn() ? { pin: pinFor(surface, lg, payload, { args, context, seed }) } : {}) });
   state.enqueued++;
   return requestId;
 }
@@ -221,13 +231,17 @@ function entryRows(e) {
   }
 }
 
-/** Rows in one transaction. Throws on a failed write, after rolling back. */
-function writeRows(out, database) {
+/** Rows (and their entries' pins) in one transaction. Throws on a failed write, after rolling back. */
+function writeRows(out, database, pinned = []) {
   if (!out.length) return 0;
   database.exec('BEGIN IMMEDIATE');
   try {
     const stmt = database.prepare(INSERT);
     for (const r of out) stmt.run(...r);
+    if (pinned.length) {
+      const pinStmt = database.prepare(PIN_INSERT);
+      for (const e of pinned) pinStmt.run(...pinRow(e));
+    }
     database.exec('COMMIT');
   } catch (err) {
     try { database.exec('ROLLBACK'); } catch (rollbackErr) { err.message += ` (rollback: ${rollbackErr.message})`; }
@@ -236,7 +250,10 @@ function writeRows(out, database) {
   return out.length;
 }
 
-const writeEntries = (entries, database) => writeRows(entries.flatMap(e => entryRows(e) ?? []), database);
+const writeEntries = (entries, database) => {
+  const readable = entries.map(e => [e, entryRows(e)]).filter(([, r]) => r);
+  return writeRows(readable.flatMap(([, r]) => r), database, readable.map(([e]) => e).filter(e => e.pin));
+};
 
 /**
  * Drain the front of the queue into served_numbers, up to `maxRows` rows. On
@@ -255,7 +272,7 @@ export function flushServed({ database = processDb, maxRows = SERVE_LOG_FLUSH_RO
   if (!batch.length) return { entries: 0, rows: 0 };
   let written;
   try {
-    written = writeRows(out, database);
+    written = writeRows(out, database, readable.filter(e => e.pin));
   } catch (err) {
     queue.unshift(...readable);
     while (queue.length > SERVE_LOG_QUEUE_CAP) { queue.shift(); state.dropped++; }
@@ -312,17 +329,22 @@ export async function snapshotServedNumbers({ database = processDb } = {}) {
       AND season IS ? AND week IS ? LIMIT 1`).get(lg.id, lg.season ?? null, week);
     if (done) { out.push({ league_id: lg.id, week, state: 'already_snapshotted' }); continue; }
     const entries = [];
-    const add = (surface, payload, context = {}) => {
+    const pinOn = servePinOn();
+    const add = (surface, payload, context = {}, { args = null, seed = null } = {}) => {
       if (!servable(payload)) return;
       entries.push({ surface, payload, context, request_id: requestId, trigger: 'weekly',
         served_at: new Date().toISOString(), league_id: lg.id, as_of: lg.fetched_at ?? null,
-        season: lg.season ?? null, week });
+        season: lg.season ?? null, week,
+        ...(pinOn ? { pin: pinFor(surface, lg, payload, { args, context, seed }) } : {}) });
     };
     const requestId = `weekly:${randomUUID()}`;
     const myTeamId = lg.my_team_id ?? null;
-    add('title_odds', simulateSeason(lg, { runs: 2000, scoring: scoringFor(lg) }));
-    add('title_trades', titleOddsTrades(lg.id, { teamId: myTeamId }), { myTeamId });
-    add('trade_find', findTrades(lg, { myTeamId, limit: 20 }));
+    // With the pin flag on the weekly title odds run on a recorded seed (serve-pin.js#titleOddsSeed).
+    const oddsSeed = pinOn ? titleOddsSeed(lg, { runs: 2000, fromWeek: null }) : null;
+    add('title_odds', withRandomSeed(oddsSeed, () => simulateSeason(lg, { runs: 2000, scoring: scoringFor(lg) })),
+      {}, { args: { runs: 2000, from_week: null }, seed: oddsSeed });
+    add('title_trades', titleOddsTrades(lg.id, { teamId: myTeamId }), { myTeamId }, { args: { teamId: myTeamId } });
+    add('trade_find', findTrades(lg, { myTeamId, limit: 20 }), {}, { args: { myTeamId, limit: 20 } });
     if (calMonitorEnabled()) {
       const { lineupPosture } = await import('./lineup-posture.js');
       for (const m of matchupPostures(lg, lineupPosture)) add('matchup_win', m);

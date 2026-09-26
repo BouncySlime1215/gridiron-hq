@@ -24,7 +24,8 @@ const { normaliseObjective } = await import('../server/services/campaign/objecti
 const { rankPlans, tolerancesFor, MODES } = await import('../server/services/campaign/modes.js');
 const { nickOverpays } = await import('../server/services/campaign/search.js');
 const { makeFuzzLeague, rng, NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID } = await import('./fixtures/rule-fuzz-league.mjs');
-const { ruleViolations, countByRule, finalGets, dealOfKey, RULES, ownExpected } = await import('./fixtures/nick-rules.mjs');
+const { ruleViolations, countByRule, finalGets, dealOfKey, RULES, ownExpected, pathKey } = await import('./fixtures/nick-rules.mjs');
+const { moveId } = await import('../server/services/campaign/view.js');
 
 const CORPUS = JSON.parse(readFileSync(new URL('./fixtures/rule-fuzz-seeds.json', import.meta.url), 'utf8'));
 const envInt = (k, d) => (Number.isInteger(Number(process.env[k])) && process.env[k] !== '' && process.env[k] != null ? Number(process.env[k]) : d);
@@ -43,7 +44,8 @@ const ENFORCED = [
   // Without Nick's notes only main's never-give.js id pins protect them.
   { rule: 'never_give', name: '160 and 80 never given (notes missing)', when: a => !a.draw.notes },
   { rule: 'overpay', name: 'no overpay beyond the 1c exception' },
-  { rule: 'aj_brown', name: 'A.J. Brown only for a consistent Blue chip' },
+  { rule: 'aj_brown', name: 'A.J. Brown only for a Blue chip Nick picked (none picked in this sweep)' },
+  { rule: 'aj_needs_ok', name: 'no card giving A.J. Brown is served without Nick\'s OK (AJ-PICK)' },
   { rule: 'final_get', name: 'every final get scores 83+' },
   { rule: 'no_olave', name: 'Chris Olave never offered or targeted' },
   { rule: 'no_buyback', name: 'no buy-back, from any team, of a player sold this season' },
@@ -270,6 +272,61 @@ for (const mode of MODES) {
   });
 }
 
+/* ---------------------------------- AJ-PICK: A.J. Brown only for Nick's picks, and only with his OK */
+
+/**
+ * AJ-PICK sweep: in each league where Nick holds A.J. Brown, the test picks one Blue chip on another
+ * roster (near A.J.'s value, so a fair trade exists) and plans with it on Nick's aj.allow list; then it
+ * OKs the first "Needs your OK" card and plans again. Every rule above must hold with the pick, and the
+ * oracle adds: 277 only for the pick (aj_brown), no card giving 277 served without Nick's OK (aj_needs_ok).
+ */
+const AJ_SEEDS = SEEDS.slice(0, envInt('RULE_FUZZ_AJ_N', 60));
+const AJ_MODES = ['balanced', 'all_in'];
+const ajRuns = new Map();
+function ajPickOf(a) {
+  const me = a.league.me;
+  const blues = [...a.rosters].filter(([t]) => t !== me).flatMap(([, ids]) => ids)
+    .filter(id => id !== OLAVE_ID && a.scoreOf(id)?.score >= 83).sort((x, y) => a.players.get(y).value - a.players.get(x).value);
+  return blues.find(id => Math.abs(a.players.get(id).value - a.players.get(AJ_BROWN).value) < 1500) ?? blues[0];
+}
+function runAj(mode) {
+  if (ajRuns.has(mode)) return ajRuns.get(mode);
+  const out = [];
+  for (const seed of AJ_SEEDS) {
+    const a = makeFuzzLeague(seed);
+    if (!a.rosters.get(a.league.me).includes(AJ_BROWN)) continue;
+    const pick = ajPickOf(a);
+    if (pick == null) continue;
+    const allow = new Set([String(pick)]);
+    const objective = normaliseObjective({ risk_mode: mode });
+    const res = planLeague(a, { objective, env: SERVED_ENV, aj: { allow, confirmed: new Set() } });
+    const card = res.deck.find(c => c.aj);
+    const okd = card ? planLeague(makeFuzzLeague(seed), { objective, env: SERVED_ENV,
+      aj: { allow, confirmed: new Set([moveId(a.league.id, card.plan)]) } }) : null;
+    out.push({ seed, a, res, card, okd, v: [
+      ...ruleViolations(a, res, { ajAllow: allow }),
+      ...(okd ? ruleViolations(a, okd, { ajAllow: allow, ajConfirmedPaths: new Set([pathKey(card.plan.steps)]) }) : []),
+    ] });
+  }
+  ajRuns.set(mode, out);
+  return out;
+}
+for (const mode of AJ_MODES) {
+  test(`fuzz AJ-PICK ${mode}: every rule holds with a pick, before and after Nick's OK`, t => {
+    const rs = runAj(mode);
+    const bad = rs.flatMap(r => r.v.map(v => ({ seed: r.seed, ...v })));
+    const cards = rs.filter(r => r.card).length;
+    const served = rs.filter(r => r.okd?.deck.some(c => c.aj?.nick_confirmed)).length;
+    const hero = rs.filter(r => r.okd?.best?.steps.some(st => st.give.map(String).includes('277'))).length;
+    t.diagnostic(`${rs.length} leagues with A.J.; ${cards} built a Needs-your-OK card; ${served} served it once OK'd (${hero} as the next move); ${bad.length} violations`);
+    assert.equal(bad.length, 0, report(`AJ ${mode}`, bad));
+    // Non-vacuous: the sweep builds A.J. cards, never serves one unconfirmed, and serves some once OK'd.
+    assert.ok(cards >= Math.ceil(rs.length / 4), `${mode}: A.J. cards in only ${cards} of ${rs.length} leagues`);
+    assert.ok(rs.every(r => !r.res.best?.steps.some(st => st.give.map(String).includes('277'))), 'an unconfirmed A.J. card was the next move');
+    assert.ok(served > 0, `${mode}: no OK'd card was served`);
+  });
+}
+
 /** The mode's own row on the risk-mode sheet picks keeping the roster (#398 NO-TRADE-SHRINK's no_trade row). */
 function noTradePick(res, mode) {
   return (res.risk_modes ?? []).find(m => m.mode === mode)?.no_trade?.pick === 'no_trade';
@@ -349,7 +406,7 @@ test('finalGets: a chip picked up and spent is not final; one kept is', () => {
   const steps = [{ give: [1], get: [50] }, { give: [50, 2], get: [99] }];
   assert.deepEqual(finalGets({ steps }, [1, 2, 3]), ['99']);
   assert.deepEqual(finalGets({ steps: [{ give: [1], get: [50] }, { give: [2], get: [99] }] }, [1, 2, 3]).sort(), ['50', '99']);
-  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
+  assert.deepEqual(RULES, ['never_give', 'aj_brown', 'aj_needs_ok', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
     'claim_not_flipped', 'claim_protected_drop', 'claim_stranded', 'stranded_hold', 'step_regret']);
 });
 

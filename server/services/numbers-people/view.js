@@ -16,8 +16,9 @@ import { scoreboard } from './scoreboard.js';
 import { numbersPeopleOn, WINDOW_HOURS } from './producer.js';
 import { PEOPLE_LABEL } from '../coach/lanes.js';
 import { JEV_CITE_LABELS } from './lanes.js';
+import { bestFirst, bandOf } from './order.js';
+import { keyItems } from './items.js';
 
-const ORDER = { differ: 0, same_but: 1, agree: 2, no_people_read: 3 };
 const ok = f => f?.status === 'ok';
 
 const SIGNAL_LABELS = Object.freeze({
@@ -114,6 +115,24 @@ function describe(r, entry, n) {
   return { title: n.team(r.item_id), subtitle: 'League-mate with an open or likely deal', partner: String(r.item_id), players: [] };
 }
 
+/** The plan's numbers per item key, for the tie-breaks (the served plan, not a copy). */
+function factsByKey(entry) {
+  const out = new Map();
+  try {
+    for (const i of keyItems(entry)) out.set(`${i.item_type}:${i.item_id}`, i.facts);
+  } catch (e) {
+    console.warn(`[numbers-people] plan facts for the order could not be read: ${e?.message ?? e}`);
+  }
+  return out;
+}
+
+/** An item no longer in the plan: the numbers its reads cited. */
+function citedFacts(r) {
+  const out = {};
+  for (const c of [...(r.lane_a?.cites ?? []), ...(r.lane_b?.cites ?? [])]) if (!c.field && typeof c.value === 'number') out[c.key] = c.value;
+  return out;
+}
+
 /** One stored read as the shared card (NumbersPeopleCard) shows it. */
 function shapeItem(r, { entry, n, history, readAt = null }) {
   return {
@@ -165,11 +184,20 @@ export function numbersPeopleView({ leagueId, entry = null, database = defaultDb
   const n = namer(entry);
   const reads = readsOfRun(database, last.id);
   const history = weeklyHistory(database, leagueId, reads);
-  const summary = { agree: 0, differ: 0, same_but: 0, no_people_read: 0 };
-  const items = reads.map((r, i) => {
+  const summary = { agree: 0, differ: 0, same_but: 0, no_people_read: 0, both_go: 0, split: 0, both_wait: 0, both_avoid: 0 };
+  const band = { go: 'both_go', split: 'split', wait: 'both_wait', avoid: 'both_avoid' };
+  const facts = factsByKey(entry);
+  const cards = reads.map((r, i) => {
     summary[r.verdict] += 1;
-    return { ...shapeItem(r, { entry, n, history }), order: i };
-  }).sort((a, b) => (ORDER[a.verdict] - ORDER[b.verdict]) || (a.order - b.order));
+    const claude = r.lane_a?.stance ?? null;
+    const jev = r.lane_b?.stance ?? null;
+    const b = band[bandOf(claude, jev)];
+    if (b) summary[b] += 1;
+    const key = `${r.item_type}:${r.item_id}`;
+    return { item: shapeItem(r, { entry, n, history }), claude, jev, order: i, facts: facts.get(key) ?? citedFacts(r) };
+  });
+  // Best first (order.js): both say go at the top, both say avoid at the bottom.
+  const items = bestFirst(cards).map(c => c.item);
   const me = entry?.me ?? row('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)?.my_team_id ?? null;
   const board = scoreboard(database, leagueId, { me, season: season ?? row('SELECT season FROM leagues WHERE id = ?', leagueId)?.season ?? null });
   const age = (now - Date.parse(last.created_at)) / 3_600_000;

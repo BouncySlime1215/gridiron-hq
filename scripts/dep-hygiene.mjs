@@ -157,6 +157,7 @@ function defaultRun(cmd, args, { cwd }) {
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
+const NPM_ERROR = /^npm (ERR!|error)/m;
 const tail = s => String(s ?? '').trim().split('\n').slice(-20).join('\n');
 
 /**
@@ -178,11 +179,16 @@ export function applyUpgrades({ cwd, plan, run = defaultRun }) {
   };
   const mutations = [];
   if (plan.update.length) mutations.push({ name: 'npm update', args: ['update', ...plan.update] });
-  if (plan.audit_fix) mutations.push({ name: 'npm audit fix', args: ['audit', 'fix'] });
+  // `npm audit fix` exits 1 when an advisory is left that only --force could fix, after fixing the
+  // rest (measured on main e466da4b: react-router needs 7.x). That residual is the audit's answer, not
+  // a failed install, so only an `npm error` line fails the step; the gates judge the result.
+  if (plan.audit_fix) {
+    mutations.push({ name: 'npm audit fix', args: ['audit', 'fix'], ok: r => r.status === 0 || !NPM_ERROR.test(r.stderr) });
+  }
   for (const step of [...mutations, ...GATES]) {
     const r = run('npm', step.args, { cwd });
     steps.push({ name: step.name, status: r.status });
-    if (r.status !== 0) return restore(step.name, r);
+    if (!(step.ok ? step.ok(r) : r.status === 0)) return restore(step.name, r);
   }
   return { ok: true, nothing_to_do: false, restored: false, steps };
 }
@@ -228,7 +234,13 @@ export function renderReport({ audit, outdated, plan = null, applied = null }) {
   if (applied) {
     out.push('## Apply', '');
     if (applied.nothing_to_do) out.push('Nothing to apply.');
-    else if (applied.ok) out.push(`Kept: every gate green (${applied.steps.map(s => s.name).join(', ')}).`);
+    else if (applied.ok) {
+      out.push(`Kept: every gate green (${applied.steps.map(s => s.name).join(', ')}).`);
+      if (applied.after?.available) {
+        out.push(`After: ${applied.after.counts.total} advisories (${countLine(applied.after.counts)}); ` +
+          `runtime (prod): ${countLine(applied.after.prod_counts)}. Left: ${applied.after.rows.map(r => `${r.name} (${r.fix === 'in-range' ? 'in range' : r.fix})`).join(', ') || 'none'}.`);
+      } else if (applied.after) out.push(`After: audit unavailable (${applied.after.reason}).`);
+    }
     else {
       out.push(`Restored: ${applied.failed_gate} was red; package.json and package-lock.json are back to their earlier bytes` +
         `${applied.reinstall_ok ? ' and reinstalled' : ', but `npm ci` also failed: run it by hand'}.`);
@@ -268,6 +280,10 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), env = 
       console.error(`--apply refused: ${audit.reason}.`);
     } else {
       applied = applyUpgrades({ cwd, plan, run });
+      if (applied.ok && !applied.nothing_to_do) {
+        applied.after = classifyAudit(run('npm', ['audit', '--json'], { cwd }).stdout,
+          readJson(path.join(cwd, 'package-lock.json')));
+      }
     }
   }
 

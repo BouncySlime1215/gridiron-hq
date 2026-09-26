@@ -966,6 +966,21 @@ function pairedSe(before, after) {
 }
 
 /**
+ * U1: run-to-run standard error of one arm's title odds, from its per-run values (0/1
+ * indicators, or RB-TITLE's conditional probabilities when it is on). For the conditional
+ * estimate this excludes the shared error of the pooled playoff-week scores (rb-title.js),
+ * so it understates on large brackets (docs/tdd/2026-09-25-u1-rb-title-on.tdd.md).
+ */
+function levelSe(perRun) {
+  const n = perRun.length;
+  if (n < 2) return null;
+  let sum = 0, sq = 0;
+  for (let i = 0; i < n; i++) { sum += perRun[i]; sq += perRun[i] * perRun[i]; }
+  const mean = sum / n;
+  return +Math.sqrt(Math.max(0, (sq - n * mean * mean) / (n - 1)) / n).toFixed(4);
+}
+
+/**
  * The seed a trade is simulated under when the caller gives none: one per
  * league state, so the same deal on the same sync gives the same answer on
  * every click (it used to be a fresh random seed per request).
@@ -1236,6 +1251,8 @@ export function tradeImpact(lg, {
     return {
       roster_id: id, owner: b.owner,
       title_before: b.title_odds, title_after: a.title_odds,
+      // U1: each arm's own SE (the served title_now reads title_before_se).
+      title_before_se: levelSe(rb.title), title_after_se: levelSe(ra.title),
       title_delta, title_delta_se,
       title_delta_clears_noise: title_delta_se != null && Math.abs(title_delta) > TRADE_DELTA_NOISE_SE * title_delta_se,
       playoff_before: b.playoff_odds, playoff_after: a.playoff_odds,
@@ -1250,6 +1267,8 @@ export function tradeImpact(lg, {
     };
   };
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
+    // U1: which title estimator every title number and SE here is on (GRIDIRON_RB_TITLE=1: 'conditional').
+    title_estimator: before.title_estimator === 'conditional' ? 'conditional' : 'indicator',
     ...(before.projection_basis ? { projection_basis: before.projection_basis,
       ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     // EA-07: whether this deal was priced on the caller's world (the snapshot's one

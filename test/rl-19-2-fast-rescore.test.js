@@ -246,3 +246,35 @@ test('RB-TITLE: fast rescore equals the old path under shadow and on; shadow lea
   const world = withRb(null, () => tradeImpactWorld(league(), { runs: RUNS, seed: 17 }));
   assert.deepEqual(withRb('1', () => fast({ ...args, world })), withRb('1', () => old(args)));
 });
+
+test('U1: every side carries each arm\'s title SE and the estimator; on, they are the conditional estimate\'s', () => {
+  const withRb = (value, fn) => {
+    const prior = process.env.GRIDIRON_RB_TITLE;
+    if (value == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = value;
+    try { return fn(); } finally {
+      if (prior == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = prior;
+    }
+  };
+  const args = { ...DEALS[0], runs: RUNS, seed: 17 };
+  const off = withRb(null, () => fast(args));
+  const on = withRb('1', () => fast(args));
+  assert.equal(off.title_estimator, 'indicator');
+  assert.equal(on.title_estimator, 'conditional');
+  for (const side of ['me', 'them']) {
+    for (const r of [off, on]) {
+      assert.equal(typeof r[side].title_before_se, 'number', side);
+      assert.equal(typeof r[side].title_after_se, 'number', side);
+    }
+    // Off: an indicator's SE is the binomial one, sqrt(p(1-p)/(n-1)).
+    const p = off[side].title_before;
+    assert.ok(Math.abs(off[side].title_before_se - Math.sqrt(p * (1 - p) / (RUNS - 1))) < 1e-4, side);
+  }
+  // The conditional estimate is less noisy for at least one side, on the level and on the paired delta.
+  assert.ok(['me', 'them'].some(s => on[s].title_before_se < off[s].title_before_se), 'level SE drops');
+  assert.ok(['me', 'them'].some(s => on[s].title_delta_se < off[s].title_delta_se), 'paired delta SE drops');
+  // Preview mode never turns it on.
+  const prev = process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+  try { assert.equal(withRb(null, () => fast(args)).title_estimator, 'indicator'); }
+  finally { if (prev == null) delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED; else process.env.GRIDIRON_PREVIEW_UNCONFIRMED = prev; }
+});

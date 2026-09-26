@@ -21,7 +21,6 @@ import { previewUnconfirmed } from './preview-mode.js';
 
 export const WARROOM_ENV = 'GRIDIRON_WARROOM_ENABLED';
 export const WARROOM_PLANS_ENV = 'GRIDIRON_WARROOM_PLANS';
-export const PEOPLE_BOARD_ENV = 'GRIDIRON_WARROOM_PEOPLE_ENABLED';
 export const WARROOM_PREVIEW_REASON =
   'War Room plans come from a study run (scripts/study/acq-flip-proto.mjs), not the live engine';
 
@@ -31,18 +30,6 @@ export const WARROOM_PREVIEW_REASON =
  */
 export function warRoomFlag() {
   if (process.env[WARROOM_ENV] === '1') return { enabled: true, preview: false };
-  if (previewUnconfirmed()) return { enabled: true, preview: true };
-  return { enabled: false, preview: false };
-}
-
-/**
- * The People Board rail: { enabled, preview }. Never on while the War Room is off. Its
- * own switch set -> on, preview as the War Room's; else preview mode -> on, preview.
- */
-export function peopleBoardFlag() {
-  const room = warRoomFlag();
-  if (!room.enabled) return { enabled: false, preview: false };
-  if (process.env[PEOPLE_BOARD_ENV] === '1') return { enabled: true, preview: room.preview };
   if (previewUnconfirmed()) return { enabled: true, preview: true };
   return { enabled: false, preview: false };
 }

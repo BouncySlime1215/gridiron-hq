@@ -3,7 +3,7 @@
  * (server/services/campaign/never-give.js#ruleGate). Made-up ids and values only; no real data.
  *
  * League 4, Nick's team 5 (leagues.my_team_id). Rules:
- *   never give 160 / 80 / 277 (277 only for a consistent Blue chip, which nothing measures yet);
+ *   never give 160 / 80 / 277 (277 only for a Blue chip Nick picked, AJ-PICK; none picked here);
  *   never get 290 or a player Nick traded away this season (the ledger: here he sold 105);
  *   everything Nick gets scores 83+ on the served blue-chip board (here 103 scores 70); a get the board
  *   does not score is unscored and fails closed (here 110 and 290 are off the board);
@@ -42,6 +42,7 @@ const { hashSessionToken } = await import('../server/platform/auth.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 const { setAnthropicClientForTesting } = await import('../server/services/claude.js');
 const { default: tradesRouter } = await import('../server/routes/trades.js');
+const { gateNewsEdge } = await import('../server/services/news-lag-trader.js');
 
 const L = 4, ME = '5';
 const DB = { row, rows };
@@ -92,11 +93,11 @@ const idsIn = list => list.map(d => `${(d.i_give ?? []).map(p => p.id).join('+')
 test('ruleVerdict: each rule, and the +12% depth-only 2-for-1 exception only with both rises', () => {
   const g = NG.ruleGate(DB, { leagueId: L });
   assert.equal(g.me, ME);
-  assert.deepEqual(g.rules.sources, { fc_value: 'ok', ledger: 'ok', scores: 'ok' });
+  assert.deepEqual(g.rules.sources, { fc_value: 'ok', ledger: 'ok', scores: 'ok', aj_pick: 'ok' });
   assert.ok(g.rules.sold.has('105'), 'the ledger reader finds the sale');
   const r = t => g.check(t).reasons;
   assert.deepEqual(r({ give: [80], get: [101] }), ['never_give', 'overpay']);
-  assert.deepEqual(r({ give: [277], get: [101] }), ['never_give'], '277 stays pinned: nothing measures a consistent scorer');
+  assert.deepEqual(r({ give: [277], get: [101] }), ['never_give'], '277 stays pinned: Nick picked nobody for him here (AJ-PICK)');
   assert.deepEqual(r({ give: [107], get: [290] }), ['never_get', 'unscored']);
   assert.deepEqual(r({ give: [107], get: [105] }), ['sold_this_season', 'unscored']);
   assert.deepEqual(r({ give: [107], get: [103] }), ['below_blue_chip']);
@@ -295,6 +296,31 @@ function breaks({ give, get }) {
   return g.reduce((s, id) => s + FC[id], 0) > t.reduce((s, id) => s + FC[id], 0);
 }
 const SEEDS = Number(process.env.RULES_EVERYWHERE_SEEDS ?? 40);
+
+test('surface /news-edge (gateNewsEdge): each one-player idea checked on the rules that apply to its kind, counted', () => {
+  const opp = (kind, id, target = `x${id}`) => ({ subject: { id: String(id), name: target }, action: { kind, target, target_id: id == null ? null : String(id) } });
+  const ideas = [
+    opp('buy_low', 290), opp('buy_low', 105), opp('buy_beneficiary', 103), opp('buy_low', 110), opp('buy_low', 101),
+    opp('hold_or_sell', 160), opp('hold_or_sell', 80), opp('hold_or_sell', 107),
+    opp('claim_waiver', 290), opp('claim_waiver', 105), opp('claim_waiver', 104),
+    opp('buy_beneficiary', null), opp('already_held', 102),
+  ];
+  const out = gateNewsEdge({ opportunities: ideas, note: 'n' }, NG.ruleGate(DB, { leagueId: L, teamId: ME }));
+  const kept = out.opportunities.map(o => `${o.action.kind}:${o.action.target_id}`);
+  assert.deepEqual(kept, ['buy_low:101', 'hold_or_sell:107', 'claim_waiver:104', 'already_held:102'],
+    'a buy is a full get (blue chip, priced); a sell is a give with no package to price; a claim is never get + no buy-backs');
+  assert.equal(out.dropped_by_rule, ideas.length - kept.length);
+  assert.deepEqual(out.dropped_why, { never_get: 2, unscored: 3, sold_this_season: 2, below_blue_chip: 1, no_fc_value: 1, never_give: 2, unmapped_player: 1 });
+  assert.equal(out.note, 'n', 'the rest of the answer rides along');
+  // Another team's seat: Nick's rules do not apply to it.
+  assert.equal(gateNewsEdge({ opportunities: ideas }, NG.ruleGate(DB, { leagueId: L, teamId: '2' })).opportunities.length, ideas.length);
+  // Fails closed with the ledger unreadable: every gated kind is dropped.
+  const closed = { applies: true, forNick: true, check: () => ({ ok: false, reasons: ['rules_unreadable'] }) };
+  assert.deepEqual(gateNewsEdge({ opportunities: ideas }, closed).opportunities.map(o => o.action.kind), ['already_held']);
+  // The route serves only the gated answer.
+  const route = fs.readFileSync(new URL('../server/routes/trades.js', import.meta.url), 'utf8');
+  assert.match(route, /r\.get\('\/:leagueId\/news-edge'[\s\S]*?gateNewsEdge\(out, ruleGate\(\{ row, rows \}/);
+});
 
 test('property: over random ideas, no gate wrapper ever serves a rule-breaking package, and every drop is counted', () => {
   let served = 0, dropped = 0;

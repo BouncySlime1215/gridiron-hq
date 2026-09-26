@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, headshotUrl, useApi, Draft } from '../api';
 import { Headshot, PosBadge } from './PlayerRow';
@@ -28,12 +28,20 @@ export default function DraftRecap({ draft, open, onClose }: { draft: Draft; ope
     finally { setBusy(false); }
   };
 
+  // Escape closes it, like every other sheet in the app.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 sm:p-8 overflow-y-auto"
       style={{ background: 'rgba(15,23,42,0.45)' }} onClick={onClose}>
-      <section onClick={e => e.stopPropagation()} className="card w-full max-w-3xl mt-6 shadow-xl">
+      <section onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Draft recap" className="card w-full max-w-3xl mt-6 shadow-xl">
         <header className="flex items-center gap-3 px-5 py-4 border-b border-slate-200">
           <h2 className="text-lg font-bold text-slate-800">Draft Recap</h2>
           {grade?.grade && (

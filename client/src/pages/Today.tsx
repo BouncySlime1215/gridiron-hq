@@ -5,13 +5,15 @@ import { useCoach } from '../state/coach';
 import { useWarRoom } from '../components/warroom/useWarRoom';
 import TodayPanel from '../components/warroom/TodayPanel';
 import CommandCenter from '../components/CommandCenter';
+import TodayHeadlines from '../components/TodayHeadlines';
 import { Card, EmptyState, PageHeader, Skeleton } from '../components/ui/DesignSystem';
 import { PageError, PageLoading } from '../components/PageState';
 
 /**
  * Today (docs/ui/CONSOLIDATION-MAP.md): the one place to start. The next move with its
- * Watching list and season progress (the War Room's Today, inline), then this week's
- * actions across every league (the Command Center that used to top League Hub).
+ * Watching list and season progress (the War Room's Today, inline), then this week's actions
+ * across every league (the Command Center that used to top League Hub), then headlines about your
+ * players (the three freshest, linked to Players → News).
  */
 export default function Today() {
   const { leagues, activeId, active, loading, error, refetch } = useLeague();
@@ -35,6 +37,8 @@ export default function Today() {
           height so it does not pop in above the week's actions. */}
       {activeId != null && wr.loading && !wr.data && <TodaySkeleton />}
       <CommandCenter />
+      {/* Last, so a late answer only extends the page and never pushes the week's actions down. */}
+      <div className="mt-8"><TodayHeadlines /></div>
     </div>
   );
 }

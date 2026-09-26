@@ -237,7 +237,9 @@ test('RB-TITLE: fast rescore equals the old path under shadow and on; shadow lea
   }
   const shadow = withRb('shadow', () => fast(args));
   for (const side of ['me', 'them']) {
-    const { title_delta_rb, title_delta_rb_se, ...served } = shadow[side];
+    const { title_delta_rb, title_delta_rb_se, title_delta_plain, title_delta_plain_se, ...served } = shadow[side];
+    assert.equal(title_delta_plain, served.title_delta, `${side}: shadow logs the plain delta it serves`);
+    assert.equal(title_delta_plain_se, served.title_delta_se);
     assert.deepEqual(served, off[side], `${side}: shadow does not move a served field`);
     assert.equal(typeof title_delta_rb, 'number');
     assert.equal(typeof title_delta_rb_se, 'number');
@@ -245,4 +247,62 @@ test('RB-TITLE: fast rescore equals the old path under shadow and on; shadow lea
   // A world built with the flag off is not reused once it is on (the base odds differ).
   const world = withRb(null, () => tradeImpactWorld(league(), { runs: RUNS, seed: 17 }));
   assert.deepEqual(withRb('1', () => fast({ ...args, world })), withRb('1', () => old(args)));
+});
+
+test('U1: every side carries each arm\'s title SE and the estimator; on, they are the conditional estimate\'s', () => {
+  const withRb = (value, fn) => {
+    const prior = process.env.GRIDIRON_RB_TITLE;
+    if (value == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = value;
+    try { return fn(); } finally {
+      if (prior == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = prior;
+    }
+  };
+  const args = { ...DEALS[0], runs: RUNS, seed: 17 };
+  const off = withRb(null, () => fast(args));
+  const on = withRb('1', () => fast(args));
+  assert.equal(off.title_estimator, 'indicator');
+  assert.equal(on.title_estimator, 'conditional');
+  for (const side of ['me', 'them']) {
+    for (const r of [off, on]) {
+      assert.equal(typeof r[side].title_before_se, 'number', side);
+      assert.equal(typeof r[side].title_after_se, 'number', side);
+    }
+    // Off: an indicator's SE is the binomial one, sqrt(p(1-p)/(n-1)).
+    const p = off[side].title_before;
+    assert.ok(Math.abs(off[side].title_before_se - Math.sqrt(p * (1 - p) / (RUNS - 1))) < 1e-4, side);
+  }
+  // The conditional estimate is less noisy for at least one side, on the level and on the paired delta.
+  assert.ok(['me', 'them'].some(s => on[s].title_before_se < off[s].title_before_se), 'level SE drops');
+  assert.ok(['me', 'them'].some(s => on[s].title_delta_se < off[s].title_delta_se), 'paired delta SE drops');
+  // Preview mode never turns it on.
+  const prev = process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+  try { assert.equal(withRb(null, () => fast(args)).title_estimator, 'indicator'); }
+  finally { if (prev == null) delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED; else process.env.GRIDIRON_PREVIEW_UNCONFIRMED = prev; }
+});
+
+test('RB-DELTAS: deltas serves the conditional delta and SE; levels stay the plain ones; both logged', () => {
+  const withRb = (value, fn) => {
+    const prior = process.env.GRIDIRON_RB_TITLE;
+    if (value == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = value;
+    try { return fn(); } finally {
+      if (prior == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = prior;
+    }
+  };
+  const args = { ...DEALS[1], runs: RUNS, seed: 17 };
+  const shadow = withRb('shadow', () => fast(args));
+  const deltas = withRb('deltas', () => fast(args));
+  assert.deepEqual(withRb('deltas', () => fast(args)), withRb('deltas', () => old(args)), 'fast = old path under deltas');
+  assert.equal(deltas.delta_estimator, 'conditional');
+  assert.equal(deltas.title_estimator, 'indicator');
+  assert.equal(shadow.delta_estimator, 'indicator');
+  for (const side of ['me', 'them']) {
+    const s = shadow[side], d = deltas[side];
+    assert.equal(d.title_before, s.title_before, `${side}: served level is plain`);
+    assert.equal(d.title_after, s.title_after);
+    assert.equal(d.title_delta, s.title_delta_rb, `${side}: served delta is RB`);
+    assert.equal(d.title_delta_se, s.title_delta_rb_se);
+    assert.equal(d.title_delta_plain, s.title_delta);
+    assert.equal(d.title_delta_clears_noise, Math.abs(d.title_delta) > 2 * d.title_delta_se);
+  }
 });

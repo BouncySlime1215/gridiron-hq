@@ -7,6 +7,13 @@
  * the feature/model code or artifacts no longer match the lock) and appends every arm's
  * forecast to exgb_shadow_predictions, stamped with the time. A forecast made at or after
  * the player's kickoff is flagged late and never graded (exgb-grader.js).
+ *
+ * U0 SHADOW-LIVE: a frozen ESPN capture can also land outside those windows (a manual or
+ * catch-up capture, or one taken before this flag went live). Windows alone then leave
+ * that week's frozen ESPN rows with no forecast beside them, and the week can never be
+ * graded. So any ESPN capture newer than the week's latest forecast also triggers one
+ * ('after_capture'), and exgbShadowHealth is the number_health check that says so when
+ * frozen rows exist for a week but forecasts do not.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,6 +27,8 @@ import { captureWindows, isLate, kickoffsByTeam } from './espn-weekly-projection
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const ARMS = ['A_xgb', 'A_lgbm', 'B1', 'B2'];
 const PREDICT_TIMEOUT_MS = 10 * 60 * 1000;
+/** After a failed after_capture forecast, wait this long before trying the same week again. */
+const RETRY_AFTER_MS = 60 * 60 * 1000;
 
 function recordRun(r) {
   run(`INSERT INTO exgb_shadow_runs (run_id, season, week, window_key, predicted_at, status, n_rows, n_late,
@@ -59,6 +68,22 @@ function doneWindows(season, week) {
   return keys;
 }
 
+/**
+ * True when an ok frozen ESPN capture of this week (taken at or before `nowIso`) is newer than
+ * the week's latest ok forecast, and no forecast attempt failed within RETRY_AFTER_MS.
+ */
+export function captureNeedsForecast(season, week, nowIso) {
+  const cap = row(`SELECT MAX(captured_at) AS at FROM espn_weekly_projection_captures
+                   WHERE season = ? AND week = ? AND status = 'ok' AND captured_at <= ?`, season, week, nowIso)?.at;
+  if (!cap) return false;
+  const last = row(`SELECT MAX(predicted_at) AS at FROM exgb_shadow_runs WHERE season = ? AND week = ? AND status = 'ok'`,
+    season, week)?.at;
+  if (last && last >= cap) return false;
+  const failedAt = row(`SELECT MAX(predicted_at) AS at FROM exgb_shadow_runs WHERE season = ? AND week = ? AND status = 'error'`,
+    season, week)?.at;
+  return !(failedAt && failedAt >= cap && Date.parse(nowIso) - Date.parse(failedAt) < RETRY_AFTER_MS);
+}
+
 /** One locked forecast of `week` through the Python predictor, ingested. */
 export function forecastWeek({ season, week, windowKey, now = new Date(), spawn = spawnSync }) {
   const out = path.join(os.tmpdir(), `exgb-${season}-w${week}-${process.pid}-${now.getTime()}.json`);
@@ -95,11 +120,30 @@ export async function runExgbShadowPredict({ now = new Date(), spawn = spawnSync
   }
   for (const { week, kicks } of weeks) {
     const done = doneWindows(yr, week);
-    const due = captureWindows(kicks).filter(x => x.opens_at <= nowIso && nowIso < x.closes_at && !done.has(x.key));
+    const due = captureWindows(kicks).filter(x => x.opens_at <= nowIso && nowIso < x.closes_at && !done.has(x.key))
+      .map(x => x.key);
+    if (captureNeedsForecast(yr, week, nowIso)) due.push('after_capture');
     if (!due.length) continue;
     attempted += 1;
-    const r = forecastWeek({ season: yr, week, windowKey: due.map(x => x.key).join('+'), now, spawn });
+    const r = forecastWeek({ season: yr, week, windowKey: due.join('+'), now, spawn });
     if (r.status === 'ok') runs += 1; else failed += 1;
   }
   return { season: yr, weeks: weeks.map(w => w.week), runs, attempted, failed };
+}
+
+/**
+ * number_health `exgb_shadow_capture`: every week with pre-kickoff frozen ESPN rows must have
+ * pre-kickoff shadow forecasts beside it, or that week can never be graded (and is lost once
+ * its games start). { status: 'off' | 'ok' | 'broken', weeks: [{ week, frozen, shadow }], missing: [week] }.
+ */
+export function exgbShadowHealth({ season } = {}) {
+  const yr = season ?? row('SELECT MAX(season) AS s FROM espn_weekly_projection_snapshots')?.s;
+  const frozen = yr == null ? [] : rows(`SELECT week, COUNT(*) AS n FROM espn_weekly_projection_snapshots
+                                          WHERE season = ? AND late = 0 GROUP BY week ORDER BY week`, yr);
+  const shadow = new Map(yr == null ? [] : rows(`SELECT week, COUNT(*) AS n FROM exgb_shadow_predictions
+                                                  WHERE season = ? AND late = 0 GROUP BY week`, yr).map(r => [r.week, r.n]));
+  const weeks = frozen.map(f => ({ week: f.week, frozen: f.n, shadow: shadow.get(f.week) ?? 0 }));
+  const missing = weeks.filter(w => w.frozen > 0 && w.shadow === 0).map(w => w.week);
+  const status = !exgbEnabled() ? 'off' : missing.length ? 'broken' : 'ok';
+  return { status, season: yr ?? null, weeks, missing };
 }

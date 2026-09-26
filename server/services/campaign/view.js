@@ -29,6 +29,7 @@ import { hash } from './confirm.js';
 import { ladderSection } from './ladder.js';
 import { floorName as getsFloorName } from './gets-floor.js';
 import { hisSide, hisSideSummary } from './his-side.js';
+import { deadlineSummary } from './deadline-mode.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -131,6 +132,15 @@ export function failedEntry(res, { names = {} } = {}) {
   return { league: res.league, me: res.me != null ? String(res.me) : 'unknown', names, error: String(res.error) };
 }
 
+/** STOPS-01: the stops run for `_run.inputs.stops` (ids and numbers only). */
+function stopsSummary(st) {
+  return { mode: st.mode, priced: st.rows.filter(r => r.status === 'ok').length, unreachable: st.rows.filter(r => r.status !== 'ok').length,
+    holes: st.holes.map(h => ({ week: h.week, kind: h.kind, drop: h.drop, se: h.se, players: h.players })),
+    rows: st.rows.map(r => ({ week: r.week, kind: r.hole_kind, status: r.status, stop_label: r.stop_label, because: r.because,
+      ...(r.status === 'ok' ? { cost: r.cost, net: r.net, verdict: r.verdict, extra_steps: r.extra_steps, gain_text: r.gain_text,
+        new_next_move_changes: r.new_next_move_changes, cover: r.cover } : {}) })) };
+}
+
 /**
  * res: planLeague result. ctx: { names, as_of, previous (last entry), changed (diffNextMove result),
  *   brain (brain-gate.js#applyBrainReport result), number_health (brain-gate.js#readNumberHealth result),
@@ -160,6 +170,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   /* ---------------------------------------------------------- the deck */
   const deck = res.deck;
   const moveIds = deck.map(c => moveId(res.league, c.plan));
+  // AJ-PICK: a card giving A.J. Brown that Nick has not OK'd yet. The planner puts these after the deck; one
+  // is never the next move and never the card a decline falls back to.
+  const waiting = c => !!c?.aj && !c.aj.nick_confirmed;
   const idByFirstKey = new Map(deck.map((c, j) => [dealKey(c.plan.steps[0]), moveIds[j]]));
 
   const reasoning = ({ team, p, pBasis, delta, clears, pb, verdict, whole }) => {
@@ -239,6 +252,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     }
     // CAP-1C: a depth-only 2-for-1 planned above the 0 cap says so, with the lineup and title gains that allowed it.
     const dp = st.depth_premium;
+    // AJ-PICK: every step that gives A.J. Brown says it needs Nick's OK.
+    if (st.give.some(id => String(id) === '277') && plan.aj) out.requires_nick_confirm = true;
     if (dp) {
       const c = dp.confirmed ?? null;
       out.depth_premium = ok({ pct: dp.pct, cap: dp.cap, lineup_points_delta: dp.points_delta, title_odds_delta: dp.title_delta,
@@ -268,19 +283,21 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   };
 
   const moves = deck.map((c, j) => {
-    const plan = c.plan;
+    const plan = { ...c.plan, aj: c.aj ?? null };
     const thisId = moveIds[j];
+    const nextId = deck[j + 1] && !waiting(deck[j + 1]) ? moveIds[j + 1] : null;
     const steps = plan.steps.map((_, i) => {
-      if (j === 0) {
-        const backup = i === 0 ? moveIds[1] ?? null : null;
+      if (j === 0 && !waiting(c) && res.best) {
+        const backup = i === 0 ? nextId : null;
         return step(plan, i, res.playbook[i] ?? null, { thisId, backupId: backup, verdict: c.confirm, laterReason: PLAYBOOK_LATER });
       }
-      return step(plan, i, i === 0 ? c.playbook : c.playbooks?.[i] ?? null, { thisId, backupId: i === 0 ? moveIds[j + 1] ?? null : null,
+      return step(plan, i, i === 0 ? c.playbook : c.playbooks?.[i] ?? null, { thisId, backupId: i === 0 && !waiting(c) ? nextId : null,
         verdict: c.confirm, laterReason: PLAYBOOK_FIRST_ONLY });
     });
     const s0 = plan.steps[0];
     return {
       move_id: thisId, rank: j + 1,
+      ...(c.aj ? { requires_nick_confirm: true, nick_confirmed: !!c.aj.nick_confirmed, aj_for: ids(c.aj.for ?? []) } : {}),
       target: plan.target != null ? String(plan.target) : null,
       target_owner: plan.owner != null ? String(plan.owner) : null,
       chained: !!plan.chained, steps,
@@ -291,7 +308,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         whole: `If all ${plan.steps.length} step(s) land you gain ${fmt(plan.delta_final)}; across yes and no outcomes that is ${fmt(plan.expected)} expected, and the path completes ${pct(plan.p_complete)} of the time.` }),
     };
   });
-  const best = moves[0] ?? null;
+  // AJ-PICK: the next move is the deck's head only when it is not a card waiting on Nick's OK.
+  const best = moves[0] && !waiting(deck[0]) && res.best ? moves[0] : null;
+  const ajWaitingN = deck.filter(waiting).length;
+  const ajText = !best && ajWaitingN ? `The only move${ajWaitingN === 1 ? '' : 's'} this run give${ajWaitingN === 1 ? 's' : ''} A.J. Brown for a player you picked, so ${ajWaitingN === 1 ? 'it needs' : 'each needs'} your OK first (see the deck).` : null;
   const alternatives = ok(moves, 'plan.path');
   // NO-OVERPAY: with no move, say when the cap on market value given is what stopped it, and name the closest overpay.
   const op = res.no_overpay ?? null;
@@ -317,7 +337,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${keepText}${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
     : closestText ? `Nothing clears without overpaying; ${closestText}.`
       : floorText || ledgerText ? null : 'The planner found no trade path worth sending this week.';
-  const next_move = best ? ok(best, 'plan.path') : unknown([ledgerText, floorText, why].filter(Boolean).join(' '), 'plan.path');
+  const next_move = best ? ok(best, 'plan.path') : unknown([ajText, ledgerText, floorText, why].filter(Boolean).join(' '), 'plan.path');
 
   /* ------------------------------------------------------- destination */
   // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.
@@ -339,7 +359,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     tolerances: ok(tolerances, 'campaign.plan'),
     arrive_by: week(o.arrive_by) ? ok(o.arrive_by, 'campaign.plan') : unknown('No arrive-by week is set.', 'campaign.plan'),
     eta_week: week(res.eta_week) ? ok(res.eta_week, 'plan.path') : unknown('No plan, so no arrival week.', 'plan.path'),
-    title_now: num(res.now.title, 'sim.title', { prob: true, unit: 'title_odds' }),
+    title_now: num(res.now.title, 'sim.title', { prob: true, unit: 'title_odds', se: res.now.title_se }),
     title_planned_now: metric !== 'title' ? unknown(`The plan is tracked in ${LABEL[metric]}, not title odds.`, 'plan.path')
       : num(plannedNow ?? nowMetric, 'plan.path', { prob: true, unit: 'title_odds' }),
     path: path.length ? ok(path, 'plan.path') : unknown('The current week is unknown, so there is no path.', 'plan.path'),
@@ -391,6 +411,14 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       week: st.week, label: st.label ?? p.stop_label } });
     if (TRADEOFF_KEY.test(key)) tradeoffs[key] = row(p);
   });
+  // STOPS-01: the planner's bye / injury stops, served only when GRIDIRON_STOPS=1 (shadow: _run.inputs.stops).
+  if (res.stops?.mode === 'on') {
+    for (const r of res.stops.rows) {
+      if (r.status !== 'ok' || !fin(r.cost) || !fin(r.net)) continue;
+      const key = tradeoffKey({ type: 'add_stop', stop: r.stop });
+      if (TRADEOFF_KEY.test(key) && !tradeoffs[key]) tradeoffs[key] = row(r);
+    }
+  }
   const cur = res.risk_modes.find(m => m.mode === o.risk_mode);
   // integration-7: a mode whose pick is keeping the roster is worth exactly 0 (no move), not unpriced.
   const expOf = m => (fin(m?.expected) ? m.expected : m?.no_trade?.pick === 'no_trade' ? 0 : null);
@@ -595,6 +623,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null, res.chat_interest ?? null),
+        ...(res.stops ? { stops: stopsSummary(res.stops) } : {}),
+        // AJ-PICK: only when Nick has picks (no picks: the file is byte-identical to before AJ-PICK).
+        ...(res.aj_pick && res.aj_pick.allow > 0 ? { aj_pick: res.aj_pick } : {}),
+        ...(res.deadline ? { deadline_mode: deadlineSummary(res.deadline) } : {}),
         ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,

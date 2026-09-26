@@ -69,6 +69,9 @@
  * every entry says "rank r of N" on the same scale; a kept entry's attention is
  * the only field that can change, and only when its rank moved.
  * Pushes, the failed count and the summary line count only the leagues that ran.
+ * PLANS-EXPIRE: main() stamps `planned_at` on every entry it planned (campaign/plan-age.js), and a
+ * kept entry keeps its own, so the War Room serves a kept plan more than 24 h old as "plan out of
+ * date". buildPlansFile does not stamp (the contract fixture stays byte-identical).
  *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3, or 8 with GRIDIRON_REACH on] [--no-finder] [--tick]
@@ -86,15 +89,22 @@ import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile, PRODUCER_VERSION } from '../../server/services/campaign/view.js';
 import { hisSideOn, hisSideLine } from '../../server/services/campaign/his-side.js';
 import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
+import { rbShadowRows, rbShadowSummary, RB_SHADOW_ENV } from '../../server/services/campaign/rb-shadow.js';
+import { rbTitleMode } from '../../server/services/rb-title.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
+import { applyNegotiatorSafety, blockedIds, negotiatorSafetyOn } from '../../server/services/campaign/negotiator-safety.js';
+import { withNeverGive } from '../../server/services/campaign/never-give.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
+import { sellHighSummary } from '../../server/services/campaign/sell-high.js';
+import { buyLowPositions, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
 import { fcFormatValues } from '../../server/services/fc-value.js';
+import { stampPlannedAt, plansExpireFlag, PLANS_EXPIRE_OFF_WARNING } from '../../server/services/campaign/plan-age.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -333,7 +343,12 @@ export async function buildPlansFile(leagues, {
         now: new Date(generated_at) }) : null;
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
-      res = planLeague(adapter, { objective, skips: ins.weights, budget, env });
+      // AJ-PICK: Nick's picks for A.J. Brown and the cards he OK'd (requests.js#leagueInputs; files only -> none).
+      res = planLeague(adapter, { objective, skips: ins.weights, budget, env, ...(ins.aj ? { aj: ins.aj } : {}) });
+      // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only, never preview): buy_low on Go get targets, a tie-breaker only.
+      const blPositions = buyLowPositions(env);
+      const buyLow = blPositions.length > 0 && typeof adapter.buyLow === 'function' && !res.error ? buyLowForRun(res, adapter, { positions: blPositions }) : null;
+      if (buyLow) res = buyLow.res;
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
@@ -342,6 +357,9 @@ export async function buildPlansFile(leagues, {
         his_side_on: hisSideOn(env) });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
+        // RB-DELTAS shadow (GRIDIRON_RB_TITLE=shadow or deltas): every served step's title delta on both estimators.
+        const rbRows = res.error ? [] : rbShadowRows(res);
+        if (rbRows.length) entry._run.rb_shadow = { mode: rbTitleMode(), summary: rbShadowSummary(rbRows), rows: rbRows };
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
         entry._run.inputs = {
           ...entry._run.inputs,
@@ -356,6 +374,8 @@ export async function buildPlansFile(leagues, {
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
           // GETS-FLOOR (on by default): the final-get floor, its score source, what it dropped, and a warning when =0.
           ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
+          // FLIP-STRANDED (on by default): the floor on every holding between legs, what it dropped, a warning when =0.
+          ...(res.flip_stranded ? { flip_stranded: res.flip_stranded } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
           // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): budget, what it used, what bound, laterals, claims, modes' first steps.
@@ -378,7 +398,15 @@ export async function buildPlansFile(leagues, {
           // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.
           // Read after planning, so it can never constrain the search; nothing served reads it.
           ...(adapter.love ? { love: loveSummary(adapter.love(loveIdsOf(entry), { draft: adapter.draft?.by_player ?? null })) } : {}),
+          // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): Nick's players whose TD rate beats expected by > 1pp.
+          // A label, weight 0, read after planning; nothing served reads it.
+          ...(adapter.sellHigh ? { sell_high: sellHighSummary(adapter.sellHigh(), { untouchable: adapter.untouchable ?? [] }) } : {}),
         };
+      }
+      if (buyLow) {
+        entry = annotateEntryTargets(entry, buyLow.reads, blPositions);
+        if (entry._run) entry._run.inputs.buy_low = buyLow.summary;
+        if (buyLow.summary.status === 'error') log(`[warroom] league ${id}: buy_low read failed: ${buyLow.summary.reason}`);
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
       if (coachMessagesOn()) {
@@ -387,6 +415,15 @@ export async function buildPlansFile(leagues, {
         if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
           grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
       } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
+      // NEGOTIATOR-SAFETY (GRIDIRON_NEGOTIATOR_SAFETY=1 only): every step's message opens with a why line for
+      // the partner, and a text that names a blocked player (never-give.js) or gives more than the plan is held back.
+      if (negotiatorSafetyOn(env)) {
+        const me = adapter.league?.me;
+        const mine = adapter.rosters?.get(me) ?? adapter.rosters?.get(String(me)) ?? adapter.rosters?.get(Number(me)) ?? [];
+        const safe = applyNegotiatorSafety(entry, { env, mine, blocked: blockedIds({ neverGive: withNeverGive(adapter).untouchable }) });
+        entry = safe.entry;
+        if (entry._run) entry._run.inputs.negotiator_safety = { status: 'on', ...safe.stats };
+      }
       // RADAR-WIRE: why-now labels on the flip rows (off: nothing written, byte-for-byte the incumbent).
       const served = whyNow !== 'off' ? applyWhyNow(entry, adapter, { as_of: generated_at, flag: whyNow }) : [];
       const v = validateLeague(entry);
@@ -471,10 +508,12 @@ async function main() {
     }
     const twoForOne = twoForOneFlag(env);
     // integration-7: Nick's hard rules are on by default; switching one off by hand is logged loudly.
-    const { getsFloorFlag, GETS_FLOOR_OFF_WARNING } = await import('../../server/services/campaign/gets-floor.js');
+    const { getsFloorFlag, GETS_FLOOR_OFF_WARNING, flipStrandedFlag, FLIP_STRANDED_OFF_WARNING } = await import('../../server/services/campaign/gets-floor.js');
     const { tradeMemoryOn, TRADE_MEMORY_OFF_WARNING } = await import('../../server/services/campaign/trade-memory.js');
     if (getsFloorFlag(env) === 'off') console.error(`[warroom] ${GETS_FLOOR_OFF_WARNING}`);
+    if (flipStrandedFlag(env) === 'off') console.error(`[warroom] ${FLIP_STRANDED_OFF_WARNING}`);
     if (!tradeMemoryOn(env)) console.error(`[warroom] ${TRADE_MEMORY_OFF_WARNING}`);
+    if (plansExpireFlag(env) === 'off') console.error(`[warroom] ${PLANS_EXPIRE_OFF_WARNING}`);
     console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
     // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.
@@ -534,13 +573,14 @@ async function main() {
     const consumed = [];
     const radarLedger = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
-    const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
+    // PLANS-EXPIRE: every entry this run planned carries its own plan time, so a kept one can go out of date.
+    const file = stampPlannedAt(await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
       radarLedger,
       // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
       model: planModelKey({ flags }),
-      log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
+      log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) }));
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.
     const { reasonPlans } = await import('../reasoning/reason-plans.mjs');
@@ -560,6 +600,12 @@ async function main() {
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     reasoning.commit();
+    // RB-DELTAS shadow: one JSONL row per served step per tick (rb-shadow.jsonl next to the plans file).
+    const rbShadow = file.leagues.flatMap(e => (e._run?.rb_shadow?.rows ?? []).map(r => ({ at: generated_at, league: e.league, mode: e._run.rb_shadow.mode, ...r })));
+    if (rbShadow.length) {
+      fs.appendFileSync(sibling(env, RB_SHADOW_ENV, 'rb-shadow.jsonl'), rbShadow.map(r => JSON.stringify(r)).join('\n') + '\n');
+      for (const e of file.leagues) if (e._run?.rb_shadow) console.log(`[warroom] rb-shadow league ${e.league}: ${JSON.stringify(e._run.rb_shadow.summary)}`);
+    }
     if (fast) writeRescoreCache(cacheFile, Object.fromEntries([...caches].map(([id, c]) => [id, c.next])));
     // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
     // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.

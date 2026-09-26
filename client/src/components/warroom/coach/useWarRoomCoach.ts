@@ -34,7 +34,44 @@ export interface CoachMessage {
     derived: { id: string; op?: string; value?: unknown; inputs?: string[]; label?: string }[] };
   /** The question this reply answers. */
   question?: string;
+  /** COACH-CHAT: 2-3 follow-up questions Coach can answer next (all $0). */
+  followups?: string[];
+  /** COACH-CHAT: actions Coach proposes (rendered as action cards; nothing runs without a tap). */
+  proposals?: CoachProposal[];
+  /** COACH-LANES: the numbers and people lanes behind a model answer (collapsed under "Claude + Jev"). */
+  lanes?: CoachLanes | null;
 }
+
+export interface CoachLanes {
+  /** "Claude + Jev" when Jev led lane 2, else "Numbers + People". */
+  title?: string;
+  numbers?: { claims?: string[]; refusals?: string[] };
+  people?: { claims?: string[]; refusals?: string[]; skipped?: string; label?: string; source?: 'jev' | 'claude_people' };
+  disagreement?: string | null;
+  action?: string | null;
+}
+
+/** An action Coach proposes: a War Room record Nick confirms with a tap (offer.sent, deck.skip). */
+export interface CoachProposal {
+  kind: 'offer.sent' | 'deck.skip';
+  title: string;
+  changes: string;
+  rules: string;
+  payload: Record<string, unknown>;
+  /** The plan's draft for Nick to copy and send himself (offer.sent only). */
+  message?: string | null;
+}
+
+/** A stored thread message as GET /coach/thread/:league returns it. */
+interface StoredMessage {
+  who: 'nick' | 'coach'; text: string; claims?: CoachMessage['claims']; refusals?: string[];
+  ledger?: CoachMessage['ledger'] | null; followups?: string[]; proposals?: CoachProposal[]; lanes?: CoachLanes | null;
+}
+interface ThreadView { messages: StoredMessage[]; starters: string[] }
+
+const fromStored = (m: StoredMessage, question?: string): CoachMessage => (m.who === 'nick' ? { who: 'nick', text: m.text }
+  : { who: 'coach', text: m.text, claims: m.claims ?? [], refusals: m.refusals ?? [], ledger: m.ledger ?? undefined,
+    followups: m.followups ?? [], proposals: m.proposals ?? [], lanes: m.lanes ?? null, question });
 
 interface Options {
   leagueId: number | null;          // the app's league id, for the write routes
@@ -119,6 +156,45 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
 
   const say = useCallback((m: CoachMessage) => setMessages(ms => [...ms, m].slice(-60)), []);
 
+  /**
+   * COACH-CHAT: the league's conversation lives on the server (coach_threads), so it
+   * survives closing the drawer, moving between pages and reloading. A league
+   * switch loads that league's thread.
+   */
+  const [starters, setStarters] = useState<string[]>([]);
+  const [threadReady, setThreadReady] = useState(false);
+  useEffect(() => {
+    if (!leagueId) return;
+    let live = true;
+    setThreadReady(false);
+    api<ThreadView>(`/coach/thread/${leagueId}`)
+      .then(res => {
+        if (!live) return;
+        let asked: string | undefined;
+        setMessages(res.messages.map(m => { const out = fromStored(m, asked); asked = m.who === 'nick' ? m.text : undefined; return out; }));
+        setStarters(res.starters ?? []);
+      })
+      .catch(report('Could not load your Coach conversation'))
+      .finally(() => { if (live) setThreadReady(true); });
+    return () => { live = false; };
+  }, [leagueId, report]);
+
+  /** "New conversation": the server archives this thread and opens an empty one. */
+  const newConversation = useCallback(async () => {
+    if (!leagueId) return;
+    try {
+      const res = await api<ThreadView>(`/coach/thread/${leagueId}/new`, { method: 'POST' });
+      setMessages([]);
+      setStarters(res.starters ?? []);
+    } catch (e) { report('Could not start a new conversation')(e); }
+  }, [leagueId, report]);
+
+  /** A proposal Nick tapped "Do it" on: the War Room record, source coach, confirmed by that tap. */
+  const doProposal = useCallback(async (p: CoachProposal) => {
+    if (!leagueId) throw new Error('No league is selected.');
+    await api(`/warroom/${leagueId}/requests`, { method: 'POST', body: JSON.stringify({ kind: p.kind, payload: p.payload, source: 'coach', confirmed: true }) });
+  }, [leagueId]);
+
   /** Nick taps Confirm on a trade-off preview: record the plan request, then remember its id for undo. */
   const confirm = useCallback(async () => {
     const { session: next, outcome, request } = confirmPending(ref.current, ctx());
@@ -164,7 +240,7 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
     setBusy(true);
     try {
       const res = await api<any>('/coach/ask', { method: 'POST', body: JSON.stringify({
-        question: q, league_id: leagueId ?? undefined,
+        question: q, league_id: leagueId ?? undefined, thread: !!leagueId,
         context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: ref.current.ui.league, ...(extra ?? {}) } }) });
       const outcomes = (Array.isArray(res.actions) ? res.actions : []).map((a: unknown) => apply(a, q));
       const grounded: { text: string; cites: string[]; footer?: boolean }[] = (res.answer?.claims ?? [])
@@ -174,7 +250,10 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
       const text = [...claims, ...outcomes.map((o: Outcome) => o.message)].join(' ')
         || (res.answer?.refusals?.length ? '' : 'Nothing changed.');
       const reply: CoachMessage = { who: 'coach', text, outcomes, refusals: res.answer?.refusals ?? [], footer: coachFooter(plans, ref.current.ui).text,
-        claims: grounded, ledger: res.ledger ?? undefined, question: q };
+        claims: grounded, ledger: res.ledger ?? undefined, question: q,
+        followups: Array.isArray(res.thread?.followups) ? res.thread.followups : [],
+        proposals: Array.isArray(res.thread?.proposals) ? res.thread.proposals : [],
+        lanes: res.lanes ?? null };
       say(reply);
       return reply;
     } catch (e) {
@@ -187,7 +266,8 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
 
   return {
     enabled, session, ui: session.ui, pending: session.pending, log: session.log, messages, busy, error,
-    footer, ask, apply, confirm, cancel, undo, input, clearError: () => setError(null)
+    footer, ask, apply, confirm, cancel, undo, input, clearError: () => setError(null),
+    starters, threadReady, newConversation, doProposal
   };
 }
 

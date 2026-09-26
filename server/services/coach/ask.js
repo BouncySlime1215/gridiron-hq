@@ -66,6 +66,23 @@ export const COACH_MODEL = 'claude-sonnet-5';
  */
 const MAX_OUTPUT_TOKENS = 8000;
 
+/**
+ * The answer's shape as a structured-output schema (output_config.format).
+ * COACH-CHAT fix (2026-09-25): on Sonnet 5 the last round (tool_choice none)
+ * could end on a thinking block alone, with no text, and the turn failed as
+ * "no JSON text block" (502). With the schema the answer text is constrained
+ * to this object; tool calls in earlier rounds are unaffected.
+ */
+export const ANSWER_SCHEMA = Object.freeze({
+  type: 'object', additionalProperties: false, required: ['claims', 'refusals', 'as_of'],
+  properties: {
+    claims: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['text', 'cites'],
+      properties: { text: { type: 'string' }, cites: { type: 'array', items: { type: 'string' } } } } },
+    refusals: { type: 'array', items: { type: 'string' } },
+    as_of: { anyOf: [{ type: 'string' }, { type: 'null' }] }
+  }
+});
+
 /** One line per table: enough to choose one, not enough to write a query blind. */
 function catalogBrief() {
   const full = catalog();
@@ -104,12 +121,28 @@ YOUR OUTPUT. When you are ready to answer, reply with ONLY this JSON object and 
 Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.${warRoom ? WAR_ROOM_PROMPT : ''}`;
 }
 
-function userPrompt({ question, context, leagueId }) {
+/**
+ * COACH-CHAT: the conversation so far, as context only. Earlier answers were
+ * grounded when they were given, but they are not evidence for this turn: a
+ * number Coach repeats must be retrieved again and cited.
+ */
+function conversationBlock(conversation) {
+  if (!conversation) return '';
+  const lines = [];
+  if (conversation.summary) lines.push(`Earlier in this conversation: ${conversation.summary}`);
+  for (const t of conversation.turns ?? []) lines.push(`${t.role === 'nick' ? 'Nick' : 'Coach'}: ${t.text}`);
+  const f = conversation.focus;
+  const focus = f && Object.keys(f).length ? `\n\nCURRENT FOCUS (what "him", "it", "that trade" and "the other one" refer to): ${JSON.stringify(f)}` : '';
+  if (!lines.length && !focus) return '';
+  return `\n\nTHE CONVERSATION SO FAR (context only — never cite it, never repeat a number from it without retrieving it again):\n${lines.join('\n')}${focus}`;
+}
+
+function userPrompt({ question, context, leagueId, conversation = null }) {
   const screen = context && Object.keys(context).length
     ? `\n\nWHAT THE PAGE IS SHOWING (context only — never cite this, never state a number that is only here):\n${JSON.stringify(context)}`
     : '';
   const league = leagueId ? `\n\nThe user's league id is ${leagueId}.` : '';
-  return `QUESTION: ${question}${league}${screen}`;
+  return `QUESTION: ${question}${league}${screen}${conversationBlock(conversation)}`;
 }
 
 /** The correction turn: name every failure so the retry is actionable, not a re-roll. */
@@ -161,7 +194,7 @@ function answerFrom(parsed) {
  * @returns {Promise<{question, answer, ledger, verification, plan, audit_id, cost_usd}>}
  */
 export async function askCoach({ question, context = null, leagueId = null,
-  onEvent = () => {}, model = COACH_MODEL, hasModel = true } = {}) {
+  onEvent = () => {}, model = COACH_MODEL, hasModel = true, conversation = null, feature = 'coach:answer', noModelRefusal = null } = {}) {
   const asked = String(question ?? '').trim();
   if (!asked) {
     const err = new Error('Coach was asked nothing.');
@@ -194,7 +227,7 @@ export async function askCoach({ question, context = null, leagueId = null,
   const partner = planAnswers ? await partnerAnswer({ question: asked, leagueId: league }) : null;
   const intent = partner ? 'partner' : (planAnswers ? starterIntent(asked) : null);
   if (intent || (planAnswers && !hasModel && !fast)) {
-    const out = partner ?? await starterAnswer({ question: asked, intent, leagueId: league, context });
+    const out = partner ?? await starterAnswer({ question: asked, intent, leagueId: league, context, noModelRefusal });
     const starterActs = [];
     if (warRoom && intent) {
       const acts = out.actions ?? (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent));
@@ -211,6 +244,8 @@ export async function askCoach({ question, context = null, leagueId = null,
     return { question: asked, answer: out.answer, actions: starterActs, ledger: out.ledger, verification: out.verification,
       dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0, dropped_by_rule: counts.dropped_by_rule,
       ...(out.partner ? { partner: out.partner } : {}),
+      ...(out.shown_move_id !== undefined ? { shown_move_id: out.shown_move_id } : {}),
+      intent: intent ?? null,
       ...(out.preview ? { preview: true, preview_reason: out.preview_reason } : {}) };
   }
 
@@ -224,16 +259,19 @@ export async function askCoach({ question, context = null, leagueId = null,
     }
   }
 
-  const messages = [{ role: 'user', content: userPrompt({ question: asked, context, leagueId }) }];
+  const messages = [{ role: 'user', content: userPrompt({ question: asked, context, leagueId, conversation }) }];
   let retried = false;
   let costUsd = 0;
   let answer = null;
   let verification = null;
 
-  for (let round = 1; round <= MAX_TOOL_ROUNDS; round++) {
-    const isFinalRound = round === MAX_TOOL_ROUNDS;
+  // One extra answer-only round, used only when a round that had to answer came back with no text.
+  let lastRound = MAX_TOOL_ROUNDS;
+  let nudged = false;
+  for (let round = 1; round <= lastRound; round++) {
+    const isFinalRound = round >= MAX_TOOL_ROUNDS;
     const msg = await callClaude({
-      feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,
+      feature, model, maxTokens: MAX_OUTPUT_TOKENS, outputSchema: ANSWER_SCHEMA,
       // System (with the tools in front of it) is the stable breakpoint; the
       // conversation cache lets each round re-read the rounds before it, whose
       // tool results are most of what a later round sends.
@@ -256,7 +294,19 @@ export async function askCoach({ question, context = null, leagueId = null,
     try {
       parsed = parseJson(msg);
     } catch (e) {
-      if (retried || isFinalRound) {
+      // A turn that ended on thinking alone gets one "answer now" round before it counts as a failure.
+      if (e.code === 'no_text' && !nudged) {
+        nudged = true;
+        if (isFinalRound) lastRound = round + 1;
+        emit({ t: 'drafting', nudged: true });
+        // A thinking-only assistant turn is not replayed: the nudge joins the last user turn instead.
+        const last = messages[messages.length - 1];
+        const blocks = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : [...last.content];
+        blocks.push({ type: 'text', text: 'Your last turn ended without the answer. Reply now with only the JSON object described in your instructions, from what you have already retrieved; put anything you could not retrieve in "refusals".' });
+        messages[messages.length - 1] = { ...last, content: blocks };
+        continue;
+      }
+      if (retried || isFinalRound || e.code === 'no_text') {
         const err = new Error(`Coach did not return an answer in the agreed shape: ${e.message}`);
         err.status = 502;
         throw err;

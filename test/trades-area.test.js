@@ -29,21 +29,29 @@ test('RULES-EVERYWHERE: every suggestion list shows how many ideas the rules hid
   assert.match(rh, /if \(!n \|\| n <= 0\) return null;/, 'nothing is drawn when nothing was hidden');
 });
 
-test('an ungated suggestion surface is not rendered: News edge is not a Trades view', () => {
-  // The news-edge route (news-lag-trader.js) suggests buys without passing the rule gate, so Trades
-  // does not draw it until the server gates it.
+test('News edge is a Trades view again, drawn only from the gated route, with the hidden count', () => {
+  // The news-edge route now passes never-give.js's rule gate (news-lag-trader.js#gateNewsEdge; tested in
+  // rules-everywhere.test.js), so Trades draws it again.
   const t = read('client/src/pages/Trades.tsx');
-  assert.doesNotMatch(t, /<NewsEdge/);
-  assert.doesNotMatch(t, /news-edge/);
+  assert.match(t, /\{ id: 'news', label: 'News edge' \}/);
+  assert.match(t, /view === 'news' && activeId && <NewsEdge leagueId=\{activeId\}/);
+  const c = read('client/src/components/trade/NewsEdge.tsx');
+  assert.match(c, /`\/trades\/\$\{leagueId\}\/news-edge\?hours=/);
+  assert.match(c, /<RulesHidden n=\{data\?\.dropped_by_rule\}/);
+  // Coordinator (#468): waiver ideas are lineup adds, not trade gets (no 83+ floor), and say so.
+  assert.match(c, /claim_waiver: \{ label: 'Waiver add'/);
+  assert.match(c, /not a trade: a lineup add off the wire/);
+  assert.doesNotMatch(read('client/src/pages/TradeLab.tsx'), /function NewsEdge|news-edge/, 'one News edge, not two');
+  assert.match(read('server/routes/trades.js'), /gateNewsEdge\(out, ruleGate\(/);
 });
 
 test('retired: the Trade Lab page, Trade Brain, the classic War Room', () => {
   for (const p of ['client/src/pages/TradeBrain.tsx', 'client/src/components/warroom/WarRoom.tsx',
-    'client/src/components/warroom/WarRoomShell.tsx', 'client/src/components/warroom/layoutPref.ts']) assert.ok(!exists(p), `${p} is gone`);
+    'client/src/components/warroom/WarRoomShell.tsx', 'client/src/components/warroom/layoutPref.ts',
+    'client/src/components/warroom/WarRoomV2.tsx', 'client/src/components/warroom/TopBarV2.tsx']) assert.ok(!exists(p), `${p} is gone`);
   const lab = read('client/src/pages/TradeLab.tsx');
   assert.doesNotMatch(lab, /export default function TradeLab/, 'no Trade Lab page');
   assert.doesNotMatch(lab, /const TABS = \[/, 'no Trade Lab tab strip');
-  assert.doesNotMatch(read('client/src/components/warroom/TopBarV2.tsx'), /Classic layout/);
   const r = read('client/src/components/Redirects.tsx');
   assert.match(r, /'\/trade-lab': \(\) => '\/trades\?view=find'/);
   assert.match(r, /'\/trade-brain':/);

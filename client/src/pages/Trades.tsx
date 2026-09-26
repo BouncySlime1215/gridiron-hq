@@ -10,8 +10,14 @@ import { useCoach } from '../state/coach';
 import { useWarRoom } from '../components/warroom/useWarRoom';
 import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
+import NewsEdge from '../components/trade/NewsEdge';
+import OfferBudgetLine from '../components/brain/OfferBudgetLine';
+import { teamLabelIn } from '../components/warroom/types';
+import { isOk } from '../components/warroom/format';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import { FindDeals, MockTrade, TargetMany, TargetPlayer, TitleTrades, TradeDeskHeader, useTradeDesk } from './TradeLab';
+import { AjAllowedChip, ajOnMyRoster, useAjPicks } from '../components/warroom/AjPick';
+import { namer } from '../components/warroom/types';
 
 /**
  * Trades (docs/ui/CONSOLIDATION-MAP.md, area 7): one trade area.
@@ -21,21 +27,22 @@ import { FindDeals, MockTrade, TargetMany, TargetPlayer, TitleTrades, TradeDeskH
  *   Build      any two-sided deal, evaluated.
  *   People     who trades with you (the chat pulse, your read beside the measured one) and
  *              "Write proposals" (paid, on request).
+ *   News edge  news the league has not priced in yet, as moves (every idea through the rule gate).
  * The planner's screens draw inside this frame (components/warroom/TradesPlanner): one header, one
  * tab row, the app-wide Coach. Market is Find deals → Flips; League is the League area.
  * Every suggestion comes from the server after RULES-EVERYWHERE's gate; each list says how many
  * ideas your rules hid (components/trade/RulesHidden). Trade Lab's tab strip, Trade Brain's tabs and
  * the classic War Room dashboard are gone; their old URLs redirect here.
  */
-type View = 'planner' | 'goget' | 'find' | 'build' | 'people';
+type View = 'planner' | 'goget' | 'find' | 'build' | 'people' | 'news';
 const VIEWS: { id: View; label: string }[] = [
   { id: 'planner', label: 'Next move' }, { id: 'goget', label: 'Go get' }, { id: 'find', label: 'Find deals' },
-  { id: 'build', label: 'Build' }, { id: 'people', label: 'People' }
+  { id: 'build', label: 'Build' }, { id: 'people', label: 'People' }, { id: 'news', label: 'News edge' }
 ];
 // Old ?view= values from Trade Brain and Trade Lab land on their new homes.
 const LEGACY: Record<string, View> = {
   'war-room': 'planner', managers: 'people', proposals: 'people', target: 'goget', targetMany: 'goget',
-  title: 'find', mock: 'build'
+  title: 'find', mock: 'build', 'news-edge': 'news'
 };
 const viewOf = (v: string | null): View | null => (v && (VIEWS.some(x => x.id === v) ? v as View : LEGACY[v])) || null;
 
@@ -52,6 +59,10 @@ export default function Trades() {
   const [goGetMany, setGoGetMany] = useState(false);
   const [rank, setRank] = useState<'best' | 'title' | 'flips'>(params.get('view') === 'title' ? 'title' : 'best');
   const desk = useTradeDesk();
+  // AJ-PICK: who Nick would take for A.J. Brown (Go get's toggles and the context bar's chip share one read).
+  const ajMine = warOn && !!warRoom.data && ajOnMyRoster(warRoom.data);
+  const aj = useAjPicks(ajMine ? activeId : null);
+  const ajNames = namer(warRoom.data?.names);
 
   // Two independent requests on the People view: the measured signal layer may not exist on this
   // server, and the hand-set tiers always work; neither holds the other hostage.
@@ -75,8 +86,9 @@ export default function Trades() {
   const ready = !!desk.active && !!desk.rosters?.teams?.length;
   return (
     <div className="mx-auto max-w-[1100px]">
-      <PageHeader eyebrow="Trades" title="Trades" actions={<TradeDeskHeader desk={desk} />} />
-      <div className="mb-5 ds-tabs-wrap"><Tabs label="Trades views" value={view} onChange={setView} tabs={VIEWS} /></div>
+      <PageHeader eyebrow="Trades" title="Trades" actions={<TradeDeskHeader desk={desk}
+        extra={ajMine ? <AjAllowedChip picks={aj} nameOf={id => ajNames.one(id).name} /> : null} />} />
+      <div className="mb-5"><Tabs label="Trades views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
       {view === 'planner' && (warOn && activeId && warRoom.data
         ? <TradesPlanner part="next" view={warRoom.data} leagueId={activeId} onAsk={coach.open} />
@@ -107,7 +119,7 @@ export default function Trades() {
             : <TargetPlayer leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />}
         </>;
         return warOn && activeId && warRoom.data
-          ? <TradesPlanner part="goget" view={warRoom.data} leagueId={activeId} onAsk={coach.open} someoneElse={someoneElse} />
+          ? <TradesPlanner part="goget" view={warRoom.data} leagueId={activeId} onAsk={coach.open} someoneElse={someoneElse} aj={ajMine ? aj : null} />
           : someoneElse;
       })()}
 
@@ -132,7 +144,11 @@ export default function Trades() {
         <MockTrade leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />
       )}
 
+      {view === 'news' && activeId && <NewsEdge leagueId={activeId} teamId={desk.me} />}
+
       {view === 'people' && activeId && <div className="space-y-5">
+        <OfferBudgetLine view={warOn ? warRoom.data : null}
+          nameOf={team => teamLabelIn(isOk(warRoom.data?.teams) ? warRoom.data!.teams!.value : null, team)} />
         <ManagerBoard leagueId={activeId} profiles={profiles} signals={signals} />
         <ProposalSlate leagueId={activeId} />
       </div>}

@@ -19,7 +19,9 @@ import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
 import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
+import { stopsMode, findHoles, priceHoles } from './stops.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
+import { deadlineMode, deadlineReport } from './deadline-mode.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
 import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
@@ -28,7 +30,9 @@ import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
-import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
+import { makeGetsFloor, heldAtEnd, makeStranded, floorRead, DEFAULT_GET_FLOOR } from './gets-floor.js';
+import { AJ_ID, AJ_CARDS_MAX, ajPickOn, givesAj } from './aj-pick.js';
+import { moveId } from './view.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
@@ -58,6 +62,26 @@ const firstKey = p => dealKey(p.steps[0]);
  * moves pass; they move the ranking and the shown P(yes) only. The verdict's shown numbers stay on
  * the served p; `gate` says which p decided 'failed'.
  */
+export const STEP_REGRET_ENV = 'GRIDIRON_STEP_REGRET';
+
+/**
+ * STEP-REGRET: the index of the first step whose own gain on the confirm dice (its cumulative delta
+ * minus the step before's) is not above 0, or -1 when every step gains. A step with no finite delta fails.
+ * A free-agent claim step (FLIP-CLAIMS) is a flip piece, not a move on its own: it is exempt here and
+ * judged by claim_stranded (the path with the flip declined must still beat doing nothing); the trade
+ * step after it must still gain on its own.
+ */
+export function stepRegretIndex(steps) {
+  let before = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const d = Number(steps[i].delta);
+    if (!Number.isFinite(d)) return i;
+    if (!isClaim(steps[i]) && !(d - before > 0)) return i;
+    before = d;
+  }
+  return -1;
+}
+
 export function confirmGate(planned, reconfirmed) {
   const shown = confirmVerdict(pathExpectation(planned.steps), pathExpectation(reconfirmed.steps));
   // The clone path carries no p_gate: the verdict is today's, object and all.
@@ -126,7 +150,8 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
 
 /**
  * adapter: see scripts/campaign/league-adapter.mjs (the real one) and test/fixtures (the fake one).
- * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget, env }
+ * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget, env,
+ *   aj? ({ allow: Set<id>, confirmed: Set<move_id> }, campaign/aj-pick.js: AJ-PICK; absent -> 277 stays locked) }
  */
 export function planLeague(adapter, settings) {
   // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
@@ -144,6 +169,8 @@ export function planLeague(adapter, settings) {
   const waitEnabled = waitOrActOn(env);
   // RISK-RULE (shadow, GRIDIRON_RISK_RULE=1): each mode's own decision rule ranks the plans; off, unchanged.
   const rule = riskRuleOn(env);
+  // STEP-REGRET: on unless GRIDIRON_STEP_REGRET=0 (a kill switch for one release, not a model choice).
+  const stepRegretOn = env?.[STEP_REGRET_ENV] !== '0';
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
@@ -152,7 +179,9 @@ export function planLeague(adapter, settings) {
   mark('world');
   const S = makeScorer(W, adapter);
   const base = S.rescore(new Map(), me);
-  const now = { title: base.me.title_before, playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
+  // U1: title_now's run-to-run SE rides with it when the rescore reports one (null otherwise, never invented).
+  const now = { title: base.me.title_before, title_se: Number.isFinite(base.me.title_before_se) ? base.me.title_before_se : null,
+    playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
 
   // NO-OVERPAY: Nick's cap on market value given (destination tolerance max_overpay; default 0).
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
@@ -164,6 +193,10 @@ export function planLeague(adapter, settings) {
   const floorOn = floor.sink.mode === 'on';
   // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
   const getOk = floor.sink.mode === 'off' ? null : floor.keep;
+  // FLIP-STRANDED (flag GRIDIRON_FLIP_STRANDED, on by default): what Nick holds after every leg but the last
+  // (a chained path's chip, a flip's leg-1 player) passes the same floor, so a "no" on the next leg never
+  // strands him under it. Shadow counts; '0' is off, loudly.
+  const stranded = makeStranded(adapter, { env, tolerances: objective.tolerances });
   // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
   const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
   const board = boardOf(adapter);
@@ -206,9 +239,12 @@ export function planLeague(adapter, settings) {
   // integration-7: FAIL CLOSED when the league has executed trades this season but the ledger came back
   // missing or empty: Nick's no-buy-back / no-reversal rules cannot be checked, so no move is served.
   const ledgerMissing = tmOn && Number(adapter.executedTradeRows) > 0 && !(adapter.tradeLedger?.trades?.length > 0);
-  const flip = ledgerMissing ? { ...flipAll, top: [], realised: [] }
+  const flipRuled = ledgerMissing ? { ...flipAll, top: [], realised: [] }
     : TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
   if (TM) tmCount.flips = flipAll.realised.filter(f => flipUntouched(f) && flipFails(f)).length;
+  // FLIP-STRANDED: leg 1 buys the player; if leg 2 is turned down Nick keeps him, so he must pass the floor.
+  const unstranded = list => list.filter(f => !stranded.flipStrands(f) || !stranded.on);
+  const flip = { ...flipRuled, top: unstranded(flipRuled.top), realised: unstranded(flipRuled.realised) };
 
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
@@ -319,6 +355,50 @@ export function planLeague(adapter, settings) {
     }
   });
   if (wideOn) wideSink.used.rescores = fresh() - fresh0;
+  // AJ-PICK (Nick 2026-09-25): A.J. Brown (277) may be given only for a player Nick picked (aj.allow) who is a
+  // Blue chip (83+, or the destination's higher floor) on the board now. Those targets are searched once more
+  // with 277 on the table; a path is kept only when EVERY step that gives 277 gets one of those picks (never a
+  // chip for him). The paths then go through every rule below like any other (FC value, the held floor,
+  // FLIP-STRANDED, trade memory, the confirm dice, STEP-REGRET); the overpay cap is 0 (277 is never depth).
+  const ajIn = settings.aj ?? null;
+  const ajSink = { status: 'off', allow: ajIn?.allow?.size ?? 0, picks: [], refused: [], paths: 0, waiting: 0, confirmed_served: 0 };
+  let ajPicks = new Set();
+  if (!ajPickOn(env)) ajSink.status = 'off';
+  else if (!ajSink.allow) ajSink.status = 'no_picks';
+  else if (!myIds.some(id => String(id) === AJ_ID)) ajSink.status = 'not_on_roster';
+  else if (ledgerMissing) ajSink.status = 'trade_ledger_missing';
+  else if ((objective.untouchables ?? []).map(String).includes(AJ_ID)) ajSink.status = 'objective_untouchable';
+  else {
+    ajSink.status = 'on';
+    const ajFloor = Math.max(DEFAULT_GET_FLOOR, floor.sink.floor);
+    const scoreOf = typeof adapter.scoreOf === 'function' ? adapter.scoreOf : null;
+    for (const raw of ajIn.allow) {
+      const pid = idOf(raw);
+      const fr = pid == null ? null : floorRead(scoreOf, pid, ajFloor);
+      const owner = pid == null ? null : vals.lossO.get(pid)?.team;
+      const why = pid == null ? 'unknown_player' : !fr.passes ? fr.why : owner == null ? 'not_on_another_roster'
+        : adapter.managers.get(owner)?.blocked ? 'owner_blocked' : TM?.excluded(pid) ? 'sold_this_season' : null;
+      if (why) ajSink.refused.push({ player: String(raw), why, ...(fr?.score != null ? { score: fr.score } : {}) });
+      else { ajPicks.add(String(pid)); ajSink.picks.push(String(pid)); }
+    }
+    if (ajPicks.size) {
+      const ajNum = myIds.find(id => String(id) === AJ_ID);
+      const without = new Map([[me, adapter.rosters.get(me).filter(id => String(id) !== AJ_ID)]]);
+      const lossN = new Map(vals.lossN).set(ajNum, metricOf(S.rescore(without, me).me, objective).delta);
+      const tradable = id => vals.tradable(id) || (String(id) === AJ_ID && (Number(adapter.players.get(id)?.value) || 0) > 0);
+      const ajAdapter = { ...adapter, untouchable: new Set([...untouchable].filter(id => String(id) !== AJ_ID)), searchStats: null };
+      const ajVals = { ...vals, lossN, tradable };
+      const stepOk = st => !givesAj(st) || st.get.some(id => ajPicks.has(String(id)));
+      for (const target of [...ajPicks].map(idOf)) {
+        const found = searchTarget(S, ajAdapter, ajVals, objective, target, { maxOverpay, overpaySink: null, getOk, chainGive,
+          depthPremium: 0, board: null, premiumSink: null, untouchables: objective.untouchables, wide: null })
+          .filter(p => p.steps.some(givesAj) && p.steps.every(stepOk))
+          .map(p => ({ ...p, aj: { for: [...new Set(p.steps.filter(givesAj).flatMap(st => st.get.map(String).filter(id => ajPicks.has(id))))] } }));
+        ajSink.paths += found.length;
+        plans.push(...found);
+      }
+    }
+  }
   // FLIP-CLAIMS: every claim path passes the one claim rule (search-wide.js#claimRule) or is dropped by reason.
   const claimDrops = wideSink?.claims.dropped_by_reason;
   const hasClaim = p => p.steps.some(isClaim);
@@ -352,6 +432,8 @@ export function planLeague(adapter, settings) {
     if (floorOn && claimDrops) claimDrops.floor += plans.filter(p => failsHeld(p) && hasClaim(p)).length;
     if (floorOn) plans = plans.filter(p => !failsHeld(p));
   }
+  // FLIP-STRANDED: every holding between legs, too (off: no read; shadow: counted, nothing dropped).
+  if (stranded.sink.mode !== 'off') plans = plans.filter(p => !stranded.pathStrands(p) || !stranded.on);
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
   // FLIP-CLAIMS: claim paths go through trade memory on their own, so the served counts are today's.
   const tmApplied = TM ? applyTradeMemory(plans.filter(p => !hasClaim(p)), TM, { env }) : null;
@@ -371,6 +453,13 @@ export function planLeague(adapter, settings) {
     wideSink.claims.why_not_served = 'the War Room has no claim step yet, so claim paths are shadow (never in the deck)';
   }
   mark('search');
+
+  // AJ-PICK: a path giving 277 that Nick has not OK'd (aj.confirm on its exact move id) never ranks into the
+  // deck, the next move, a backup or any served number; it is shown only as a "Needs your OK" card (below).
+  const ajConfirmed = ajIn?.confirmed instanceof Set ? ajIn.confirmed : new Set();
+  const ajWaitingOf = p => !!p.aj && !ajConfirmed.has(moveId(L.id, p));
+  const ajWaiting = plans.filter(ajWaitingOf);
+  if (ajWaiting.length) plans = plans.filter(p => !ajWaitingOf(p));
 
   // Sliders and context per mode.
   const core = new Set([...vals.lossN.entries()].filter(([id]) => adapter.starters.has(id))
@@ -393,6 +482,8 @@ export function planLeague(adapter, settings) {
   const S2 = W2 && !W2.fail ? makeScorer(W2, adapter) : null;
   // REACH-01: the objective mode's confirm counts (null when the confirm world failed).
   let confirmCounts = null;
+  // RB-DELTAS shadow: the active mode's confirm-priced paths (rb-shadow.js logs their steps as served: false).
+  let confirmChecked = [];
   // integration-7: one confirm pass for every mode (NO-TRADE-SHRINK) that keeps CAP-1C's premium re-check
   // (a premium step must raise lineup points and title odds on the fresh dice too; no fresh dice, no premium card).
   // One plan re-priced on the confirm dice under a mode (S2 required).
@@ -400,6 +491,10 @@ export function planLeague(adapter, settings) {
     const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
     const fresh = freshMe.map(r => metricOf(r, objective));
     const re = repricePlan(p, fresh);
+    // RB-DELTAS shadow: each step's title delta on both estimators (confirm dice), for the shadow table.
+    re.steps = re.steps.map((st, i) => (Number.isFinite(freshMe[i]?.title_delta_rb) ? { ...st, title_pair: {
+      rb_delta: freshMe[i].title_delta_rb, rb_se: freshMe[i].title_delta_rb_se,
+      plain_delta: freshMe[i].title_delta_plain, plain_se: freshMe[i].title_delta_plain_se } } : st));
     // LIVE-BLEND: the verdict that can fail a plan reads each step's gate p (planner.js#confirmGate).
     let v = confirmGate(p, re);
     // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
@@ -416,7 +511,14 @@ export function planLeague(adapter, settings) {
       ? rankPlans([{ ...re, steps: re.steps.map(st => (st.p_gate != null ? { ...st, p: st.p_gate } : st)) }], mode,
         { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0]
       : scored;
-    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(onGate, mode, { rule }), mode, confirm: v, planned_on: p };
+    // STEP-REGRET (Nick 2026-09-25, "every move beats doing nothing", per step): each step must itself gain on the
+    // confirm dice given the state after the steps before it. Step deltas are cumulative, so its own gain is
+    // delta_i - delta_(i-1); a path with any step at or below 0 is dropped whole (a truncated prefix would leave
+    // Nick holding a flip leg the floor never cleared as a final get).
+    const regretAt = stepRegretOn ? stepRegretIndex(re.steps) : -1;
+    return { ...re, score: scored?.score ?? -Infinity,
+      beats_no_trade: regretAt < 0 && beatsNoTradeUnder(onGate, mode, { rule }), mode, confirm: v, planned_on: p,
+      ...(regretAt >= 0 ? { step_regret: regretAt } : {}) };
   };
   // Nick's rule, kept apart from the ranking score: the move must beat doing nothing on the confirm dice.
   const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
@@ -437,9 +539,12 @@ export function planLeague(adapter, settings) {
     }
     const priced = regretRescore(top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active)), mode, tolM, ctxM);
     const kept = priced.filter(beatsNoTrade);
+    // RB-DELTAS shadow: every path the active mode priced on the confirm dice (served or not), for the table.
+    if (active) confirmChecked = priced;
     if (active) {
       const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
-      confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
+      const regret = priced.filter(p => p.confirm.verdict !== 'failed' && p.step_regret != null).length;
+      confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length - regret, step_regret: regret };
     }
     return kept.sort((a, b) => (b.score - a.score) || (rule ? b.expected - a.expected : 0)).slice(0, DECK_SIZE);
   };
@@ -452,6 +557,22 @@ export function planLeague(adapter, settings) {
     return confirmMemo.get(p);
   };
   const deck = confirmDeck(ranked, objective.risk_mode, tol, ctx);
+  // AJ-PICK: the A.J. cards shown after the deck, held to the same confirm-dice gate as a deck card (STEP-REGRET
+  // included): first a card Nick OK'd that did not rank into the deck (so an OK never makes it vanish), then the
+  // "Needs your OK" cards. The deck's tail makes room (the contract holds MAX_ALTERNATIVES cards); an OK'd A.J.
+  // card already in the deck stays.
+  const idOfPlan = p => moveId(L.id, p);
+  const inDeck = new Set(deck.map(idOfPlan));
+  const ajSlot = (pool, n) => (!S2 || !pool.length || n <= 0 ? []
+    : deckOf(rankPlans(pool, objective.risk_mode, tol, ctx, { rule }).ranked, n + 2)
+      .map(p => priceOnConfirm(p, objective.risk_mode, tol, ctx, false)).filter(beatsNoTrade)
+      .sort((a, b) => b.score - a.score).slice(0, n));
+  const ajOkdOut = ajSlot(plans.filter(p => p.aj && !inDeck.has(idOfPlan(p))), AJ_CARDS_MAX);
+  const ajWaitingCards = ajSlot(ajWaiting, AJ_CARDS_MAX - ajOkdOut.length);
+  const ajCards = [...ajOkdOut.map(p => ({ plan: p, waiting: false })), ...ajWaitingCards.map(p => ({ plan: p, waiting: true }))];
+  ajSink.waiting = ajWaitingCards.length;
+  for (let i = deck.length - 1; i >= 1 && deck.length + ajCards.length > DECK_SIZE; i--) if (!deck[i].aj) deck.splice(i, 1);
+  ajSink.confirmed_served = deck.filter(p => p.aj).length + ajOkdOut.length;
   // Each mode's pick on the same fresh dice; the active mode's is the served deck itself.
   const confirmedBest = Object.fromEntries(MODES.map(mode => {
     if (mode === objective.risk_mode) return [mode, deck[0] ?? null];
@@ -618,6 +739,11 @@ export function planLeague(adapter, settings) {
       ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
     return { plan: p, playbook: pbs[0], playbooks: pbs };
   });
+  // AJ-PICK: each "Needs your OK" card gets its own playbook (no BATNA: it is never the move a decline falls to).
+  for (const { plan: p, waiting } of ajCards) {
+    const pbs = allSteps ? p.steps.map((_, i) => playbookFor(p, i, null)) : [playbookFor(p, 0, null)];
+    deckCards.push({ plan: p, playbook: pbs[0], ...(allSteps ? { playbooks: pbs } : {}), aj_waiting: waiting });
+  }
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
   const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx, { rule })]; }));
@@ -659,6 +785,13 @@ export function planLeague(adapter, settings) {
   // ladder) and the all-in mode's best plan are the two re-priced routes (speed.js).
   const conceded = best && playbook[0] ? concededPlan(best.planned_on ?? best, playbook[0].ladder) : null;
   const speed = speedCurve({ ranked, conceded, allIn: byMode.all_in[0] ?? null }, clock);
+  // TM-34 DEADLINE MODE (GRIDIRON_DEADLINE_MODE, shadow only, default off): countdown, send_by per deck step,
+  // last-call offer per partner, hold list, who goes quiet and the cost of waiting, all on the ranked paths.
+  const dlM = deadlineMode(env);
+  const deadline = dlM === 'off' ? undefined : deadlineReport({ mode: dlM, deadlineAt: L.deadline_at ?? null,
+    reviewHours: L.review_hours ?? null, now: settings.now ?? clockNow(), currentWeek: L.week, deadlineWeek: L.deadline_week ?? null,
+    ranked, deck, managers, roster: adapter.rosters.get(me) ?? [], excluded,
+    blocked: new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String)) });
 
   // Feasibility (row 9): points objective in full; player objective by path; weekly outlook always.
   let feasibility = null;
@@ -682,6 +815,18 @@ export function planLeague(adapter, settings) {
       arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
       give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
+  // STOPS-01 (GRIDIRON_STOPS: 1 serves, shadow reports, default off): bye / injury holes in Nick's weekly lineup,
+  // each priced as a plan-added stop on the ranked (rule-filtered) plans; off, nothing is computed.
+  const stopsM = stopsMode(env);
+  let stops;
+  if (stopsM !== 'off') {
+    const holes = nowWeeks ? findHoles({ weeks: nowWeeks, roster, currentWeek: L.week }) : [];
+    const blocked = new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String));
+    stops = { mode: stopsM, holes, rows: priceHoles({ holes, ranked, nowWeeks, currentWeek: L.week, daysLeftInWeek: clock.daysLeftInWeek,
+      weeklyOf: p => weeklyOf(p.steps[p.steps.length - 1].state), names: id => names(idOf(id)), blocked,
+      // integration-10a: priced against the served move's plan, covers only from plans that beat doing nothing on the confirm dice.
+      served: best?.planned_on ?? best ?? null, confirmed: p => !!confirmedActive(p) }) };
+  }
 
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
@@ -729,13 +874,18 @@ export function planLeague(adapter, settings) {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
     gets_floor: floor.sink,
+    flip_stranded: stranded.sink,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
-    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
+    confirm_checked: confirmChecked.filter(p => p.steps.some(st => st.title_pair)).map(p => ({ target: p.target ?? null,
+      steps: p.steps.map(st => ({ team: st.team, give: st.give, get: st.get, delta: st.delta, title_pair: st.title_pair ?? null })) })),
+    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}),
+      ...(c.plan.aj ? { aj: { for: c.plan.aj.for, requires_nick_confirm: true, nick_confirmed: !c.aj_waiting } } : {}) })),
+    aj_pick: ajSink,
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),

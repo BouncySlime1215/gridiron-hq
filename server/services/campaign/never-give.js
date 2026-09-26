@@ -2,9 +2,10 @@
  * NEVER-GIVE: Nick's players no plan may offer, pinned by id so the rule holds even when his
  * 'untouchable:' notes are missing or unread (the notes-derived set fails open). Nick 9/24 (ONE-PLAN
  * 10b.3): Nico Collins (160) and Chase Brown (80) stay untouchable in every mode. A.J. Brown (277)
- * may move only for a Blue chip who is a consistent weekly scorer now; nothing measures "consistent"
- * yet, so until AJ-HEALTHY prices him (ONE-PLAN night 5: "until coded 277 stays untouchable") he is
- * pinned here too. Applies to Nick's own roster only: these ids are never a give, walk-away or flip leg.
+ * is pinned here too. AJ-PICK (Nick 2026-09-25): the automated "consistent" reader failed its prereg
+ * (#483), so 277 moves only for a player Nick picked himself (aj.allow, campaign/aj-pick.js) who is a
+ * Blue chip (83+) at serve time, and every such card needs Nick's OK before it can be the next move.
+ * Applies to Nick's own roster only: these ids are never a give, walk-away or flip leg otherwise.
  *
  * RULES-EVERYWHERE: this file is also the ONE rule gate every other trade-suggesting surface calls
  * (trade finder, post-draft plan, proposals, offers, sequences, Trade Lab, edge, execution slate,
@@ -17,6 +18,7 @@ import { overpayPct, DEPTH_PREMIUM_MAX, BLUE_CHIP_SCORE, NEVER_DEPTH } from './s
 import { executedTrades, tradeMemory } from './trade-memory.js';
 import { warRoomPlansPath } from '../warroom-flag.js';
 import { fcValues } from '../fc-value.js';
+import { AJ_ID, ajState, ajPickOn } from './aj-pick.js';
 
 export const PINNED_NEVER_GIVE = Object.freeze(['160', '80', '277']);
 
@@ -53,13 +55,14 @@ export const RULE_REASONS = Object.freeze(['never_give', 'never_get', 'sold_this
   'unscored', 'no_fc_value', 'overpay', 'rules_unreadable']);
 
 /**
- * A.J. Brown (277) may move only for a Blue chip (83+) who is a consistent weekly scorer now. The
- * planner's check is the pin above (nothing measures "consistent" yet), so this is false until a
- * consistency reader exists: fail closed. `consistentOf` is the hook for AJ-HEALTHY.
+ * AJ-PICK: A.J. Brown (277) may move in a step only when that step's gets hold a player on Nick's
+ * aj.allow list for this league who is a Blue chip (83+) on the served board now. No list, an
+ * unscored or sub-83 pick, or a pick only elsewhere in the path: false (fail closed).
+ * rules: { scoreOf(id) -> number|null, ajAllow?: Set<id> }.
  */
-export function ajMayMove(get, { scoreOf, consistentOf = null }) {
-  if (typeof consistentOf !== 'function') return false;
-  return get.some(id => (scoreOf(id) ?? -Infinity) >= BLUE_CHIP_SCORE && consistentOf(id) === true);
+export function ajMayMove(get, { scoreOf, ajAllow = null }) {
+  if (!(ajAllow instanceof Set) || !ajAllow.size) return false;
+  return get.some(id => ajAllow.has(S(id)) && (scoreOf(id) ?? -Infinity) >= BLUE_CHIP_SCORE);
 }
 
 /** Whether a given player is depth for the +12% exception: scored below a blue chip and never pinned. */
@@ -71,19 +74,24 @@ const depthFor = (rules, id) => {
 /**
  * One suggestion against Nick's rules, from Nick's side.
  * rules: { neverGive: Set, neverGet: Set, sold: Set, fc: Map id -> value, scoreOf(id) -> number|null,
- *   closed: string|null, consistentOf? }
+ *   closed: string|null, ajAllow?: Set (AJ-PICK) }
  * t: { give: id[], get: id[], premium?: { points_delta, title_delta } } (premium only where the surface
  *   computed Nick's own change in lineup points and title odds for this trade; otherwise the +12%
  *   depth-only 2-for-1 exception does not apply).
- * -> { ok, reasons: string[], overpay: number|null }
+ * -> { ok, reasons: string[], overpay: number|null, requires_nick_confirm: boolean }
+ * requires_nick_confirm: the step gives A.J. Brown under AJ-PICK; it passes the rules but may be served
+ * only as a "Needs your OK" card until Nick confirms that exact card (ruleGate below keeps it only then).
  */
 export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
   const g = give.map(S), r = get.map(S);
   const reasons = new Set();
   if (rules.closed) reasons.add('rules_unreadable');
+  let needsOk = false;
   for (const id of g) {
-    if (id === '277' && rules.neverGive.has(id) && !ajMayMove(r, rules)) reasons.add('never_give');
-    else if (id !== '277' && rules.neverGive.has(id)) reasons.add('never_give');
+    if (id === AJ_ID && rules.neverGive.has(id)) {
+      if (ajMayMove(r, rules)) needsOk = true;
+      else reasons.add('never_give');
+    } else if (rules.neverGive.has(id)) reasons.add('never_give');
   }
   for (const id of r) {
     if (rules.neverGet.has(id)) reasons.add('never_get');
@@ -107,7 +115,7 @@ export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
       if (!(twoForOne && rises && over <= DEPTH_PREMIUM_MAX + EPS)) reasons.add('overpay');
     }
   }
-  return { ok: reasons.size === 0, reasons: [...reasons], overpay: over };
+  return { ok: reasons.size === 0, reasons: [...reasons], overpay: over, requires_nick_confirm: needsOk };
 }
 
 /* ------------------------------------------------------------------ readers */
@@ -202,8 +210,11 @@ export function objectiveUntouchables(leagueId, { plansPath = warRoomPlansPath()
  * another team's suggestion names him as the partner.
  *
  * db: { row, rows } (server/db/index.js). teamId: the team the suggestions are for (default Nick's).
- * -> { applies, me, rules, check(t), filter(list, sidesOf) -> { kept, dropped_by_rule } }
- *    sidesOf(item) -> { give, get, partner?, premium? } from the suggesting team's side.
+ * -> { applies, me, rules, check(t), filter(list, sidesOf) -> { kept, dropped_by_rule, needs_nick_ok }, ok }
+ *    sidesOf(item) -> { give, get, partner?, premium?, move_id? } from the suggesting team's side.
+ * AJ-PICK: a suggestion that gives A.J. Brown for one of Nick's picks passes the rules but needs his OK;
+ * it is kept only when it names a move_id Nick confirmed (aj.confirm), else dropped and counted in
+ * needs_nick_ok (and dropped_by_rule). Only the War Room deck shows it unconfirmed, as a "Needs your OK" card.
  */
 export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlansPath(), env = process.env, now = Date.now() } = {}) {
   const nick = nickTeamOf(db, leagueId);
@@ -217,6 +228,11 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
   if (sold.status === 'ledger_missing' || sold.status === 'error') closed.push(sold.reason);
   let scores;
   try { scores = servedScores(leagueId, { plansPath }); } catch (e) { scores = { status: 'error', byId: new Map() }; closed.push(`served plans unreadable (${e.message})`); }
+  // AJ-PICK: Nick's picks for A.J. Brown and the cards he OK'd. Unreadable -> no picks (277 stays locked).
+  let aj = { status: 'off', allow: new Set(), confirmed: new Set() };
+  if (ajPickOn(env)) {
+    try { aj = ajState(db, leagueId); } catch (e) { aj = { status: 'error', allow: new Set(), confirmed: new Set(), reason: e.message }; }
+  }
   const rules = {
     neverGive: new Set([...PINNED_NEVER_GIVE, ...extra]),
     neverGet: new Set(PINNED_NEVER_GET),
@@ -224,31 +240,35 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
     fc: fc.byId,
     scoreOf: id => scores.byId.get(S(id)) ?? null,
     closed: closed.length ? closed.join('; ') : null,
-    sources: { fc_value: fc.status, ledger: sold.status, scores: scores.status },
+    ajAllow: aj.allow,
+    sources: { fc_value: fc.status, ledger: sold.status, scores: scores.status, aj_pick: aj.status },
   };
   const forNick = teamId == null || S(teamId) === me;
   const check = t => ruleVerdict(rules, t);
   const filter = (list, sidesOf) => {
     const kept = [];
-    let dropped = 0;
+    let dropped = 0, needsOk = 0;
     for (const item of list ?? []) {
       const s = sidesOf(item);
       const nickSide = forNick ? { give: s.give, get: s.get, premium: s.premium }
         : s.partner != null && S(s.partner) === me ? { give: s.get, get: s.give, premium: null } : null;
-      if (!nickSide || check(nickSide).ok) kept.push(item);
+      const v = nickSide ? check(nickSide) : null;
+      if (v && v.ok && v.requires_nick_confirm && !(s.move_id != null && aj.confirmed.has(S(s.move_id)))) { dropped++; needsOk++; continue; }
+      if (!v || v.ok) kept.push(item);
       else dropped++;
     }
-    return { kept, dropped_by_rule: dropped };
+    return { kept, dropped_by_rule: dropped, needs_nick_ok: needsOk };
   };
-  /** One package from the suggesting team's side: whether it may be shown. */
-  const ok = (give, get, partner = null, premium = null) => filter([0], () => ({ give: idsOf(give), get: idsOf(get), partner, premium })).kept.length === 1;
-  return { applies: true, me, forNick, rules, check, filter, ok };
+  /** One package from the suggesting team's side: whether it may be shown (moveId: the card it is, for AJ-PICK). */
+  const ok = (give, get, partner = null, premium = null, { moveId = null } = {}) =>
+    filter([0], () => ({ give: idsOf(give), get: idsOf(get), partner, premium, move_id: moveId })).kept.length === 1;
+  return { applies: true, me, forNick, rules, check, filter, ok, aj };
 }
 
 function passThrough() {
   return { applies: false, me: null, forNick: false, rules: null,
-    check: () => ({ ok: true, reasons: [], overpay: null }),
-    filter: list => ({ kept: [...(list ?? [])], dropped_by_rule: 0 }), ok: () => true };
+    check: () => ({ ok: true, reasons: [], overpay: null, requires_nick_confirm: false }),
+    filter: list => ({ kept: [...(list ?? [])], dropped_by_rule: 0, needs_nick_ok: 0 }), ok: () => true, aj: null };
 }
 
 /** Ids out of a mixed list: numbers, strings, or objects carrying id / player_id / playerId. */

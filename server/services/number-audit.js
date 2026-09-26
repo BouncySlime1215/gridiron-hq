@@ -107,6 +107,21 @@ export const CHECKS = Object.freeze({
     cause: 'A producer returned NaN or Infinity instead of a number.',
     trust: 'Do not use the affected number until the next refresh clears this.',
   },
+  espn_projection_stale: {
+    row: null, title: 'This week\'s projection is not being served',
+    cause: 'The served weekly projection is ESPN\'s, frozen before kickoff (PROJ-ESPN). The newest capture for this week is missing or more than 7 days old, so the weekly number is shown as unknown rather than replaced by another model.',
+    trust: 'Do not set a lineup from this app until the ESPN capture runs again; check ESPN\'s own projections.',
+  },
+  range_coverage: {
+    row: null, title: 'Weekly ranges miss real scores too often',
+    cause: 'The p10-p90 weekly range should hold 80% of real lineup scores. Realised coverage over the trailing weeks is outside 72-88%, so the width k is refit on Tuesday (range-calibration.js).',
+    trust: 'Read the range as a rough band until the next refit brings coverage back inside 72-88%.',
+  },
+  exgb_shadow_capture: {
+    row: null, title: 'Shadow forecasts missing for a frozen ESPN week',
+    cause: 'E-XGB (GRIDIRON_EXGB) must record every arm\'s forecast beside each week\'s frozen ESPN projection (exgb-shadow.js). A week has frozen ESPN rows but no pre-kickoff shadow forecast, so it can never be graded; once its games start it is lost.',
+    trust: 'Nothing served changes. Run exgb_shadow_predict before kickoff; check exgb_shadow_runs for the error.',
+  },
   source_age: {
     row: null, title: 'Data is older than it should be',
     cause: 'A source has not synced within its expected window.',
@@ -345,6 +360,46 @@ function sourceAgeRow(snap, now) {
   return row('source_age', 'ok', `Every source synced within its window (${sources.map(s => s.label).join(', ')}).`, { values });
 }
 
+/** PROJ-ESPN: the served week's ESPN capture (espn-week-projection.js#espnProjectionHealth). */
+function espnProjectionRow(snap) {
+  const h = snap.espn_projection;
+  const pages = ['Start/Sit', 'League Hub lineup', 'Trade cards', 'Trade finder'];
+  if (!h || h.error) return unmeasured('espn_projection_stale', h?.error ?? 'not collected', pages);
+  if (h.status === 'off') return row('espn_projection_stale', 'ok', 'The served weekly projection is our own model (GRIDIRON_PROJ_ESPN=0).', { values: h });
+  if (h.status !== 'ok') return row('espn_projection_stale', 'broken', h.reason ?? 'The ESPN weekly projection is unknown.', { pages, values: h });
+  const late = h.late_only ? ` ${h.late_only} players had no capture before their kickoff and show as unknown.` : '';
+  return row('espn_projection_stale', h.late_only ? 'warn' : 'ok',
+    `Week ${h.week} is served from ESPN's projection captured ${h.age_days} days ago (${h.players} players).${late}`,
+    { pages: h.late_only ? pages : [], values: h });
+}
+
+/** PROJ-ESPN Q2: realised p10-p90 coverage over the trailing logged weeks (range-calibration.js). */
+function rangeCoverageRow(snap) {
+  const c = snap.range_coverage;
+  const pages = ['Trade cards', 'My team', 'Start/Sit'];
+  if (!c || c.error) return unmeasured('range_coverage', c?.error ?? 'not collected', pages);
+  if (!c.n) return row('range_coverage', 'ok', 'No finished week with a frozen ESPN capture has been scored yet.', { values: c });
+  const inside = c.coverage >= 0.72 && c.coverage <= 0.88;
+  return row('range_coverage', inside ? 'ok' : 'warn',
+    `Weekly ranges held ${pct(c.coverage)} of ${c.n} real lineup scores over weeks ${c.weeks.join(', ')} (target 80%, band 72-88%; width k ${c.k}).`,
+    { pages: inside ? [] : pages, values: c });
+}
+
+/** U0 SHADOW-LIVE: frozen ESPN weeks with no pre-kickoff E-XGB forecast (exgb-shadow.js#exgbShadowHealth). */
+function exgbShadowRow(snap) {
+  const h = snap.exgb_shadow;
+  if (!h || h.error) return unmeasured('exgb_shadow_capture', h?.error ?? 'not collected');
+  if (h.status === 'off') return row('exgb_shadow_capture', 'ok', 'E-XGB shadow forecasts are off (GRIDIRON_EXGB is not 1).', { values: h });
+  const counts = h.weeks.map(w => `week ${w.week}: ${w.shadow} forecasts / ${w.frozen} frozen`).join('; ');
+  if (h.status === 'broken') {
+    return row('exgb_shadow_capture', 'broken',
+      `Frozen ESPN rows exist but no shadow forecasts for week${h.missing.length === 1 ? '' : 's'} ${h.missing.join(', ')} (${counts}).`,
+      { values: h });
+  }
+  return row('exgb_shadow_capture', 'ok', h.weeks.length ? `Every frozen ESPN week has shadow forecasts (${counts}).`
+    : 'No frozen ESPN week yet.', { values: h });
+}
+
 const ageText = minutes => (minutes >= 120 ? `${(minutes / 60).toFixed(minutes >= 600 ? 0 : 1)} h` : `${Math.round(minutes)} min`);
 
 /**
@@ -365,6 +420,9 @@ export function evaluateSnapshot(snap, { now = Date.now(), tolerances = TOLERANC
     rangeOrderRow(snap),
     noNanRow(snap),
     sourceAgeRow(snap, now),
+    espnProjectionRow(snap),
+    rangeCoverageRow(snap),
+    exgbShadowRow(snap),
   ];
 }
 
@@ -653,6 +711,13 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
     { id: 'nfl_lines', label: 'NFL scores and lines', as_of: lastOk('nfl_lines'), max_age_minutes: 3 * job('nfl_lines'),
       pages: ['Start/Sit', 'Current week'] },
   ];
+  // PROJ-ESPN: the served week's ESPN capture, and the weekly ranges' realised coverage.
+  const [espnWeek, rangeCal] = await Promise.all([import('./espn-week-projection.js'), import('./range-calibration.js')]);
+  snap.espn_projection = attempt(() => espnWeek.espnProjectionHealth({ season: tradeWeek.season ?? SEASON,
+    week: tradeWeek.week ?? week, leagueRowId: lg.id, now }));
+  snap.range_coverage = attempt(() => rangeCal.trailingCoverage({ leagueId: lg.id }) ?? { error: 'range_coverage_log missing' });
+  const exgbShadow = await import('./exgb-shadow.js');
+  snap.exgb_shadow = attempt(() => exgbShadow.exgbShadowHealth({ season: tradeWeek.season ?? SEASON }));
   snap.collected_at = new Date(now).toISOString();
   return snap;
 }

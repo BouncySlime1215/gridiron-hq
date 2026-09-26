@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { loadWarRoom, textOf, WARROOM_DIR } from './helpers/warroom-tsx.mjs';
+import { plannerRenderer } from './helpers/warroom-planner.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -27,20 +28,24 @@ const { buildWarRoomView } = await import('../server/services/war-room-view.js')
 
 const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
-const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { useWarRoom } = await wr.mod('useWarRoom');
+const room = await plannerRenderer(wr);
 
 const plans = { status: 'ok', entries: structuredClone(producer.leagues), as_of: producer.generated_at, id: 'y' };
 const view = buildWarRoomView(1, plans, { enabled: true, preview: true });
-const html = renderToStaticMarkup(React.createElement(WarRoom, {
-  view, leagues: [{ id: 1, name: 'League 1' }, { id: 2, name: 'League 2' }], activeId: 1, onLeague() {}, onExit() {},
-}));
+const html = room(view, { leagueId: 1 });
 const css = fs.readFileSync(path.join(WARROOM_DIR, 'warroom.css'), 'utf8');
 /** Declarations of the first rule whose selector is exactly `sel` (outside media blocks). */
 const rule = sel => {
   const m = css.match(new RegExp(`(^|\\n)${sel.replace(/[.[\]"=]/g, c => `\\${c}`)}\\s*\\{([^}]*)\\}`));
   return m ? m[2] : null;
 };
+
+test('the planner mounts (Today, Next move, Go get, Market) draw one view with no War Room shell', () => {
+  for (const id of ['today-panel', 'trades-planner-next', 'trades-planner-goget', 'trades-planner-market']) assert.ok(html.includes(`data-testid="${id}"`), id);
+  assert.doesNotMatch(html, /wr-bar2|wr-nav|wr-tabbar|wr-coach-btn|war-room-v2/, 'no second top bar, tabs or Coach button');
+  assert.doesNotMatch(textOf(html), /NaN|undefined/);
+});
 
 test('dark tokens: system dark and the explicit toggle both define every token', () => {
   const light = [...rule('.wr-root').matchAll(/(--wr-[\w-]+):/g)].map(m => m[1]).sort();
@@ -64,6 +69,14 @@ test('only useWarRoom.ts reads and only requests.ts writes, each to its one rout
   const Probe = () => { useWarRoom(3); useWarRoom(null); return null; };
   renderToStaticMarkup(React.createElement(Probe));
   assert.deepEqual(globalThis.__warRoomPaths, ['/trades/3/war-room', null]);
+});
+
+test('the War Room view reads no profile store (the retired People Board rail took the only people reads)', () => {
+  const src = fs.readFileSync(path.join(REPO, 'server', 'services', 'war-room-view.js'), 'utf8');
+  assert.doesNotMatch(src, /profile_json|negotiation_profiles|manager_notes|openChatDb|buildPeopleBoard|peopleBoardFlag/);
+  for (const f of fs.readdirSync(WARROOM_DIR, { recursive: true }).filter(f => /\.tsx?$/.test(f))) {
+    assert.doesNotMatch(fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8'), /profile_json|manager_notes|people_board/, `${f} reads no profile store`);
+  }
 });
 
 test('no arithmetic on producer values in components (formatters only)', () => {

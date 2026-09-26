@@ -11,7 +11,8 @@ const code = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''
 const trades = read('client/src/pages/Trades.tsx');
 const lab = read('client/src/pages/TradeLab.tsx');
 const planner = read('client/src/components/warroom/TradesPlanner.tsx');
-const board = read('client/src/components/brain/ManagerBoard.tsx');
+// Part 2: the manager card is its own shared component (ManagerCard); People renders it.
+const board = read('client/src/components/brain/ManagerBoard.tsx') + read('client/src/components/brain/ManagerCard.tsx');
 const slate = read('client/src/components/brain/ProposalSlate.tsx');
 
 test('1. no nested app: the planner draws inside the Trades frame, with no War Room shell', () => {
@@ -19,6 +20,10 @@ test('1. no nested app: the planner draws inside the Trades frame, with no War R
   assert.match(planner, /className="wr-root wr-v2 wr-inline"/);
   assert.doesNotMatch(planner, /TopBarV2|CoachDrawer |HealthSheet|role="tablist"/, 'no second top bar, Coach, health chip or tabs');
   assert.match(trades, /<TradesPlanner part="market"/, 'Market is part of Find deals');
+  // Part 2: the shell itself is deleted, not just unmounted.
+  for (const f of ['WarRoomV2.tsx', 'TopBarV2.tsx', 'TopStrip.tsx', 'LeagueRail.tsx', 'PeopleBoard.tsx', 'ScreenLeague.tsx', 'useDocTheme.ts']) {
+    assert.ok(!fs.existsSync(new URL(`../client/src/components/warroom/${f}`, import.meta.url)), `${f} is gone`);
+  }
 });
 
 test('2. one Go get: the planner\'s target cards, with "Someone else?" closing the list', () => {
@@ -28,7 +33,8 @@ test('2. one Go get: the planner\'s target cards, with "Someone else?" closing t
 });
 
 test('3. one context bar in the page header: values chip, untouchables chip + sheet, Trading as only when needed', () => {
-  assert.match(trades, /<PageHeader eyebrow="Trades" title="Trades" actions=\{<TradeDeskHeader desk=\{desk\} \/>\} \/>/);
+  // AJ-PICK adds its "A.J. allowed for" chip to the same bar (extra), only when A.J. is on Nick's roster.
+  assert.match(trades, /<PageHeader eyebrow="Trades" title="Trades" actions=\{<TradeDeskHeader desk=\{desk\}\s+extra=\{ajMine \? <AjAllowedChip [^}]*\} nameOf=\{[^}]*\} \/> : null\} \/>\} \/>/);
   assert.equal((trades.match(/<TradeDeskHeader /g) ?? []).length, 1, 'shown once, not per view');
   assert.match(lab, /<MarketAsOf asOf=\{rosters\?\.market_as_of\} compact \/>/);
   assert.match(lab, /Untouchables: \{locked\.length\}/);

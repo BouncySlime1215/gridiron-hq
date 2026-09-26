@@ -5,6 +5,8 @@
  *                                                 "I sent it", reply + decline reason, skip reason,
  *                                                 risk mode, tolerance, add/remove stop, retract)
  *   GET  /api/warroom/:leagueId/requests          this user's recent requests for the league
+ *   GET  /api/warroom/:leagueId/aj                AJ-PICK: the players Nick would take for A.J. Brown, and
+ *                                                 the A.J. cards he OK'd (aj.allow / aj.revoke / aj.confirm)
  *   GET  /api/warroom/layout                      this user's latest saved layout (null = default)
  *   PUT  /api/warroom/layout                      save a new layout version
  *   POST /api/warroom/:leagueId/action-log        log one Coach UI action
@@ -21,6 +23,8 @@ import {
   logAction, listActionLog
 } from '../services/warroom-actions/store.js';
 import { loadPlans } from '../services/war-room-view.js';
+import { ajState } from '../services/campaign/aj-pick.js';
+import { rows } from '../db/index.js';
 
 const r = Router();
 
@@ -42,7 +46,7 @@ function leagueOf(req) {
 
 const fail = (res, e, next) => (e?.status && e.status < 500 ? res.status(e.status).json({ error: e.message }) : next(e));
 
-const CARD_KINDS = new Set(['offer.sent', 'deck.skip']);
+const CARD_KINDS = new Set(['offer.sent', 'deck.skip', 'aj.confirm']);
 
 r.post('/:leagueId/requests', async (req, res, next) => {
   try {
@@ -70,6 +74,14 @@ r.get('/:leagueId/requests', (req, res, next) => {
     const leagueId = leagueOf(req);
     res.json({ enabled: true, ...warRoomPreview(),
       requests: listRequests({ userId: req.auth.userId, leagueId, limit: Number(req.query.limit) || 50 }) });
+  } catch (e) { fail(res, e, next); }
+});
+
+r.get('/:leagueId/aj', (req, res, next) => {
+  try {
+    const leagueId = leagueOf(req);
+    const s = ajState({ rows }, leagueId);
+    res.json({ enabled: true, ...warRoomPreview(), status: s.status, allow: [...s.allow], confirmed: [...s.confirmed] });
   } catch (e) { fail(res, e, next); }
 });
 

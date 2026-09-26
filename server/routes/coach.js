@@ -30,6 +30,10 @@ import { recentCoachAnswers, coachGroundingRate } from '../services/coach/audit.
 import { db } from '../db/index.js';
 import { coachBriefFlag, BRIEF_ENV, morningBrief, weeklyCheckIn, readPlansFile } from '../services/coach/brief.js';
 import { warRoomPlansPath } from '../services/warroom-flag.js';
+import { chatTurn } from '../services/coach/chat.js';
+import { activeThread, newThread, threadMessages, threadTurnLimit } from '../services/coach/threads.js';
+import { followupsFor } from '../services/coach/followups.js';
+import { budgetStatus } from '../services/llm-budget.js';
 
 const r = Router();
 
@@ -65,9 +69,15 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
     return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
   }
 
+  // COACH-CHAT: `thread: true` makes this a turn of the league's conversation (threads, focus, $0 follow-ups).
+  const threaded = body.thread === true && leagueId != null;
+  const answer = onEvent => (threaded
+    ? chatTurn({ userId: req.auth.userId, leagueId, question, context, hasModel, onEvent })
+    : askCoach({ question, context, leagueId, hasModel, onEvent }));
+
   if (!wantsStream(req)) {
     try {
-      res.json(await askCoach({ question, context, leagueId, hasModel }));
+      res.json(await answer(undefined));
     } catch (e) { next(e); }
     return;
   }
@@ -80,7 +90,7 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
     connection: 'keep-alive'
   });
   try {
-    const result = await askCoach({ question, context, leagueId, hasModel, onEvent: event => send(res, event) });
+    const result = await answer(event => send(res, event));
     send(res, { t: 'result', ...result });
   } catch (e) {
     // The stream is already open, so an error is an event rather than a status
@@ -90,6 +100,47 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
   } finally {
     res.end();
   }
+});
+
+/* ------------------------------------------------ COACH-CHAT threads */
+
+const leagueParam = req => {
+  const id = Number(req.params.leagueId);
+  if (!Number.isInteger(id) || id < 1) throw Object.assign(new Error('leagueId must be a positive whole number'), { status: 400 });
+  return id;
+};
+
+/** A stored message as the drawer shows it: Nick's text, or Coach's grounded reply. */
+const shownMessage = m => (m.role === 'nick' ? { id: m.id, who: 'nick', text: m.text, at: m.created_at }
+  : { id: m.id, who: 'coach', text: m.text, intent: m.intent, at: m.created_at, claims: m.payload.claims ?? [], refusals: m.payload.refusals ?? [],
+    ledger: m.payload.ledger ?? null, followups: m.payload.followups ?? [], proposals: m.payload.proposals ?? [], lanes: m.payload.lanes ?? null });
+
+function threadView(userId, leagueId, thread) {
+  const t = thread ?? activeThread(userId, leagueId, { create: false });
+  const messages = t ? threadMessages(t.id).map(shownMessage) : [];
+  return { thread: t ? { id: t.id, focus: t.focus, earlier_turns: t.summary?.turns_folded ?? 0 } : null,
+    messages, starters: followupsFor(null, {}, null), turn_limit: threadTurnLimit() };
+}
+
+/** The league's active conversation (null thread when none has started). */
+r.get('/thread/:leagueId', requireAuthenticated, (req, res, next) => {
+  try { res.json(threadView(req.auth.userId, leagueParam(req))); } catch (e) { next(e); }
+});
+
+/** "New conversation": archive the active thread and open an empty one. */
+r.post('/thread/:leagueId/new', requireAuthenticated, (req, res, next) => {
+  try {
+    const leagueId = leagueParam(req);
+    res.json(threadView(req.auth.userId, leagueId, newThread(req.auth.userId, leagueId)));
+  } catch (e) { next(e); }
+});
+
+/** Coach's AI spend today against its daily limit (llm-budget.js), for the drawer's hint and Settings. */
+r.get('/spend', requireAuthenticated, (_req, res, next) => {
+  try {
+    const b = budgetStatus('coach');
+    res.json({ model_on: !!getApiKey(), spent_today_usd: b.spent_usd, daily_budget_usd: b.budget_usd, resets_at: b.resets_at });
+  } catch (e) { next(e); }
 });
 
 /** What Coach can and cannot see, so a page can say so rather than imply it. */

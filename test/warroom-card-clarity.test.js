@@ -3,14 +3,14 @@
  * audit of league 4). Plans are written by the REAL producer on the made-up league
  * (test/fixtures/warroom-contract/make-producer-plans.mjs, the fixture behind
  * producer-plans.json, plus one league whose managers all declined an offer an hour ago),
- * served through the real view builder and drawn by the real NextMoveDeck / LeagueRail.
+ * served through the real view builder and drawn by the real NextMoveDeck.
  *
  * Metrics (each counted over every card / league, target 0):
  *   (a) cards whose message is built from a package that differs from the step's package
  *       (step.opening.give != step.give) but carry no "opening ask" label;
  *   (b) served send_when strings containing an ISO timestamp;
  *   (c) attention reasons that claim a move worth X pts when next_move is not ok;
- *   (d) "rank 1 of 1" rendered on the league rail.
+ *   (d) retired with the league rail (Trades cleanup part 2).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,7 +36,6 @@ const { sendWhenText } = await import('../server/services/campaign/view.js');
 const wr = await loadWarRoom();
 test.after(() => { wr.cleanup(); fs.rmSync(temp, { recursive: true, force: true }); });
 const { default: NextMoveDeck } = await wr.mod('NextMoveDeck');
-const { default: LeagueRail } = await wr.mod('LeagueRail');
 const { initialDeck } = await wr.mod('deck');
 
 /* ------------------------------------------------------------- the plans (real producer) */
@@ -162,16 +161,4 @@ test('(c) leverage words: no move, no move + changed, a move', () => {
   assert.equal(leverage({ expected: 0.053 }).why, 'best move worth 5.3 pts');
   const r = rankAttention([{ league: 1, hasMove: false }, { league: 2, hasMove: true, expected: 0.01 }]);
   assert.deepEqual(r.map(x => [x.league, x.rank, x.of]), [[2, 1, 2], [1, 2, 2]]);
-});
-
-/* ------------------------------------------------------------------------ (d) */
-test('(d) the league rail hides "rank 1 of 1" when only one league is ranked', () => {
-  const leagues = [4, 1, 3].map(id => ({ id, name: `League ${id}` }));
-  const rail = att => textOf(render(React.createElement(LeagueRail, { leagues, activeId: 4, target: 4, attention: att, onLeague() {} })));
-  const only = rail({ rank: 1, of: 1, reason: 'no move clears your sliders' });
-  const hits = (only.match(/rank 1 of 1/g) ?? []).length;
-  console.log(`# (d) "rank 1 of 1" rendered: ${hits}`);
-  assert.equal(hits, 0, only);
-  assert.ok(only.includes('no move clears your sliders'), 'the reason still shows');
-  assert.ok(rail({ rank: 2, of: 5, reason: 'best move worth 6.1 pts' }).includes('rank 2 of 5: best move worth 6.1 pts'), 'ranks among several still show');
 });

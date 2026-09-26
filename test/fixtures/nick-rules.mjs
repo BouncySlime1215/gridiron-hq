@@ -6,8 +6,13 @@
  *
  * Rules (ids are test/fixtures/rule-fuzz-league.mjs's):
  *   never_give     Nico Collins (160) and Chase Brown (80) are never in a give.
- *   aj_brown       A.J. Brown (277) is given only in a step whose get holds a Blue chip (83+) who is a
- *                  consistent weekly scorer now (scoreOf(id).consistent).
+ *   aj_brown       AJ-PICK (Nick 2026-09-25): A.J. Brown (277) is given only in a step whose get holds a
+ *                  player on Nick's aj.allow list (opts.ajAllow) who is a Blue chip (83+) now.
+ *   aj_needs_ok    AJ-PICK: a card that gives 277 carries requires_nick_confirm (deck[j].aj); one Nick has
+ *                  not OK'd sits after every other deck card and is never the next move (best), a backup, a
+ *                  risk-mode pick or a catch-up deal. OK'd = the whole path is in opts.ajConfirmedPaths
+ *                  (pathKey of the card the test confirmed: Nick OKs one exact card, not a step); a lone
+ *                  step (backup, risk-mode pick, catch-up deal) is OK'd only as a step of such a path.
  *   final_get      every player a plan leaves Nick holding that he did not start with scores 83+; a
  *                  flip's leg-2 players and every suggested target are final gets too.
  *   overpay        market value given <= value got, except CAP-1C: exactly 2 for 1, neither given
@@ -18,6 +23,13 @@
  *                  season, no price-fall exception).
  *   no_undo        no step with a manager both takes back from him a player Nick sent him and gives him
  *                  back a player he sent Nick, in one trade this season between the two.
+ *   stranded_hold  FLIP-STRANDED: after every leg but the last of a move served as a sequence (a plan's
+ *                  steps, a flip's leg 1, a LADDER-01 card's rungs), every player Nick then holds that he
+ *                  did not start with scores 83+: if the next leg is turned down he keeps him. Each leg's
+ *                  own never-give, overpay and buy-back checks are the offer rules above (every leg is an
+ *                  offer), so this rule only adds the floor on what he holds in between. Flip claims
+ *                  (Nick 2026-09-25): a player got by a waiver claim (step.claim) and traded away in a
+ *                  later trade (not claim) leg of the same path is exempt; claimed and kept, he is not.
  *   beats_no_trade every move served as something to send beats doing nothing on the confirm dice:
  *                  - deck cards: confirm.verdict is not 'failed', beats_no_trade is not false, and the
  *                    confirm-dice expected gain (plan.expected) is > 0;
@@ -27,6 +39,10 @@
  *                    package (#386): must carry a confirm-dice number, i.e. `dice: 'confirm'` with
  *                    `expected` > 0 (or `confirmed_expected` > 0). A number on the planning dice, or none,
  *                    is a violation: Nick's rule is the confirm dice, not the dice the plan was found on.
+ *   step_regret    (Nick 2026-09-25, U1c) every step of a served path (best, every deck card) beats doing
+ *                  nothing on its own, given the steps before it: steps carry cumulative deltas, so each step's
+ *                  own gain delta_i - delta_(i-1) must be > 0. (Claim paths are shadow and checked by
+ *                  claim_stranded instead: a claim step is a flip piece, not a move on its own.)
  *   FLIP-CLAIMS (Nick 2026-09-25), on every claim path SEARCH-WIDE reports (search_wide.claims.paths, shadow;
  *   every rule above applies to them too, the claim step read as Nick giving the drop for the claimed player):
  *   claim_not_flipped    every claimed player is given away by a later trade step of the same path.
@@ -45,8 +61,9 @@
  */
 import { NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID, BLUE_CHIP } from './rule-fuzz-league.mjs';
 
-export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
-  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded']);
+export const RULES = Object.freeze(['never_give', 'aj_brown', 'aj_needs_ok', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
+  'claim_not_flipped', 'claim_protected_drop', 'claim_stranded',
+  'stranded_hold', 'step_regret']);
 export const DEPTH_PREMIUM = 0.12;
 const EPS = 1e-9;
 const S = x => String(x);
@@ -136,6 +153,26 @@ export function finalGets(plan, startIds) {
   return [...held].filter(id => !start.has(id));
 }
 
+/**
+ * FLIP-STRANDED: what Nick holds between legs. For each leg but the last, the players he holds right
+ * after it that he did not start with: [{ leg, player }] (leg is 0-based).
+ */
+export function strandedAfterLegs(steps, startIds) {
+  const start = new Set((startIds ?? []).map(S));
+  const held = new Set(start);
+  const out = [];
+  const flipClaim = new Set();
+  for (const [i, st] of steps.entries()) {
+    if (st.claim) for (const id of st.get) if (steps.slice(i + 1).some(x => !x.claim && x.give.map(S).includes(S(id)))) flipClaim.add(S(id));
+  }
+  for (const [i, st] of steps.entries()) {
+    for (const id of st.give) held.delete(S(id));
+    for (const id of st.get) held.add(S(id));
+    if (i < steps.length - 1) for (const id of held) if (!start.has(id) && !flipClaim.has(id)) out.push({ leg: i, player: id });
+  }
+  return out;
+}
+
 /** Every player Nick sent away in any trade this season. */
 export function soldThisSeason(ledger, me) {
   return new Set((ledger?.trades ?? []).flatMap(t => t.moves).filter(m => S(m.from) === S(me)).map(m => S(m.player)));
@@ -149,15 +186,27 @@ function tradesWith(ledger, me, team) {
   })).filter(t => t.sent.size && t.got.size);
 }
 
-/** Every rule break in one planner result: [{ rule, surface, detail }]. */
-export function ruleViolations(adapter, res) {
+/** A step's 'team|give|get' key, ids sorted (the oracle's own, not the planner's). */
+export const stepKey = st => `${st.team ?? st.partner}|${[...st.give].map(S).sort().join('+')}|${[...st.get].map(S).sort().join('+')}`;
+/** A whole path's key: its steps' keys in order. */
+export const pathKey = steps => steps.map(stepKey).join('>');
+
+/**
+ * Every rule break in one planner result: [{ rule, surface, detail }].
+ * opts: { ajAllow: Set<id> (Nick's picks for A.J. Brown), ajConfirmedPaths: Set<pathKey> (the cards he OK'd) }.
+ */
+export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedPaths = new Set() } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const player = id => P.get(Number(id)) ?? P.get(id);
   const val = id => Math.max(0, Number(player(id)?.value) || 0);
   const score = id => Number(adapter.scoreOf(id)?.score);
   const blue = id => score(id) >= BLUE_CHIP;
-  const consistent = id => !!adapter.scoreOf(id)?.consistent;
+  const picked = id => ajAllow.has(S(id));
+  const givesAj = st => (st?.give ?? []).map(S).includes(S(AJ_BROWN));
+  const okdSteps = new Set([...ajConfirmedPaths].flatMap(k => k.split('>')));
+  const okd = st => !givesAj(st) || okdSteps.has(stepKey(st));
+  const okdPath = steps => !steps.some(givesAj) || ajConfirmedPaths.has(pathKey(steps));
   const isOlave = id => S(id) === S(OLAVE_ID) || player(id)?.name === 'Chris Olave';
   const pinned = new Set([NICO_COLLINS, CHASE_BROWN, AJ_BROWN].map(S));
   const sold = soldThisSeason(adapter.tradeLedger, me);
@@ -177,7 +226,7 @@ export function ruleViolations(adapter, res) {
     const give = o.give.map(S), get = o.get.map(S);
     const tag = `${give.join('+')} for ${get.join('+')} (team ${o.team})`;
     if (give.includes(S(NICO_COLLINS)) || give.includes(S(CHASE_BROWN))) bad('never_give', o.surface, tag);
-    if (give.includes(S(AJ_BROWN)) && !get.some(id => blue(id) && consistent(id))) bad('aj_brown', o.surface, tag);
+    if (give.includes(S(AJ_BROWN)) && !get.some(id => blue(id) && picked(id))) bad('aj_brown', o.surface, tag);
     const gv = sum(give), tv = sum(get);
     if (gv > tv * (1 + EPS)) {
       const pct = tv > 0 ? gv / tv - 1 : Infinity;
@@ -193,12 +242,44 @@ export function ruleViolations(adapter, res) {
     const undo = tradesWith(adapter.tradeLedger, me, o.team).find(t => get.some(id => t.sent.has(id)) && give.some(id => t.got.has(id)));
     if (undo) bad('no_undo', o.surface, `${tag} undoes a trade with team ${o.team}`);
   }
+  // AJ-PICK: cards that give 277 say so; one not OK'd is never served as the move to make.
+  if (res.best && !okdPath(res.best.steps)) bad('aj_needs_ok', 'best', `${pathKey(res.best.steps)} not OK'd`);
+  for (const [i, b] of (res.backups ?? []).entries()) if (b?.step && !okd(b.step)) bad('aj_needs_ok', `backup[${i}]`, stepKey(b.step));
+  for (const m of res.risk_modes ?? []) if (m.first_step && !okd(m.first_step)) bad('aj_needs_ok', `risk_modes.${m.mode}`, stepKey(m.first_step));
+  for (const [i, it] of (res.catch_up ?? []).entries()) { const d = dealOfKey(it?.plan_key); if (d && !okd(d)) bad('aj_needs_ok', `catch_up[${i}]`, it.plan_key); }
+  let waitingSeen = false;
+  for (const [j, c] of (res.deck ?? []).entries()) {
+    if (!c.plan) continue;
+    const aj = c.plan.steps.some(givesAj);
+    if (aj && !c.aj?.requires_nick_confirm) bad('aj_needs_ok', `deck[${j}]`, 'gives 277 without requires_nick_confirm');
+    const waiting = aj && !okdPath(c.plan.steps);
+    if (aj && !waiting && c.aj && !c.aj.nick_confirmed) bad('aj_needs_ok', `deck[${j}]`, 'OK\'d card still marked waiting');
+    if (waiting && c.aj?.nick_confirmed) bad('aj_needs_ok', `deck[${j}]`, 'marked confirmed but not OK\'d');
+    if (waiting) waitingSeen = true;
+    else if (waitingSeen) bad('aj_needs_ok', `deck[${j}]`, 'a served card after a card waiting on Nick\'s OK');
+  }
   const start = adapter.rosters.get(me);
   for (const [name, p] of plans) for (const id of finalGets(p, start)) if (!blue(id)) bad('final_get', name, `${id} scores ${score(id)}`);
+  const stranded = (surface, steps) => {
+    for (const h of strandedAfterLegs(steps, start)) if (!blue(h.player)) bad('stranded_hold', surface, `after leg ${h.leg + 1}: ${h.player} scores ${score(h.player)}`);
+  };
+  for (const [name, p] of plans) stranded(name, p.steps);
+  for (const f of res.flip?.realised ?? []) if (f.legs) stranded(`flip ${f.player}`, [{ give: f.legs.give_a_ids ?? [f.legs.give_a], get: [f.player] }, { give: [f.player], get: f.legs.get_b_ids ?? [f.legs.get_b] }]);
+  for (const [j, card] of (res.ladders?.cards ?? []).entries()) stranded(`ladders[${j}]`, (card.rungs ?? []).filter(r => r.give && r.get));
   for (const [j, c] of (res.deck ?? []).entries()) {
     if (!c.plan) continue;
     if (c.confirm?.verdict === 'failed') bad('beats_no_trade', `deck[${j}]`, 'confirm verdict failed');
     if (!(Number(c.plan.expected) > 0)) bad('beats_no_trade', `deck[${j}]`, `confirm-dice expected ${c.plan.expected}`);
+  }
+  // step_regret: each served step's own gain (cumulative delta minus the step before's) is > 0.
+  const served = [...(res.best ? [['best', res.best]] : []), ...(res.deck ?? []).map((c, j) => [`deck[${j}]`, c.plan]).filter(([, p]) => p)];
+  for (const [name, p] of served) {
+    let before = 0;
+    for (const [i, st] of p.steps.entries()) {
+      const d = Number(st.delta);
+      if (!Number.isFinite(d) || !(d - before > 0)) { bad('step_regret', `${name}.step[${i}]`, `own gain ${d - before}`); break; }
+      before = d;
+    }
   }
   for (const [j, c] of (res.deck ?? []).entries()) {
     if (c.plan && c.beats_no_trade === false) bad('beats_no_trade', `deck[${j}]`, 'beats_no_trade false');

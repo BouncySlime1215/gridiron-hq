@@ -76,10 +76,10 @@ const realEngine = await import('../server/services/trade-engine.js');
 mock.module('../server/services/trade-engine.js', {
   namedExports: {
     ...realEngine,
-    findTrades: (lg, { limit = 20, excludeIds = new Set() } = {}) => ({
+    findTrades: (lg, { limit = 20, excludeIds = null } = {}) => ({
       mode: 'league', me: { roster_id: '1' }, model_context: { engine: 'test-engine', cutoff: '2026-W3' },
       deals: [{ partner_id: '2', i_give: [{ id: 102 }], i_get: [{ id: 201 }],
-        me: { ppg_delta: 1.5 + limit / 1000, value_delta: 250 - excludeIds.size, floor_delta: -0.8, ceiling_delta: 2.1 },
+        me: { ppg_delta: 1.5 + limit / 1000, value_delta: 250 - (excludeIds?.size ?? 0), floor_delta: -0.8, ceiling_delta: 2.1 },
         them: { ppg_delta: 0.4, value_delta: -250 } }],
     }),
   },
@@ -287,8 +287,30 @@ test('B4: a War Room card needs a producer run and says which', async () => {
   assert.match(r.surfaces[0].fix, /produce-plans\.mjs --leagues 71/);
 });
 
+// Added after the RED commit (addendum A1 in the TDD record): the switches are part of the pin.
+test('B4 (A1): different GRIDIRON_* switches are refused with the switches to set', async () => {
+  process.env.GRIDIRON_SERVE_PIN = '1';
+  process.env.GRIDIRON_RB_TITLE = 'shadow';
+  let id;
+  try { ({ trade_impact: id } = await serveAll()); } finally { delete process.env.GRIDIRON_RB_TITLE; }
+  const r = await repro.reproduceCard({ leagueId: 71, requestId: id, head });
+  assert.equal(r.status, 'flags_mismatch');
+  assert.equal(r.exit, 2);
+  assert.match(r.surfaces[0].fix, /GRIDIRON_RB_TITLE=shadow/);
+  process.env.GRIDIRON_RB_TITLE = 'shadow';
+  try {
+    assert.equal((await repro.reproduceCard({ leagueId: 71, requestId: id, head })).status, 'reproduced', 'same switches, same card');
+  } finally { delete process.env.GRIDIRON_RB_TITLE; }
+});
+
+test('B4 (A1): the flag pin keeps switch values only, never a path, key or token', () => {
+  const f = pin.flagPin({ GRIDIRON_SERVE_PIN: '1', GRIDIRON_RB_TITLE: 'shadow', GRIDIRON_DB_PATH: '/x/y.sqlite',
+    GRIDIRON_NEWS_API_KEY: '1', GRIDIRON_SESSION_TOKEN: 'on', GRIDIRON_CODE_SHA: SHA, GRIDIRON_AI_SOURCE: 'test', OTHER: '1' });
+  assert.deepEqual(f, { GRIDIRON_RB_TITLE: 'shadow', GRIDIRON_SERVE_PIN: '1' });
+});
+
 test('B4: no drift case reports reproduced (summary)', () => {
-  for (const s of ['snapshot_mismatch', 'code_mismatch', 'mismatch', 'no_pin', 'code_unknown', 'producer_run_needed']) {
+  for (const s of ['snapshot_mismatch', 'code_mismatch', 'flags_mismatch', 'mismatch', 'no_pin', 'code_unknown', 'producer_run_needed']) {
     assert.notEqual(repro.REPRO_EXIT[s], 0, s);
   }
   assert.equal(repro.REPRO_EXIT.reproduced, 0);

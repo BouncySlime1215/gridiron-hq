@@ -29,6 +29,7 @@ import { db, row, rows, run } from '../db/index.js';
 import { scoringFor } from '../services/scoring.js';
 // IDEA-001: every served title-odds number is queued for served_numbers (off the request thread).
 import { recordServed } from '../services/serve-log.js';
+import { servePinOn, titleOddsSeed } from '../services/serve-pin.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
@@ -473,18 +474,23 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
       const ignored = Object.fromEntries(['runs', 'seed', 'from_week']
         .filter(k => req.query[k] != null).map(k => [k, req.query[k]]));
       const world = oneWorldTitleOdds(lg, { ignored });
-      recordServed(res, 'title_odds', lg, world);
+      recordServed(res, 'title_odds', lg, world, {}, { args: { one_world: true } });
       return res.json(world);
     }
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
     // The memo key uses the same producer on the same raw input that
     // simulateSeason resolves internally, so the key and the body's from_week agree.
     const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
-    const seed = req.query.seed ?? null;
+    // SERVE-LOG REPRO (GRIDIRON_SERVE_PIN=1): an unseeded request runs on a seed keyed to
+    // this sync (serve-pin.js#titleOddsSeed) and the pin records it; off, it stays random.
+    const asked = req.query.seed ?? null;
+    const seed = asked == null && servePinOn() ? titleOddsSeed(lg, { runs, fromWeek: req.query.from_week }) : asked;
     const sim = withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
       runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
     })));
-    recordServed(res, 'title_odds', lg, sim);
+    // withRandomSeed runs a non-numeric seed as 1; the pin records the seed that ran.
+    recordServed(res, 'title_odds', lg, sim, {}, { args: { runs, from_week: req.query.from_week ?? null },
+      seed: seed == null || seed === '' ? null : (Number(seed) || 1) });
     res.json(sim);
   } catch (e) { next(e); }
 });
@@ -516,7 +522,12 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       scoring: scoringFor(lg)
     });
     recordServed(res, 'trade_impact', lg, impact,
-      { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get });
+      { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get },
+      { args: oneWorldFlag().on
+        ? { one_world: true, myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get }
+        : { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get,
+          runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS), fromWeek: req.body?.from_week ?? null,
+          seed: req.body?.seed ?? null } });
     res.json(impact);
   } catch (e) { next(e); }
 });

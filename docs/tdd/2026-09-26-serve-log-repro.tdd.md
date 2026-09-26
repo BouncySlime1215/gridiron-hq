@@ -72,3 +72,62 @@ What this does NOT claim: the snapshot hash covers the league payload only. Othe
 read (projections, player metrics, fit stores) are not fingerprinted, so a card whose league payload is
 unchanged but whose projections moved reports `mismatch` rather than being refused up front. The fix for
 that is running the command against a DB backup taken at `as_of` (`--db`), which the local measurement does.
+
+## Addendum A1 (added after the RED commit, before the GREEN commit; no bar above changed)
+
+Reading the diff before GREEN: the same commit serves different numbers under different `GRIDIRON_*`
+switches (the one world, RB-TITLE, basis flags), and the pin did not record them. The pin now carries
+`flags`: every set `GRIDIRON_*` variable whose value is switch-shaped (`0/1/on/off/true/false/shadow/
+preview/deltas/enforce/live/study`), never one whose name looks like a key, token, password, cookie or
+credential, and never `GRIDIRON_CODE_SHA` or a path. A seventh B4 case: switches that differ ->
+`flags_mismatch` (refused, exit 2) naming the switches to set; the same switches reproduce. **Pass bar:**
+refused with the right switch named, reproduced once it is set, and a secret-shaped or path-valued
+variable never lands in a pin.
+
+## RED
+
+`test/serve-pin.test.js` committed first (`f8322018`); run on the RED commit:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/services/serve-pin.js'
+# tests 1
+# pass 0
+# fail 1
+```
+
+## GREEN
+
+```
+node --experimental-test-module-mocks --test test/serve-pin.test.js
+# B6: 2 MB payload hashed in 6.94 ms
+# tests 20
+# pass 20
+# fail 0
+```
+
+| Bar | Result |
+| --- | --- |
+| B1 flag off inert | pass: 0 pins; served rows for the four deterministic surfaces identical flag off vs on; unseeded `/simulate` keeps `seed=` empty; preview alone does not switch it on |
+| B2 every response pinned | pass: 5/5 surfaces + the weekly snapshot (3 surfaces, title odds on the recorded seed) |
+| B3 reproduce exactly | pass: 5/5 re-runs (title odds unseeded and `?seed=5`, trade impact, title trades, finder), every number equal |
+| B4 drift refused or flagged | pass: 7/7 (snapshot, code, tampered value, no pin, unknown code, War Room, switches), 0 reported `reproduced` |
+| B5 seeds recorded | pass: keyed seed recorded, stable across two requests with equal numbers, `?seed=5` recorded as 5 |
+| B6 cheap | pass: 10 reads of one sync = 1 hash, a new sync = 1 more; 2 MB payload 6.8-6.9 ms |
+| B7 no silent failure | pass: no git and no env -> pin written with `code.sha = null` + reason, command answers `code_unknown`; a failed pin insert rolls back the batch's numbers, throws, and re-queues |
+| B8 the command | pass: unknown id exit 2 `not_found`; War Room exit 2 "needs a producer run"; `--latest --surface` picks the newest; `--help` exit 0 |
+
+One fixture correction after the first GREEN run: the finder stand-in dereferenced `excludeIds.size` when
+the weekly snapshot passes no excludes (`null`, which the real `findTrades` accepts,
+`trade-engine.js:1886`). The stand-in now treats `null` as empty; no assertion or bar changed.
+
+## Not covered
+
+- Real producers on real league data. The stand-ins draw from the real `random()` stream, so the test
+  proves the plumbing records and replays the seed; whether `simulateSeason`, `tradeImpact`,
+  `titleOddsTrades` and `findTrades` are fully deterministic given (snapshot, args, seed, switches) on
+  league 4 is the local measurement in the PR.
+- DB inputs other than the league payload (projections, player metrics, fit stores) are not
+  fingerprinted; their drift shows as `mismatch`, and `--db <backup at as_of>` is the remedy.
+- A dirty working tree is not detected: the code pin is HEAD's commit.
+- War Room cards are not re-run (the plans producer is a separate process with its own inputs); the
+  command says so and gives the producer command.

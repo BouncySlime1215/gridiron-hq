@@ -86,7 +86,8 @@ export function numbersPrompt(items) {
 export function cleanWhy(why) {
   const s = String(why ?? '').replace(/\s+/g, ' ').trim();
   if (!s || /\d/.test(s) || /["“”]/.test(s)) return null;
-  return s.length > MAX_WHY ? `${s.slice(0, MAX_WHY - 1).trimEnd()}…` : s;
+  const t = s[0].toUpperCase() + s.slice(1);
+  return t.length > MAX_WHY ? `${t.slice(0, MAX_WHY - 1).trimEnd()}…` : t;
 }
 
 /** One lane's parsed reads, checked against the items it was given. */
@@ -124,12 +125,17 @@ async function ask({ feature, system, prompt, model }) {
   return { parsed: parseJson(msg), cost_usd: msg.cost_usd ?? 0, usage: msg.usage ?? null };
 }
 
+/** Jev's numbers as the tab labels them (the view relabels stored rows by key, so old rows read the same). */
+export const JEV_CITE_LABELS = Object.freeze({
+  p_jev_stance: 'Jev: sure of this call', p_jev_backs_claude: 'Jev: chat backs Claude', p_jev_willing: 'Jev: he deals now'
+});
+
 /** Jev's probabilities and the signals it read, as the lane's cited numbers and labels. */
 function jevCites(take, rows) {
   const cites = [
-    { key: 'p_jev_stance', label: 'Jev: how sure it is of this call', value: take.probabilities?.stance },
-    { key: 'p_jev_backs_claude', label: 'Jev: chance the chat backs Claude\'s call', value: take.probabilities?.backs_claude },
-    { key: 'p_jev_willing', label: 'Jev: chance he will deal now', value: take.probabilities?.willing }
+    { key: 'p_jev_stance', label: JEV_CITE_LABELS.p_jev_stance, value: take.probabilities?.stance },
+    { key: 'p_jev_backs_claude', label: JEV_CITE_LABELS.p_jev_backs_claude, value: take.probabilities?.backs_claude },
+    { key: 'p_jev_willing', label: JEV_CITE_LABELS.p_jev_willing, value: take.probabilities?.willing }
   ].filter(c => typeof c.value === 'number').map(c => ({ ...c, value: +c.value.toFixed(4) }));
   const SHOWN = ['in_market', 'wants', 'shopping', 'untouchable', 'p_open_to_trade', 'phrase', 'kind'];
   for (const r of rows) {

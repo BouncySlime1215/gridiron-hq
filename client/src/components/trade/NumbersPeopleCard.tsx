@@ -122,8 +122,10 @@ export default function NumbersPeopleCard({ item, variant = 'full', headshots = 
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold" title={item.title}>{item.title}</div>
             {item.subtitle && <div className="ds-note truncate" title={item.subtitle}>{item.subtitle}</div>}
+            {/* Phone: the verdict under the title, so a long name is not cut to a few letters. */}
+            <span className="mt-1 inline-flex sm:hidden"><Chip tone={v.tone}>{v.label}</Chip></span>
           </div>
-          <Chip tone={v.tone}>{v.label}</Chip>
+          <span className="hidden shrink-0 sm:inline-flex"><Chip tone={v.tone}>{v.label}</Chip></span>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <Lane read={item.numbers} />

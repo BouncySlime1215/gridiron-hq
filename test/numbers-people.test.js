@@ -262,12 +262,13 @@ test('jevLane: Jev gets facts, Claude\'s read and signal labels (no chat text, n
   const lane = createJevLane({ evaluate, env: { AI_GATEWAY_API_KEY: 'x' } });
   const take = await lane(input);
   assert.equal(calls[0].model, JEV_MODEL);
-  assert.match(calls[0].state, /CLAUDE's call from the numbers alone: GO/);
+  assert.match(calls[0].state, /CLAUDE's call from the numbers alone: GO\. Claude: He replies often\./);
+  assert.doesNotMatch(calls[0].state, /decided on/, 'Jev picks its own basis');
   assert.match(calls[0].state, /wants: P21 \(WR\)/);
   assert.doesNotMatch(calls[0].state, /SENTINEL/);
   assert.deepEqual([take.lead, take.stance, take.basis], ['jev', 'wait', 'willingness']);
   assert.equal(take.probabilities.stance, 0.7);
-  assert.match(take.why, /cuts against Claude's call; he does not read as ready to deal, so Jev says wait instead of go\./);
+  assert.match(take.why, /^The chat read cuts against Claude's call; he does not read as ready to deal, so Jev says wait instead of go\.$/);
   assert.doesNotMatch(take.why, /\d/);
   assert.ok(rows('SELECT 1 FROM ai_usage WHERE feature = ? AND model = ?', JEV_FEATURE, JEV_MODEL).length, 'Jev spend logged');
   // Not configured: no call, an honest skip.

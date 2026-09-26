@@ -118,3 +118,12 @@ test('the tab sits in the Trades tab row and uses the design system only', () =>
     assert.doesNotMatch(src, /shadow-|rounded-(?:lg|xl|2xl)/, `${f}: no ad-hoc shadows or radii`);
   }
 });
+
+test('a long list folds after four cards (DIFFER never folded), "Show all" opens it', async () => {
+  const many = { ...VIEW, items: [...VIEW.items, ...[5, 6, 7].map(n => ({ ...VIEW.items[2], key: `partner:${n}`, item_id: String(n) }))] };
+  const { ui } = setup(many);
+  await waitFor(() => byAttr(ui.container, 'data-testid', 'np-card').length === 4, 2000, 'four cards');
+  click(button(ui.container, 'Show all 6'));
+  await waitFor(() => byAttr(ui.container, 'data-testid', 'np-card').length === 6, 2000, 'all cards');
+  ui.unmount();
+});

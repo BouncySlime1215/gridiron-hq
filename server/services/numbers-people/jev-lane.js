@@ -44,7 +44,8 @@ export function jevState({ item, facts, claude, signals }) {
     `Fantasy football trade planning. NICK is the user. Item: ${item.kind} (${item.key}).`,
     'PLAN FACTS (numbers from the app\'s plan):',
     ...Object.entries(facts).map(([k, f]) => `- ${f.means}: ${f.value}`),
-    `CLAUDE's call from the numbers alone: ${claude.stance.toUpperCase()}, decided on ${claude.basis.replace(/_/g, ' ')}.${claude.why ? ` Claude: ${claude.why}` : ''}`,
+    // Claude's call and reason, not its basis label: Jev picks the deciding factor on its own.
+    `CLAUDE's call from the numbers alone: ${claude.stance.toUpperCase()}.${claude.why ? ` Claude: ${claude.why}` : ''}`,
     'STORED PEOPLE SIGNALS about the other manager(s) on this item (ungraded chat reads; labels only):',
     ...signals.map(s => `- ${Object.entries(s).filter(([k]) => k !== 'ref').map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}`)
   ];
@@ -56,11 +57,13 @@ const prob = (a, key) => (a?.type === 'boolean' ? a.probability : a?.probabiliti
 
 /** Jev's one-line why, written from its answers (no numbers: those are the lane's cites). */
 export function jevWhy({ stance, claude, backs, willing }) {
-  const side = backs == null ? '' : backs >= LEAN ? 'The chat read backs Claude\'s call' : 'The chat read cuts against Claude\'s call';
-  const deal = willing == null ? '' : willing >= LEAN ? 'he reads as open to a deal' : 'he does not read as ready to deal';
-  const turn = stance !== claude.stance ? `, so Jev says ${stance} instead of ${claude.stance}` : '';
-  const text = [side, deal].filter(Boolean).join('; ');
-  return text ? `${text}${turn}.` : `Jev says ${stance}.`;
+  const same = stance === claude.stance;
+  const deal = willing == null ? null : willing >= LEAN ? 'he reads as open to a deal' : 'he does not read as ready to deal';
+  let side;
+  if (same) side = backs == null || backs >= LEAN ? 'The chat read backs Claude\'s call' : 'Same call as Claude, though the chat gives it little support';
+  else side = backs != null && backs >= LEAN ? 'The chat read partly backs Claude' : 'The chat read cuts against Claude\'s call';
+  const turn = same ? '' : `, so Jev says ${stance} instead of ${claude.stance}`;
+  return `${[side, deal].filter(Boolean).join('; ')}${turn}.`;
 }
 
 const defaultEvaluate = async args => (await import('ai')).experimental_evaluate(args);

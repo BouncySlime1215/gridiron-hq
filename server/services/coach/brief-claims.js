@@ -797,13 +797,28 @@ export function alternativeClaims(entry, ledger, index) {
   return claims;
 }
 
+/* ----------------------------------------------------------------- spend */
+
+/** SPEND-SERVER: one line, yesterday's AI spend (New York day). Absent input: no line; a failed read says so. */
+export function spendClaims(s, ledger) {
+  if (!s) return [];
+  if (s.status !== 'ok' || !s.rows.length) {
+    const c = record(ledger, 'ai_spend', [{ reason: s.reason ?? 'not read' }]);
+    return [{ section: 'spend', text: `Yesterday's AI spend: not read (${s.reason ?? 'not read'}).`, cites: [c(0, 'reason')] }];
+  }
+  const row = s.rows[0];
+  const c = record(ledger, 'ai_spend', [row]);
+  return [{ section: 'spend', cites: [c(0, 'cost_usd'), c(0, 'calls')],
+    text: `Yesterday: $${Number(row.cost_usd).toFixed(2)} API, ${row.calls} call${row.calls === 1 ? '' : 's'}.` }];
+}
+
 /* ----------------------------------------------------------------- kinds */
 
 export function claimsFor(kind, { entry, inputs, ledger }) {
   if (kind === 'morning') {
     return [...statements(inputs.statements, ledger), ...credibility(inputs.credibility, ledger),
       ...replies(inputs.replies, ledger), ...injuries(inputs.injuries, ledger),
-      ...nextMove(entry, ledger, 'next_move'), ...brain(entry, ledger), ...footer(entry, ledger)];
+      ...nextMove(entry, ledger, 'next_move'), ...brain(entry, ledger), ...spendClaims(inputs.spend, ledger), ...footer(entry, ledger)];
   }
   if (kind === 'weekly') {
     return [...itinerary(entry, ledger), ...nextMove(entry, ledger, 'next_move').slice(0, 3), ...brain(entry, ledger).slice(0, 2),

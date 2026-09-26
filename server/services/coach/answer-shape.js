@@ -22,15 +22,17 @@
 
 export const LIMITS = Object.freeze({ verdictWords: 18, whyMax: 3, whyWords: 22, risksMax: 2, riskWords: 22, totalWords: 120 });
 export const STANCES = Object.freeze(['go', 'wait', 'avoid', 'none']);
+/** COACH-V2 unit 4: the deciding basis as the ONE vocabulary Numbers & People uses (numbers-people/lanes.js BASES). */
+export const BASIS_KEYS = Object.freeze(['title_gain', 'price', 'willingness', 'roster_fit', 'risk', 'timing']);
 
 const line = { type: 'object', additionalProperties: false, required: ['text', 'cites'],
   properties: { text: { type: 'string' }, cites: { type: 'array', items: { type: 'string' } } } };
 
 export const SHAPED_SCHEMA = Object.freeze({
   type: 'object', additionalProperties: false,
-  required: ['verdict', 'stance', 'basis', 'why', 'risks', 'refusals', 'as_of'],
+  required: ['verdict', 'stance', 'basis', 'basis_key', 'why', 'risks', 'refusals', 'as_of'],
   properties: {
-    verdict: line, stance: { enum: STANCES }, basis: { type: 'string' },
+    verdict: line, stance: { enum: STANCES }, basis: { type: 'string' }, basis_key: { enum: BASIS_KEYS },
     why: { type: 'array', items: line }, risks: { type: 'array', items: line },
     refusals: { type: 'array', items: { type: 'string' } },
     as_of: { anyOf: [{ type: 'string' }, { type: 'null' }] }
@@ -43,6 +45,7 @@ ANSWER FORMAT. Reply with the JSON object in the schema, filled like this:
 - "verdict": ONE line, at most ${LIMITS.verdictWords} words, starting with a verb ("Send", "Hold", "Start", "Target") or "No". Name the partner and players. Put a number in it only if it is the deciding one. When you cannot answer, the verdict says so ("Coach does not read that.").
 - "stance": go, wait, avoid, or none when the question is not about acting.
 - "basis": the deciding reason in two to four words (for example "title odds gain", "his price", "your floor").
+- "basis_key": the same reason as one of: title_gain (the odds the plan chases), price (value given or asked), willingness (whether he will deal), roster_fit (a lineup need), risk (injury, volatility, a weak guess), timing (why now or not now).
 - "why": one to ${LIMITS.whyMax} bullets, at most ${LIMITS.whyWords} words each; the first is the deciding reason; each carries ONE cited number with its label. Empty when you refused.
 - "risks": at most ${LIMITS.risksMax} lines, "If no: ..." or "Risk: ...", only when the plan has them.
 - Never mention tables, columns, fields, schema, queries or any snake_case name, and never guess at them: when a fact is not on file, say so in plain words ("No health update on file yet.").
@@ -64,7 +67,7 @@ export function toAnswer(parsed) {
   const risks = (Array.isArray(parsed?.risks) ? parsed.risks : []).map(clean).filter(Boolean);
   const refusals = (Array.isArray(parsed?.refusals) ? parsed.refusals : []).filter(r => typeof r === 'string' && r.trim()).map(r => r.trim());
   const shape = { verdict, stance: STANCES.includes(parsed?.stance) ? parsed.stance : 'none',
-    basis: typeof parsed?.basis === 'string' ? parsed.basis.trim() : '', why, risks };
+    basis: typeof parsed?.basis === 'string' ? parsed.basis.trim() : '', basis_key: BASIS_KEYS.includes(parsed?.basis_key) ? parsed.basis_key : null, why, risks };
   return { claims: claimsOf(shape), refusals, as_of: typeof parsed?.as_of === 'string' && parsed.as_of.trim() ? parsed.as_of.trim() : null, shape };
 }
 
@@ -217,6 +220,7 @@ export function devTextViolations(answer) {
   if (s?.verdict) check('verdict', s.verdict.text);
   (s?.why ?? []).forEach((w, i) => check('why', w.text, i));
   (s?.risks ?? []).forEach((r, i) => check('risks', r.text, i));
+  if (s?.disagreement) check('disagreement', s.disagreement);
   (answer?.refusals ?? []).forEach((r, i) => check('refusals', r, i));
   if (!s) (answer?.claims ?? []).forEach((c, i) => check('claims', c.text, i));
   return v;
@@ -246,6 +250,6 @@ export function stripDevText(answer) {
   const why = s.why.filter((_, i) => !has('why', i));
   const risks = s.risks.filter((_, i) => !has('risks', i));
   const verdict = bad.some(b => b.block === 'verdict') ? { text: NOT_ON_FILE, cites: [] } : s.verdict;
-  const shape = { ...s, verdict, why, risks };
+  const shape = { ...s, verdict, why, risks, ...(bad.some(b => b.block === 'disagreement') ? { disagreement: null } : {}) };
   return { answer: { ...answer, refusals, shape, claims: claimsOf(shape) }, dropped: bad };
 }

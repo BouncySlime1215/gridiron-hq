@@ -68,7 +68,7 @@ const tool = () => ({ content: [{ type: 'tool_use', id: 'tu1', name: 'sql_select
 const laneOf = body => {
   const sys = JSON.stringify(body.system ?? '');
   if (sys.includes('people lane of Coach')) return 'people';
-  if (sys.includes("write Coach's one reply")) return 'synth';
+  if (sys.includes("write Coach's one reply") || sys.includes("write Coach's one answer to Nick")) return 'synth';
   if (sys.includes('Classify a fantasy-football')) return 'route';
   return 'numbers';
 };
@@ -93,8 +93,8 @@ function lanesClient({ synth, gateBoth = false }) {
     let out;
     // Lane 1 answers in the COACH-V2 answer format (a verdict and a cited why line); the router picks ABOUT.
     if (lane === 'route') out = text({ intent: 'ABOUT' });
-    else if (lane === 'numbers') out = numbersTurn++ === 0 ? tool() : text({ verdict: { text: 'Watch him closely this week.', cites: [] }, stance: 'none',
-      basis: 'his read', why: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'] }], risks: [], refusals: [], as_of: null });
+    else if (lane === 'numbers') out = numbersTurn++ === 0 ? tool() : text({ verdict: { text: 'Send the served offer this week.', cites: [] }, stance: 'go',
+      basis: 'title odds gain', basis_key: 'title_gain', why: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'] }], risks: [], refusals: [], as_of: null });
     else if (lane === 'people') out = text({ claims: [{ text: 'His profile lists P21 (WR) as a player he wants.', cites: ['r1#0.wants'] }], refusals: [], as_of: null });
     else out = text(synth);
     events.push(`end:${lane}`);
@@ -126,11 +126,12 @@ test('lane 2 is Claude -> Jev: Jev reads lane 1 and leads; the reply compares th
       better_stance: { type: 'choice', choice: 'wait', probabilities: { go: 0.2, wait: 0.6, avoid: 0.2 } },
       basis: { type: 'choice', choice: 'price', probabilities: { price: 0.7, willingness: 0.1, timing: 0.1, roster_fit: 0.05, risk: 0.05 } } } };
   });
+  // COACH-V2 unit 4: Claude says go (title gain), Jev says wait (price): DIFFER, so the reconcile call writes the answer.
   const client = lanesClient({ synth: {
-    claims: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'], lane: 'numbers' },
-      { text: 'Jev puts his yes at 31% as sent.', cites: ['r2#0.p_accept'], lane: 'people' }],
-    refusals: [], as_of: null,
-    disagreement: 'Numbers say send it; Jev reads wait because of his price.', action: 'Send the served offer as it is.' } });
+    verdict: { text: 'Send the served offer, but lead with his price.', cites: [] }, stance: 'go', basis: 'title odds gain', basis_key: 'title_gain',
+    why: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'] }, { text: 'Jev puts his yes at 31% as sent (chat read).', cites: ['r2#0.p_accept'] }],
+    risks: [], refusals: [], as_of: null,
+    disagreement: 'Numbers say go; Jev reads wait because of his price.' } });
   setAnthropicClientForTesting(client);
   try {
     const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
@@ -143,10 +144,13 @@ test('lane 2 is Claude -> Jev: Jev reads lane 1 and leads; the reply compares th
     assert.equal(out.lanes.people.source, 'jev');
     assert.deepEqual(out.lanes.people.claims, ['Jev: 31% he takes it as sent (chat read, ungraded).',
       'Jev: wait, mainly on price (chat read, ungraded).', "Jev doubts Claude's call: only 35% that it is right for him (chat read, ungraded)."]);
-    assert.equal(out.lanes.synthesis, 'ok');
+    assert.equal(out.lanes.synthesis, 'model');
+    assert.equal(out.lanes.verdict, 'differ');
     assert.match(out.lanes.disagreement, /^Numbers say .*; Jev reads /);
+    assert.equal(out.answer.shape.disagreement, out.lanes.disagreement, 'the disagreement is in the answer itself');
     assert.equal(out.verification.ok, true);
-    assert.ok(out.answer.claims.find(c => c.lane === 'people').text.includes(PEOPLE_LABEL), 'a Jev claim is labelled');
+    assert.equal(out.numbers_people.verdict, 'differ', 'the live Claude + Jev card rides with the answer');
+    assert.deepEqual([out.numbers_people.numbers.stance, out.numbers_people.people.stance], ['go', 'wait']);
     assert.deepEqual([...new Set(client.sent.map(x => x.lane))].sort(), ['numbers', 'route', 'synth'], 'no Claude people call when Jev leads');
     const stored = rows(`SELECT payload_json FROM coach_messages WHERE role = 'coach' ORDER BY id DESC LIMIT 1`)[0];
     assert.equal(JSON.parse(stored.payload_json).lanes.people.source, 'jev', 'the lanes are kept with the reply');

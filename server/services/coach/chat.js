@@ -266,7 +266,8 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
     }
   }
   const replyText = [...result.answer.claims.map(c => c.text), ...result.answer.refusals].join(' ');
-  const numbersPeople = numbersPeopleFor({ leagueId, focus: nextFocus, entry });
+  // COACH-V2 unit 4: this turn's live Claude + Jev card when both lanes ran, else the stored read of the item in focus.
+  const numbersPeople = result.lanes?.card ?? numbersPeopleFor({ leagueId, focus: nextFocus, entry });
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
     followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}),
     ...(result.answer.shape ? { shape: result.answer.shape } : {}), ...(result.route ? { route: result.route.intent } : {}),

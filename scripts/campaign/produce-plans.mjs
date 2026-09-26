@@ -400,6 +400,9 @@ export async function buildPlansFile(leagues, {
           // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): Nick's players whose TD rate beats expected by > 1pp.
           // A label, weight 0, read after planning; nothing served reads it.
           ...(adapter.sellHigh ? { sell_high: sellHighSummary(adapter.sellHigh(), { untouchable: adapter.untouchable ?? [] }) } : {}),
+          // BENCH-CONSOLIDATION + ROSTER-SPOT VALUE (shadow, GRIDIRON_CONSOLIDATION=1): the finder's report, ids only.
+          // Written only when the flag is on, so off the entry is byte-for-byte the incumbent's; nothing served reads it.
+          ...(res.consolidation ? { consolidation: res.consolidation } : {}),
         };
       }
       if (buyLow) {

@@ -33,6 +33,7 @@ import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpay
 import { makeGetsFloor, heldAtEnd, makeStranded } from './gets-floor.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
+import { consolidationFlag, findConsolidations } from './consolidation.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
@@ -791,6 +792,13 @@ export function planLeague(adapter, settings) {
   const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null, { league: { id: L.id, me, season: L.season } });
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
+  // BENCH-CONSOLIDATION + ROSTER-SPOT VALUE (shadow, GRIDIRON_CONSOLIDATION=1 only): depth-only 2-for-1 / 3-for-1
+  // offers for one Blue chip under Nick's rules, on both dice; reported under _run.inputs, nothing served reads it.
+  const consolidationMode = consolidationFlag(env);
+  const consolidation = consolidationMode === 'off' ? null : findConsolidations({ mode: consolidationMode, adapter, S, S2, board, vals,
+    depthPremium, excludedTeam: excluded, soldOut: id => !!TM?.excluded(id),
+    stepOk: step => !TM || stepPasses(TM, step, tmFloor), ledgerMissing });
+  if (consolidation) mark('consolidation');
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
   const sanity = adapter.sanity ? adapter.sanity() : null;
   mark('finder_and_sanity');
@@ -814,6 +822,7 @@ export function planLeague(adapter, settings) {
     shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     ...(ladders ? { ladders } : {}),
+    ...(consolidation ? { consolidation } : {}),
     // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).
     p_yes_basis: adapter.pYesBasis ?? null,
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.

@@ -15,6 +15,7 @@ import { lastRun, readsOfRun, weeklyHistory, storeReady } from './store.js';
 import { scoreboard } from './scoreboard.js';
 import { numbersPeopleOn, WINDOW_HOURS } from './producer.js';
 import { PEOPLE_LABEL } from '../coach/lanes.js';
+import { JEV_CITE_LABELS } from './lanes.js';
 
 const ORDER = { differ: 0, same_but: 1, agree: 2, no_people_read: 3 };
 const ok = f => f?.status === 'ok';
@@ -40,7 +41,7 @@ export function factText(c) {
   else if (/^p_|^reply_/.test(c.key)) text = pct(v);
   else if (/gain|edge/.test(c.key)) text = pts(v);
   else text = String(v);
-  return { label: c.label, value: text };
+  return { label: JEV_CITE_LABELS[c.key] ?? c.label, value: text };
 }
 
 /** One cited signal as the tab shows it, or null for a field that is bookkeeping (ids, dates). */

@@ -20,6 +20,8 @@ interface NPView {
 }
 
 const POLL_MS = 8000;
+/** Cards shown before "Show all" (differences come first, so they are never folded away). */
+const FIRST = 4;
 const timeText = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '');
 
 function Thinking({ label }: { label: string }) {
@@ -36,6 +38,7 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
   const [fresh, setFresh] = useState<NPView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
   const headshots = useHeadshotMap();
   useEffect(() => { setFresh(null); }, [leagueId]);
   const view = fresh ?? res.data;
@@ -52,11 +55,11 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
     setBusy(true);
     setError(null);
     try {
-      setFresh(await api<NPView>(`${path}/refresh`, { method: 'POST' }));
+      setFresh(await api<NPView>(`/numbers-people/${leagueId}/refresh`, { method: 'POST' }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
-  }, [path]);
+  }, [leagueId]);
 
   const ask = useCallback(async (item: NPItem) => {
     const move = item.item_type === 'move' ? item.item_id : null;
@@ -79,6 +82,7 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
   if (!view.enabled) return <EmptyState title="Numbers & People is off" description="Claude's and Jev's reads are turned off on this server." />;
 
   const s = view.summary;
+  const shown = Math.max(FIRST, view.items.filter(i => i.verdict === 'differ').length);
   const refreshButton = (
     <Button icon="refresh" onClick={refresh} disabled={busy} title={busy ? 'Claude and Jev are reading the plan' : 'Ask Claude and Jev again now'}>
       {busy ? 'Reading…' : 'Refresh'}
@@ -114,8 +118,13 @@ export default function NumbersPeople({ leagueId, onAsk }: { leagueId: number; o
       {!!view.items.length && (
         <Section title="Right now" description="Where the lanes differ comes first.">
           <div className="grid gap-3 lg:grid-cols-2">
-            {view.items.map(item => <NumbersPeopleCard key={item.key} item={item} variant="full" headshots={headshots} onAsk={ask} />)}
+            {view.items.slice(0, all ? undefined : shown).map(item => <NumbersPeopleCard key={item.key} item={item} variant="full" headshots={headshots} onAsk={ask} />)}
           </div>
+          {!all && view.items.length > shown && (
+            <div className="mt-3 flex justify-center">
+              <Button onClick={() => setAll(true)}>Show all {view.items.length}</Button>
+            </div>
+          )}
         </Section>
       )}
 

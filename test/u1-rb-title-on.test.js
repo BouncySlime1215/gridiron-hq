@@ -201,6 +201,9 @@ test('U1c: stepRegretIndex finds the first step that does not gain on its own', 
   assert.equal(stepRegretIndex([{ delta: 0.003 }, { delta: 0.003 }]), 1);     // no gain is not a gain
   assert.equal(stepRegretIndex([{ delta: -0.001 }, { delta: 0.01 }]), 0);
   assert.equal(stepRegretIndex([{ delta: null }]), 0);
+  // A claim step is a flip piece (claim_stranded judges it); the trade after it must still gain on its own.
+  assert.equal(stepRegretIndex([{ delta: -0.001, claim: true }, { delta: 0.002 }]), -1);
+  assert.equal(stepRegretIndex([{ delta: 0.001, claim: true }, { delta: 0.001 }]), 1);
 });
 
 test('U1c: title odds and deltas are carried at 6 decimals', () => {

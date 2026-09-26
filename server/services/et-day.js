@@ -17,3 +17,26 @@ export function dayBefore(day, n = 1) {
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
+
+/** The UTC instant a New York day starts (DST-safe: tries both offsets and keeps the one that is midnight there). */
+export function etDayStart(day) {
+  const base = Date.parse(`${day}T00:00:00Z`);
+  for (const h of [4, 5, 3, 6]) {
+    const t = base + h * 3600e3;
+    if (etDay(new Date(t)) === day && etDay(new Date(t - 1000)) !== day) return new Date(t);
+  }
+  throw new Error(`no New York midnight found for ${day}`);
+}
+
+/** SQLite's UTC text form ('YYYY-MM-DD HH:MM:SS') of an instant, for comparing with created_at. */
+export const sqliteUtc = d => d.toISOString().replace('T', ' ').slice(0, 19);
+
+/** When today (New York) began and when it ends, as SQLite UTC text. */
+export function etTodayBounds(now = new Date()) {
+  const day = etDay(now);
+  const start = etDayStart(day);
+  const next = new Date(`${day}T12:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  const end = etDayStart(next.toISOString().slice(0, 10));
+  return { day, start: sqliteUtc(start), end: sqliteUtc(end), endIso: end.toISOString() };
+}

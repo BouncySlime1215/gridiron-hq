@@ -216,6 +216,34 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
       {extra.map((t, i) => <p key={`o${i}`} className="wr-muted">{t}</p>)}
       {slot.refusals?.map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
       <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />
+      {slot.lanes && <LanesReveal lanes={slot.lanes} />}
+    </div>
+  );
+}
+
+/**
+ * COACH-LANES: a model answer built from the numbers lane and the people lane shows a small
+ * "Numbers + People" toggle; open, it shows what each lane said (collapsed by default), and
+ * a disagreement between them as one highlighted line.
+ */
+function LanesReveal({ lanes }: { lanes: NonNullable<CoachMessage['lanes']> }) {
+  const [open, setOpen] = useState(false);
+  const people = lanes.people?.claims ?? [];
+  if (!people.length && !lanes.disagreement) return null;
+  return (
+    <div className="wr-lanes" data-testid="coach-lanes">
+      <button type="button" className={`wr-srcs${open ? ' wr-on' : ''}`} aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        Numbers + People{lanes.disagreement ? ' (they disagree)' : ''}
+      </button>
+      {lanes.disagreement && <p className="wr-lanes-dis" data-testid="coach-lanes-disagree">{lanes.disagreement}{lanes.action ? ` ${lanes.action}` : ''}</p>}
+      {open && (
+        <div className="wr-srcs-list" data-testid="coach-lanes-detail">
+          <b>Numbers</b>
+          <ul>{(lanes.numbers?.claims ?? []).map((t, i) => <li key={`n${i}`}>{t}</li>)}{!(lanes.numbers?.claims ?? []).length && <li>Nothing the numbers could stand up.</li>}</ul>
+          <b>People ({lanes.people?.label ?? 'chat read (ungraded)'})</b>
+          <ul>{people.map((t, i) => <li key={`p${i}`}>{t}</li>)}</ul>
+        </div>
+      )}
     </div>
   );
 }

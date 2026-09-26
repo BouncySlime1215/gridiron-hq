@@ -87,6 +87,8 @@ export default function PlayerRow({
   return (
     <div
       onClick={onClickRow}
+      role={onClickRow ? 'button' : undefined} tabIndex={onClickRow ? 0 : undefined}
+      onKeyDown={onClickRow ? e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClickRow(); } } : undefined}
       className={`group flex items-center gap-2 px-2.5 ${dense ? 'py-1.5' : 'py-2'} overflow-hidden
         ${onClickRow ? 'cursor-pointer hover:bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
       <span className="w-6 shrink-0 text-right text-[11px] font-mono text-slate-500 tabular-nums">{rank}</span>

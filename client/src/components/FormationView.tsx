@@ -68,6 +68,9 @@ function Node({ x, y, type, code, player, accent, onClick, grade }: {
   const clipId = `clip-${code}-${x}-${y}`;
   return (
     <g onClick={clickable ? () => onClick!(player!.player_id!) : undefined}
+      role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `${code}: ${player!.name}` : undefined}
+      onKeyDown={clickable ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick!(player!.player_id!); } } : undefined}
       style={{ cursor: clickable ? 'pointer' : 'default' }}>
       {halo && (
         <circle cx={x} cy={y} r={21} fill={halo} fillOpacity={0.13} stroke={halo} strokeOpacity={0.5} strokeWidth={1.5}>
@@ -134,7 +137,10 @@ function UnitBox({ x, y, w, h, label, onClick, selected }: {
   x: number; y: number; w: number; h: number; label: string; onClick?: () => void; selected?: boolean;
 }) {
   return (
-    <g onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
+    <g onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? label : undefined} aria-pressed={onClick ? !!selected : undefined}
+      onKeyDown={onClick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <rect x={x} y={y} width={w} height={h} rx={10}
         fill={selected ? 'rgba(31,51,80,0.06)' : '#f8fafc'}
         stroke={selected ? '#1f3350' : '#e2e8f0'} strokeWidth={selected ? 2 : 1.25}

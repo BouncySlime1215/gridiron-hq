@@ -67,7 +67,7 @@ function SignalFeed() {
             {data?.scope === 'my_roster' && <> Scoped to your {data.roster_size} rostered players.</>}
           </p>
         </div>
-        <select className="input ml-auto" value={team} onChange={e => setTeam(e.target.value)}>
+        <select className="input ml-auto" aria-label="Team" value={team} onChange={e => setTeam(e.target.value)}>
           <option value="">{data?.scope === 'my_roster' ? 'My roster (default)' : 'All teams'}</option>
           {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
         </select>
@@ -273,11 +273,11 @@ export default function News() {
       {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div><h2 className="ds-h">Archive and tools</h2><p className="ds-note mt-0.5">Manual research, source pulls and historical stories.</p></div>
-        <select className="input" value={date} onChange={e => setDate(e.target.value)}>
+        <select className="input" aria-label="Day" value={date} onChange={e => setDate(e.target.value)}>
           <option value="">All days</option>
           {dates?.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
-        <select className="input" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
+        <select className="input" aria-label="Team" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
           <option value="">All teams</option>
           {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
         </select>
@@ -338,10 +338,10 @@ export default function News() {
           <div className="card p-4">
             <h3 className="text-sm font-bold text-slate-700 mb-2">✨ AI Analysis <span className="text-slate-500 font-normal">(paste headlines, one per line)</span></h3>
             <p className="text-[11px] text-slate-500 mb-2">Format: <span className="font-mono text-slate-600">KC: Rashee Rice looks unguardable in camp</span> — Claude (Haiku) writes the scheme + fantasy analysis. Costs a fraction of a cent per batch.</p>
-            <textarea className="input w-full h-28 font-mono text-xs" value={aiText} onChange={e => setAiText(e.target.value)}
+            <textarea className="input w-full h-28 font-mono text-xs" aria-label="Headlines, one per line" value={aiText} onChange={e => setAiText(e.target.value)}
               placeholder={'KC: Walker taking first-team reps ahead of Pacheco\nNYG: Skattebo dominating goal-line package'} />
             <div className="flex gap-2 mt-2 items-center">
-              <select className="input" value={aiTeam} onChange={e => setAiTeam(e.target.value)}>
+              <select className="input" aria-label="Default team" value={aiTeam} onChange={e => setAiTeam(e.target.value)}>
                 <option value="">Default team (if no prefix)</option>
                 {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr}</option>)}
               </select>
@@ -354,17 +354,17 @@ export default function News() {
             <h3 className="text-sm font-bold text-slate-700 mb-2">Manual entry</h3>
             <div className="space-y-2">
               <div className="flex gap-2">
-                <select className="input" value={manual.team_abbr} onChange={e => setManual(m => ({ ...m, team_abbr: e.target.value }))}>
+                <select className="input" aria-label="Team" value={manual.team_abbr} onChange={e => setManual(m => ({ ...m, team_abbr: e.target.value }))}>
                   <option value="">Team…</option>
                   {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr}</option>)}
                 </select>
-                <select className="input" value={manual.importance} onChange={e => setManual(m => ({ ...m, importance: Number(e.target.value) }))}>
+                <select className="input" aria-label="Importance" value={manual.importance} onChange={e => setManual(m => ({ ...m, importance: Number(e.target.value) }))}>
                   <option value={1}>Minor</option><option value={2}>Notable</option><option value={3}>Major</option>
                 </select>
               </div>
-              <input className="input w-full" placeholder="Headline" value={manual.headline}
+              <input className="input w-full" aria-label="Headline" placeholder="Headline" value={manual.headline}
                 onChange={e => setManual(m => ({ ...m, headline: e.target.value }))} />
-              <textarea className="input w-full h-16" placeholder="Details / your own analysis (optional)" value={manual.body}
+              <textarea className="input w-full h-16" aria-label="Details" placeholder="Details / your own analysis (optional)" value={manual.body}
                 onChange={e => setManual(m => ({ ...m, body: e.target.value }))} />
               <button className="btn-ghost" onClick={addManual}>Save story</button>
               {addManualErr && <PageError message={addManualErr} onRetry={addManual} />}

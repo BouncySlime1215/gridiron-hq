@@ -139,6 +139,7 @@ const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
   "'react-router-dom'": routerUrl, "'../api'": apiUrl, "'../state/league'": leagueUrl, "'../copy-constants'": copyUrl,
   "'../components/FormationView'": stubUrl('FormationView.mjs', []),
   "'../components/TeamScout'": stubUrl('TeamScout.mjs', []),
+  "'../components/lineup/ProjDuel'": stubUrl('ProjDuel.mjs', []),
   "'../components/PostDraftPlan'": stubUrl('PostDraftPlan.mjs', []),
   "'../components/PlayerRow'": stubUrl('PlayerRow.mjs', ['Headshot'], false),
   "'../components/PageState'": stubUrl('PageState2.mjs', ['PageError', 'PageLoading'], false),

@@ -614,6 +614,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null, res.chat_interest ?? null),
         ...(res.stops ? { stops: stopsSummary(res.stops) } : {}),
+        // U8 WANTS-MENU (shadow): the planner's wants menus, present only with GRIDIRON_WANTS=1.
+        ...(res.wants ? { wants: res.wants } : {}),
         ...(res.deadline ? { deadline_mode: deadlineSummary(res.deadline) } : {}),
         // PLAYOFF-SEEDING (shadow): seed values, win targets and must-win weeks, each with its SE (playoff-path.js).
         ...(res.playoff_path ? { playoff_path: res.playoff_path } : {}),

@@ -28,24 +28,26 @@ const compact = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v !=
 
 /** What each fact means, in the words the tab shows (never the key itself). */
 export const FACT_LABELS = Object.freeze({
-  title_gain_if_complete: '{Odds} gain if the whole move lands',
-  expected_title_gain: 'Expected {odds} gain (after the chance it falls apart)',
-  p_complete: 'Chance the whole move completes (a guess)',
-  p_yes_first_step: 'Chance he says yes to the first step (a guess)',
+  title_gain_if_complete: '{Odds} gain, full move',
+  expected_title_gain: 'Expected {odds} gain',
+  p_complete: 'Chance it completes (guess)',
+  p_yes_first_step: 'Yes on step one (guess)',
   steps: 'Trades in the move',
-  gain_if_landed: '{Odds} gain if you land him',
-  p_reach: 'Chance you can reach a deal for him (a guess)',
+  gain_if_landed: '{Odds} gain if landed',
+  p_reach: 'Chance of a deal (guess)',
   fits_risk_mode: 'Fits your risk mode',
   approved: 'You approved this target',
-  plan_target: 'The plan is working toward him',
-  p_responds: 'Chance he replies to an offer (a guess)',
-  edge: '{Odds} edge the plan sees in a deal with him',
-  offers_logged: 'Offers logged with him',
-  reply_accept: 'His accept rate on past offers',
-  on_served_move: 'He is on one of the plan\'s moves',
-  open_offer: 'An offer with him is still open',
-  checked_out: 'He looks checked out'
+  plan_target: 'The plan is working on it',
+  p_responds: 'Reply chance (guess)',
+  edge: '{Odds} edge',
+  offers_logged: 'Offers logged',
+  reply_accept: 'Past accept rate',
+  on_served_move: 'On a plan move',
+  open_offer: 'Offer still open',
+  checked_out: 'Looks checked out'
 });
+/** The longest a label may be, so a lane column never cuts one off (checked by test). */
+export const MAX_LABEL_CHARS = 28;
 
 /** A fact's label in the plan's own unit (title odds, or playoff odds for a playoffs league). */
 export function factLabel(key, unit = null) {

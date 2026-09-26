@@ -14,6 +14,7 @@
  * refuses and reports it `not_asked` with the reason (startsit_tiebreak is only
  * a tiebreak inside 1 paired SE of the sim margin).
  */
+import { COACH_TAKE_TYPE } from '../coach/jev-lane.js';
 
 const bool = (instructions, t, f) => ({ type: 'boolean', instructions, criteria: { true: t, false: f } });
 
@@ -175,6 +176,13 @@ export const QUESTION_TYPES = Object.freeze({
     },
     interpret: answers => choiceOver(answers, 'start', START_OPTIONS),
     recommend: ({ choice }) => `start_${choice}`,
+  },
+
+  // COACH-LANES lane 2 (coach/jev-lane.js#COACH_TAKE_TYPE), registered so Coach and Numbers & People
+  // reach Jev through this gateway: Jev's take on Claude's read of one deal or league-mate.
+  coach_take: {
+    ...COACH_TAKE_TYPE,
+    recommend: ({ stance }) => `stance_${stance}`,
   },
 });
 

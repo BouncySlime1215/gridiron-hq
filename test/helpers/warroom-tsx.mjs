@@ -49,8 +49,8 @@ export function api(p, opts) {
   const external = base => {
     const file = [`${base}.tsx`, `${base}.ts`, path.join(base, 'index.tsx'), path.join(base, 'index.ts')].find(f => fs.existsSync(f));
     if (!file) throw new Error(`warroom-tsx: cannot resolve ${path.relative(SRC, base)}`);
-    if (file.startsWith(WARROOM_DIR)) {
-      return pathToFileURL(path.join(temp, path.relative(WARROOM_DIR, file).replace(/\.tsx?$/, '.mjs'))).href;
+    for (const [dir, rel] of [[WARROOM_DIR, 'warroom'], [UI_DIR, 'ui']]) {
+      if (file.startsWith(dir + path.sep)) return pathToFileURL(path.join(temp, rel, path.relative(dir, file).replace(/\.tsx?$/, '.mjs'))).href;
     }
     if (externals.has(file)) return externals.get(file);
     const out = path.join('__ext', path.relative(SRC, file).replace(/\.tsx?$/, '.mjs'));
@@ -87,8 +87,9 @@ export function api(p, opts) {
         .replace(/from ['"]react['"]/g, `from '${reactUrl}'`)
         .replace(/from ['"](?:\.\.\/)+api['"]/g, `from '${apiUrl}'`)
         .replace(/from ['"](\.{1,2}\/[\w/.-]+)['"]/g, (_, spec) => {
-          // A shared component outside the War Room folder (NumbersPeopleCard, the design system): compiled on demand.
-          if (!path.resolve(dir, spec).startsWith(WARROOM_DIR)) return `from '${external(path.resolve(dir, spec))}'`;
+          // A shared component outside the War Room and ui folders (NumbersPeopleCard): compiled on demand.
+          const to = path.resolve(dir, spec);
+          if (!to.startsWith(WARROOM_DIR + path.sep) && !to.startsWith(UI_DIR + path.sep)) return `from '${external(to)}'`;
           return `from '${spec}${fs.existsSync(path.join(dir, spec)) && fs.statSync(path.join(dir, spec)).isDirectory() ? '/index' : ''}.mjs'`;
         });
       write(path.join(rel, ent.name.replace(/\.tsx?$/, '.mjs')), outputText);

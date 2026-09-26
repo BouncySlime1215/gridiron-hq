@@ -50,7 +50,7 @@ export function Scoreboard({ board }: { board: NPScoreboard | null }) {
           </div>
         : <p className="ds-note" data-testid="np-score-thin">Not enough outcomes yet: {board.n} of the {board.min_n} settled differences a score needs.
             {board.pending ? ` ${board.pending} still waiting on a result.` : ''}</p>}
-      <p className="ds-note mt-1">A trade call settles when the offer is accepted or turned down; a target call when his points per game move after the read.</p>
+      <p className="ds-note mt-1">A trade call settles when the offer is accepted or turned down; a target call when the player's points per game move after the read.</p>
     </div></Card>
   );
 }

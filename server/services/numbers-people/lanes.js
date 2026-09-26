@@ -14,8 +14,9 @@
  *                                SAME_BUT ("same call, different reasons").
  *
  * Claude's why may not carry a number: numbers are shown from the cited facts, which the plan
- * produced; a why that states one anyway is withheld, never trusted. Spend: Claude in ai_usage as
- * numbers_people:lane_claude (numbers_people daily budget), Jev as numbers_people:jev (no cap).
+ * produced; a why that states one anyway is withheld, never trusted; a league-mate is "they", never
+ * he/him/his. Spend: Claude through callClaude (ai_usage numbers_people:lane_claude, numbers_people
+ * daily budget); Jev through the JEV-01a gateway (ai_usage jev:coach_take, jev.call events, no cap).
  */
 import { callClaude, parseJson } from '../claude.js';
 import { LANE_MODELS, PEOPLE_LABEL, safeSignal } from '../coach/lanes.js';
@@ -25,7 +26,7 @@ import { factLabel, itemKey } from './items.js';
 export const STANCES = Object.freeze(['go', 'wait', 'avoid']);
 export const BASES = Object.freeze(['title_gain', 'price', 'willingness', 'roster_fit', 'risk', 'timing']);
 export const VERDICTS = Object.freeze(['agree', 'differ', 'same_but', 'no_people_read']);
-export const NP_FEATURES = Object.freeze({ claude: 'numbers_people:lane_claude', jev: 'numbers_people:jev' });
+export const NP_FEATURES = Object.freeze({ claude: 'numbers_people:lane_claude' });
 /** Jev calls in flight at once (one per item with a people signal). */
 const JEV_CONCURRENCY = 4;
 const OUTPUT_TOKENS = 6000;
@@ -41,8 +42,8 @@ const READS_SCHEMA = Object.freeze({
 });
 
 const COMMON = `For EACH item decide Nick's stance right now: "go" (act on it this week), "wait" (not yet, keep watching) or "avoid" (do not pursue).
-Pick the ONE basis that decides it: title_gain (what it does to the odds the plan chases: title, or playoffs in a playoffs league), price (what it costs him in value), willingness (whether the other manager will deal), roster_fit (his lineup need), risk (injury, volatility, a guess too weak to lean on) or timing (why now or not now).
-"why" is one plain sentence under 20 words that a friend would say out loud. It contains NO digits, NO ids, NO field names and NO names: say "this move", "this target", "this manager".
+Pick the ONE basis that decides it: title_gain (what it does to the odds the plan chases: title, or playoffs in a playoffs league), price (what it costs Nick in value), willingness (whether the other manager will deal), roster_fit (his lineup need), risk (injury, volatility, a guess too weak to lean on) or timing (why now or not now).
+"why" is one plain sentence under 20 words that a friend would say out loud. It contains NO digits, NO ids, NO field names and NO names: say "this move", "this target", "this manager". Refer to any league-mate as "they", "them" or "their", never he, him or his.
 "cites" lists the keys you relied on, copied exactly.
 Return one read per item key given, and nothing for anything else. Never suggest sending anything and never invent a trade.
 Reply with ONLY the JSON object in the schema.`;
@@ -82,10 +83,26 @@ export function numbersPrompt(items) {
   return `ITEMS:\n${JSON.stringify(items.map(i => ({ key: itemKey(i), kind: i.item_type, facts: factsFor(i) })))}`;
 }
 
-/** A why line that is safe to show: short, no digits, no quotes. Null when it is not. */
+/** Gendered words a league-mate line may not use, and their neutral forms where the swap is safe. */
+const NEUTRAL = [[/\bhimself\b/gi, 'themselves'], [/\bhim\b/gi, 'them'], [/\bhis\b/gi, 'their'], [/\bhe's\b/gi, "they're"],
+  [/\bhe is\b/gi, 'they are'], [/\bhe was\b/gi, 'they were'], [/\bhe has\b/gi, 'they have'], [/\bhe does\b/gi, 'they do'],
+  [/\bhe doesn't\b/gi, "they don't"], [/\bhe won't\b/gi, "they won't"], [/\bhe will\b/gi, 'they will'], [/\bhe would\b/gi, 'they would'],
+  [/\bhe can\b/gi, 'they can'], [/\bhe might\b/gi, 'they might']];
+export const GENDERED = /\b(he|him|his|himself|she|her|hers|herself)\b/i;
+
+/** A league-mate line in neutral words; null when a gendered word is left that cannot be swapped safely. */
+export function neutral(text) {
+  let t = text;
+  for (const [rx, to] of NEUTRAL) t = t.replace(rx, m => (m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to));
+  return GENDERED.test(t) ? null : t;
+}
+
+/** A why line that is safe to show: short, no digits, no quotes, neutral. Null when it is not. */
 export function cleanWhy(why) {
-  const s = String(why ?? '').replace(/\s+/g, ' ').trim();
-  if (!s || /\d/.test(s) || /["“”]/.test(s)) return null;
+  const raw = String(why ?? '').replace(/\s+/g, ' ').trim();
+  if (!raw || /\d/.test(raw) || /["“”]/.test(raw)) return null;
+  const s = neutral(raw);
+  if (!s) return null;
   const t = s[0].toUpperCase() + s.slice(1);
   return t.length > MAX_WHY ? `${t.slice(0, MAX_WHY - 1).trimEnd()}…` : t;
 }
@@ -127,8 +144,8 @@ async function ask({ feature, system, prompt, model }) {
 
 /** Jev's numbers as the tab labels them (the view relabels stored rows by key, so old rows read the same). */
 export const JEV_CITE_LABELS = Object.freeze({
-  p_jev_stance: 'Jev: sure of this call', p_jev_backs_claude: 'Jev: chat backs Claude', p_jev_accept: 'Jev: he accepts a fair offer',
-  p_jev_willing: 'Jev: he deals now'
+  p_jev_stance: 'Jev: sure of this call', p_jev_backs_claude: 'Jev: chat backs Claude', p_jev_accept: 'Jev: ready to deal now',
+  p_jev_willing: 'Jev: ready to deal now'
 });
 
 /** Jev's probabilities and the signals it read, as the lane's cited numbers and labels. */

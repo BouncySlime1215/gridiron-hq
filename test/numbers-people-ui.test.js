@@ -21,7 +21,7 @@ const { default: NumbersPeople } = await c.mod();
 const { React, mount } = await domRenderer();
 test.after(() => c.cleanup());
 
-const lane = (stance, why, extra = {}) => ({ stance, basis: 'price', why, why_withheld: false, cites: [{ label: 'Chance he says yes (a guess)', value: '52%' }], ...extra });
+const lane = (stance, why, extra = {}) => ({ stance, basis: 'price', why, why_withheld: false, cites: [{ label: 'Yes on step one (guess)', value: '52%' }], ...extra });
 const item = (key, verdict, title, numbers, people, extra = {}) => {
   const [item_type, item_id] = key.split(':');
   return { key, item_type, item_id, title, subtitle: 'With Team Two', players: [{ id: '21', name: 'P21 (WR)' }], partner: '3',
@@ -31,9 +31,9 @@ const VIEW = {
   enabled: true, status: 'ok', refreshing: false, read_at: '2026-09-25T20:00:00.000Z', week: 3, stale: false, notice: null,
   summary: { agree: 1, differ: 1, same_but: 1, no_people_read: 0 },
   items: [
-    item('move:M1', 'differ', 'Get P21 (WR) for P4 (WR)', lane('go', 'The odds gain is worth the price.'), lane('avoid', 'He calls this receiver untouchable.')),
-    item('target:11', 'same_but', 'P11 (RB)', lane('go', 'Big gain if you land him.'), lane('go', 'His manager is shopping backs.')),
-    item('partner:4', 'agree', 'Team Four', lane('go', 'He replies often.'), lane('go', 'He is in the market.'))
+    item('move:M1', 'differ', 'Get P21 (WR) for P4 (WR)', lane('go', 'The odds gain is worth the price.'), lane('avoid', 'They call this receiver untouchable.')),
+    item('target:11', 'same_but', 'P11 (RB)', lane('go', 'Big gain if landed.'), lane('go', 'Their manager is shopping backs.')),
+    item('partner:4', 'agree', 'Team Four', lane('go', 'They reply often.'), lane('go', 'They are in the market.'))
   ],
   scoreboard: { n: 2, min_n: 5, enough: false, numbers_right: 1, people_right: 1, both_right: 0, pending: 3 }
 };

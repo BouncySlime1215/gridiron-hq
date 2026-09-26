@@ -85,7 +85,7 @@ function fakeJev() {
     const k = input.item.key;
     const take = k === 'move:L4-1dhntz0' ? { stance: 'avoid', basis: 'willingness' }
       : k === 'partner:3' ? { stance: 'go', basis: 'title_gain' } : { stance: 'go', basis: 'willingness' };
-    return { lead: 'jev', ...take, why: k === 'target:22' ? 'He has 3 players he wants.' : 'The chat read backs Claude\'s call.',
+    return { lead: 'jev', ...take, why: k === 'target:22' ? 'They have 3 players they want.' : 'The chat read backs Claude\'s call.',
       probabilities: { stance: 0.7, backs_claude: 0.6, willing: 0.55 }, cost_usd: 0.00001 };
   };
   return { inputs, lane };
@@ -247,36 +247,73 @@ test('Ask Coach about this: the item goes into the thread focus, ids only', asyn
   assert.equal(activeThread(9911, 4, { create: false }).id, t.id, 'the same thread');
 });
 
-test('jevLane: the COACH-LANES Jev stage, fed Claude\'s read, facts and signal labels (no chat text, no names), leads with its take', async () => {
-  const { createJevLane, directJevAsk, JEV_FEATURE, JEV_MODEL } = await import('../server/services/numbers-people/jev-lane.js');
-  const calls = [];
-  const evaluate = async args => {
-    calls.push(args);
-    return { answers: { better_stance: { type: 'choice', choice: 'wait', probabilities: { go: 0.2, wait: 0.7, avoid: 0.1 } },
-      basis: { type: 'choice', choice: 'willingness', probabilities: { willingness: 0.6 } }, claude_call_right: { type: 'boolean', probability: 0.3 },
-      p_accept: { type: 'boolean', probability: 0.2 } }, usage: { inputTokens: 900, outputTokens: 0 } };
+test('jevLane: the COACH-LANES Jev stage (recorded reply), fed Claude\'s read, facts and labels; no chat text, no names; neutral why', async () => {
+  const { createJevLane } = await import('../server/services/numbers-people/jev-lane.js');
+  const sent = [];
+  // A recorded Jev reply, in the gateway's shape ({ ok, answers, costUsd }).
+  const ask = async ({ state, questions }) => {
+    sent.push({ state, questions });
+    return { ok: true, costUsd: 0.00004, answers: {
+      better_stance: { type: 'choice', choice: 'wait', probabilities: { go: 0.2, wait: 0.7, avoid: 0.1 } },
+      basis: { type: 'choice', choice: 'willingness', probabilities: { willingness: 0.6 } },
+      claude_call_right: { type: 'boolean', probability: 0.3 }, p_accept: { type: 'boolean', probability: 0.2 } } };
   };
-  const input = { item: { key: 'partner:3', kind: 'partner', players: [] }, facts: { p_responds: { value: 0.65, means: 'Chance he replies to an offer (a guess)' } },
-    claude: { stance: 'go', basis: 'willingness', why: 'He replies often.' },
+  const input = { item: { key: 'partner:3', kind: 'partner', players: [] }, facts: { p_responds: { value: 0.65, means: 'Reply chance (guess)' } },
+    claude: { stance: 'go', basis: 'willingness', why: 'They reply often.' },
     signals: [{ ref: 's0', signal: 'profile', roster_id: '3', wants: 'P21 (WR)', p_open_to_trade: 0.7 }] };
-  const lane = createJevLane({ ask: directJevAsk({ evaluate, env: { AI_GATEWAY_API_KEY: 'x' } }) });
-  const take = await lane(input);
-  assert.equal(calls[0].model, JEV_MODEL);
-  assert.match(calls[0].state, /Claude's call on this partner: GO\. He replies often\./);
-  assert.match(calls[0].state, /P21 \(WR\)/);
-  assert.match(calls[0].state, /MANAGER M1/);
-  assert.doesNotMatch(calls[0].state, /SENTINEL|roster_id/);
-  assert.deepEqual([take.lead, take.stance, take.basis], ['jev', 'wait', 'willingness']);
-  assert.equal(take.probabilities.stance, 0.7);
-  assert.match(take.why, /^The chat read cuts against Claude's call; he does not read as likely to accept, so Jev says wait instead of go\.$/);
-  assert.doesNotMatch(take.why, /\d/);
-  assert.ok(rows('SELECT 1 FROM ai_usage WHERE feature = ? AND model = ?', JEV_FEATURE, JEV_MODEL).length, 'Jev spend logged');
-  // Not configured: no call, an honest skip.
-  const off = createJevLane({ ask: directJevAsk({ evaluate, env: {} }) });
-  assert.equal((await off(input)).skipped, 'jev_not_configured');
-  // A failure is a skip that says so, not an exception.
-  const broken = createJevLane({ ask: directJevAsk({ evaluate: async () => { throw Object.assign(new Error('gateway down'), { status: 503 }); }, env: { AI_GATEWAY_API_KEY: 'x' } }) });
-  assert.equal((await broken(input)).skipped, 'jev_failed');
+  const take = await createJevLane({ ask })(input);
+  assert.match(sent[0].state, /Claude's call on this partner: GO\. They reply often\./);
+  assert.match(sent[0].state, /P21 \(WR\)/);
+  assert.match(sent[0].state, /MANAGER M1/);
+  assert.doesNotMatch(sent[0].state, /SENTINEL|roster_id/);
+  assert.ok(sent[0].questions.better_stance && sent[0].questions.claude_call_right, 'the coach_take questions');
+  assert.deepEqual([take.lead, take.stance, take.basis, take.cost_usd], ['jev', 'wait', 'willingness', 0.00004]);
+  assert.equal(take.why, 'The chat read cuts against Claude\'s call; not ready to deal yet, so Jev says wait instead of go.');
+  // No ask given: the stage's own client, JEV-01a's gateway (ledgered). With no gateway key here it
+  // says so, and the lane is an honest skip, not an exception.
+  const saved = process.env.AI_GATEWAY_API_KEY;
+  delete process.env.AI_GATEWAY_API_KEY;
+  try {
+    const off = await createJevLane()(input);
+    assert.equal(off.skipped, 'jev_not_configured');
+    assert.match(off.reason, /gateway key/);
+  } finally { if (saved != null) process.env.AI_GATEWAY_API_KEY = saved; }
+  // A failure is a skip that says so.
+  const broken = await createJevLane({ ask: async () => ({ ok: false, error: '503 gateway down' }) })(input);
+  assert.equal(broken.skipped, 'jev_failed');
+});
+
+test('one ledgered path: Numbers & People never calls a model or Jev directly', () => {
+  const dir = new URL('../server/services/numbers-people/', import.meta.url);
+  for (const f of fs.readdirSync(dir)) {
+    const src = fs.readFileSync(new URL(f, dir), 'utf8');
+    assert.doesNotMatch(src, /from ['"]ai['"]|import\(['"]ai['"]\)|experimental_evaluate|AI_GATEWAY_API_KEY|recordUsage|messages\.create/, `${f}: no direct client`);
+  }
+});
+
+test('copy: league-mates are "they" (labels, whys), and no label is long enough to be cut off', async () => {
+  const { FACT_LABELS, MAX_LABEL_CHARS, factLabel } = await import('../server/services/numbers-people/items.js');
+  const { JEV_CITE_LABELS, neutral } = await import('../server/services/numbers-people/lanes.js');
+  const { jevWhy } = await import('../server/services/numbers-people/jev-lane.js');
+  const GENDERED = /\b(he|him|his|himself|she|her)\b/i;
+  const labels = [...Object.keys(FACT_LABELS).flatMap(k => [factLabel(k, 'title_odds'), factLabel(k, 'playoff_odds')]), ...Object.values(JEV_CITE_LABELS)];
+  for (const l of labels) {
+    assert.doesNotMatch(l, GENDERED, l);
+    assert.ok(l.length <= MAX_LABEL_CHARS, `${l} (${l.length} > ${MAX_LABEL_CHARS})`);
+  }
+  for (const stance of ['go', 'wait', 'avoid']) for (const backs of [0.2, 0.8]) for (const accept of [0.2, 0.8]) {
+    assert.doesNotMatch(jevWhy({ stance, claude: { stance: 'go' }, backs, accept }), GENDERED);
+  }
+  assert.equal(neutral("He rarely accepts; his roster is thin and he's shopping."), null, 'an unswappable "he" is withheld');
+  assert.equal(neutral("His roster is thin and he's shopping."), "Their roster is thin and they're shopping.");
+  // Every static string in the view and the client components.
+  const srcs = ['server/services/numbers-people/view.js', 'client/src/components/trade/NumbersPeople.tsx',
+    'client/src/components/trade/NumbersPeopleCard.tsx', 'client/src/components/trade/numbersPeopleParts.tsx'];
+  for (const f of srcs) {
+    const code = fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+    for (const m of code.matchAll(/(['"`])((?:(?!\1).){3,})\1/g)) assert.doesNotMatch(m[2], GENDERED, `${f}: ${m[2]}`);
+    for (const m of code.matchAll(/>([^<>{}]{3,})</g)) assert.doesNotMatch(m[1], GENDERED, `${f}: ${m[1]}`);
+  }
 });
 
 test('Coach: an answer about an item with a read carries that read (stored with the turn); flag off, none', async () => {

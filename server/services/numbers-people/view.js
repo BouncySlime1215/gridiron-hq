@@ -21,11 +21,11 @@ const ORDER = { differ: 0, same_but: 1, agree: 2, no_people_read: 3 };
 const ok = f => f?.status === 'ok';
 
 const SIGNAL_LABELS = Object.freeze({
-  in_market: 'In the market', wants: 'Players he wants', shopping: 'Players he is shopping', untouchable: 'Players he will not move',
+  in_market: 'In the market', wants: 'Players they want', shopping: 'Players they shop', untouchable: 'Players they keep',
   p_open_to_trade: 'Open to trading', profile_confidence: 'How sure the read is', messages_read: 'Chat messages read',
-  nick_override: 'Your override', type: 'What he said (label)', phrase: 'What he said (label)', credible: 'Credible',
+  nick_override: 'Your override', type: 'What they said (label)', phrase: 'What they said (label)', credible: 'Credible',
   weight: 'Weight', ago: 'When', kind: 'Trade screenshot', confidence: 'How sure the read is',
-  wants_player_ids: 'Screenshot: players he asked for', would_give_player_ids: 'Screenshot: players he offered'
+  wants_player_ids: 'Screenshot: asked for', would_give_player_ids: 'Screenshot: offered'
 });
 const HIDDEN_SIGNAL_FIELDS = new Set(['roster_id', 'signal', 'seen_at']);
 
@@ -51,6 +51,8 @@ export function signalText(c, nameOf) {
   if (!label) return null;
   let v = c.value;
   if (/_player_ids$/.test(c.field)) v = String(v).split(',').map(s => nameOf(s.trim())).filter(Boolean).join(', ');
+  // A list value stays short: the first two, then "+N" (the lane column never cuts the label off for it).
+  if (typeof v === 'string' && v.includes(', ')) { const xs = v.split(', '); v = xs.length > 2 ? `${xs.slice(0, 2).join(', ')} +${xs.length - 2}` : v; }
   else if (typeof v === 'boolean') v = v ? 'Yes' : 'No';
   else if (typeof v === 'number') v = c.field.startsWith('p_') ? pct(v) : String(v);
   return v ? { label, value: String(v) } : null;

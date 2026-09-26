@@ -29,7 +29,7 @@ const READ = {
   players: [{ id: '21', name: 'P21 (WR)' }], verdict: 'differ', read_at: '2026-09-25T20:00:00Z', history: [],
   numbers: { stance: 'go', basis: 'title_gain', why: 'The odds gain is worth the price.', cites: [{ label: 'Title odds gain if the whole move lands', value: '+11.6 pts' }] },
   people: { stance: 'avoid', basis: 'willingness', why: 'The chat read cuts against Claude\'s call.', label: 'chat read (ungraded)',
-    cites: [{ label: 'Jev: chance he will deal now', value: '20%' }] }
+    cites: [{ label: 'Jev: ready to deal now', value: '20%' }] }
 };
 const reply = numbersPeople => ({ who: 'coach', text: 'x', question: 'why?', claims: [{ text: 'The move lifts your odds.', cites: [] }], refusals: [], numbersPeople });
 

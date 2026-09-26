@@ -33,12 +33,12 @@ export const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   agree: { label: 'Agree', tone: 'good' }, no_people_read: { label: 'No chat read', tone: 'neutral' }
 };
 const BASIS: Record<string, string> = {
-  title_gain: 'odds gain', price: 'price', willingness: 'will he deal', roster_fit: 'roster fit', risk: 'risk', timing: 'timing'
+  title_gain: 'odds gain', price: 'price', willingness: 'will they deal', roster_fit: 'roster fit', risk: 'risk', timing: 'timing'
 };
 
 const whyOf = (read: LaneRead, people?: boolean) => (read.skipped
   ? (people ? `No people read: ${read.skipped}.` : 'No read this run.')
-  : read.why ?? (read.why_withheld ? 'Reason withheld: it stated a number the lane did not cite.' : ''));
+  : read.why ?? (read.why_withheld ? 'Reason withheld: it did not pass the app\'s checks.' : ''));
 /** The two lanes' names, as Nick calls them. */
 export const LANES = { numbers: { name: 'Claude', sub: 'numbers' }, people: { name: 'Jev', sub: 'people' } } as const;
 

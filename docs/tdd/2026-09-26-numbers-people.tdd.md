@@ -15,12 +15,20 @@ tab and inline in Coach answers.
 | `test/numbers-people-ui.test.js` | the tab rendered and clicked: summary line, DIFFER first and highlighted, Claude / Jev columns, "chat read (ungraded)", verdict badges, scoreboard thin vs scored, timeline, Refresh with the thinking animation, budget notice without an error, Ask Coach sets the focus then opens Coach, fold after four cards, primitives only |
 | `test/numbers-people-coach.test.js` | the same NumbersPeopleCard, compact, inside a Coach answer; Details expands; nothing extra without a read; one copy of the card |
 
-## Lane 2 is the COACH-LANES Jev stage
+## Lane 2 is the COACH-LANES Jev stage, through the JEV-01a gateway
 
-After #488 merged, lane 2 calls `server/services/coach/jev-lane.js#jevLane` (same typed questions,
-pseudonymised state, strict answer reading) with a direct Jev client (`directJevAsk`, ai's
-experimental_evaluate on typesafe-ai/jev). JEV-01a's gateway (#441) is not on main; when it lands,
-its ask replaces `directJevAsk`.
+Lane 2 calls `server/services/coach/jev-lane.js#jevLane` (#488) with no client of its own: the stage's
+default is JEV-01a's gateway (#489), so every Jev call is ledgered (ai_usage `jev:coach_take`, a
+`jev.call` event). `coach_take` is registered in `jev/questions.js`. Claude's lane goes through
+`callClaude` (ai_usage `numbers_people:lane_claude`). A test holds that nothing under
+`services/numbers-people/` imports a model client or reads a key.
+
+## Neutral copy
+
+League-mates are "they": fact and Jev labels are rewritten short (<= 28 characters, tested) and
+neutral; Jev's one-line why is neutral; Claude is asked for they/them/their, and a why that keeps a
+gendered pronoun after the safe swaps (him -> them, his -> their, he's -> they're, ...) is withheld.
+A test scans the view and client source strings for he/him/his.
 
 ## Red / green
 

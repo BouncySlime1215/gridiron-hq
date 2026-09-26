@@ -95,6 +95,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { applyNegotiatorSafety, blockedIds, negotiatorSafetyOn } from '../../server/services/campaign/negotiator-safety.js';
 import { withNeverGive } from '../../server/services/campaign/never-give.js';
+import { holdStepRegret } from '../../server/services/campaign/serve-regret.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
@@ -355,6 +356,8 @@ export async function buildPlansFile(leagues, {
       entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of: generated_at, previous: prev, changed, model,
         brain: gate, number_health: brain ? brain.numberHealth(id) : null, blue_chips: adapter.blueChips?.() ?? null,
         his_side_on: hisSideOn(env) });
+      // STEP-REGRET at the serve step (campaign/serve-regret.js): the file never carries a move with a losing step.
+      if (!entry.error) entry = holdStepRegret(entry).entry;
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         // RB-DELTAS shadow (GRIDIRON_RB_TITLE=shadow or deltas): every served step's title delta on both estimators.

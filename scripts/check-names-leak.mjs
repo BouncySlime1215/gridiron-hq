@@ -12,6 +12,10 @@
  *   node scripts/check-names-leak.mjs --plans <plans.json> --files a.md b.txt    # a handoff set, a screenshot's page text
  *   node scripts/check-names-leak.mjs --plans <plans.json> --report-plans       # names in plans.json text fields, by field
  *   [--extra <file>]  one more name per line (a local, untracked list: chat names the teams map lacks)
+ *   [--denylist-env VAR]  one name per line from an environment variable (CI: the NAMES_DENYLIST
+ *                         repository secret, plan item 38); with it, a missing plans file is fine
+ *   [--skip-if-none]  with no denylist at all, exit 0 with a loud SKIPPED warning instead of exit 2
+ *                     (CI on a fork PR, where repository secrets are not passed)
  *
  * Exit 0: no hit. Exit 1: a hit in a file (or in plans text with --strict-plans). Exit 2: no denylist
  * (plans file missing or with no teams map): the check cannot run and says so instead of passing.
@@ -114,11 +118,13 @@ function rangeFiles(root, range) {
 }
 
 function parseArgs(argv) {
-  const o = { plans: path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json'), files: [], extra: null };
+  const o = { plans: null, files: [], extra: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--plans') o.plans = argv[++i];
     else if (a === '--extra') o.extra = argv[++i];
+    else if (a === '--denylist-env') o.denylistEnv = argv[++i];
+    else if (a === '--skip-if-none') o.skipIfNone = true;
     else if (a === '--tracked') o.tracked = true;
     else if (a === '--range') o.range = argv[++i];
     else if (a === '--report-plans') o.reportPlans = true;
@@ -126,29 +132,47 @@ function parseArgs(argv) {
     else if (a === '--files') { while (argv[i + 1] && !argv[i + 1].startsWith('--')) o.files.push(argv[++i]); }
     else throw new Error(`unknown argument ${a}`);
   }
+  if (!o.plans && !o.denylistEnv) o.plans = path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json');
   return o;
+}
+
+/** [{ term, roster: 'env:<line>', kind: 'env', league: null }] from newline-separated text. */
+export function denylistFromText(text, source = 'env') {
+  const out = [];
+  for (const [i, ln] of String(text ?? '').split('\n').entries()) {
+    const term = ln.trim();
+    if (term.length >= MIN_LEN && !term.startsWith('#') && !genericLabel(term)) out.push({ term, roster: `${source}:${i + 1}`, kind: source, league: null });
+  }
+  return out;
+}
+
+function noDenylist(o, why) {
+  if (o.skipIfNone) {
+    console.log(`::warning::names scan SKIPPED: ${why}; no league-mate names were checked.`);
+    process.exit(0);
+  }
+  console.log(`NO DENYLIST: ${why}; the check did not run.`);
+  process.exit(2);
 }
 
 function main() {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
   const o = parseArgs(process.argv);
   let doc = null;
-  try { doc = JSON.parse(fs.readFileSync(o.plans, 'utf8')); } catch (e) {
-    console.log(`NO DENYLIST: plans file not readable (${e.code ?? e.message}); the check did not run.`);
-    process.exit(2);
-  }
-  const deny = denylistFromPlans(doc);
-  if (o.extra) {
-    for (const [i, ln] of fs.readFileSync(o.extra, 'utf8').split('\n').entries()) {
-      const term = ln.trim();
-      if (term.length >= MIN_LEN && !term.startsWith('#')) deny.push({ term, roster: `extra:${i + 1}`, kind: 'extra', league: null });
+  if (o.plans) {
+    try { doc = JSON.parse(fs.readFileSync(o.plans, 'utf8')); } catch (e) {
+      if (!o.denylistEnv) noDenylist(o, `plans file not readable (${e.code ?? e.message})`);
+      console.log(`plans file not readable (${e.code ?? e.message}); using ${o.denylistEnv} only`);
     }
   }
-  if (!deny.length) { console.log('NO DENYLIST: the plans file has no team or manager names; the check did not run.'); process.exit(2); }
+  const deny = doc ? denylistFromPlans(doc) : [];
+  if (o.extra) deny.push(...denylistFromText(fs.readFileSync(o.extra, 'utf8'), 'extra'));
+  if (o.denylistEnv) deny.push(...denylistFromText(process.env[o.denylistEnv], 'env'));
+  if (!deny.length) noDenylist(o, o.denylistEnv ? `${o.denylistEnv} is empty or unset${doc ? ' and the plans file has no names' : ''}` : 'the plans file has no team or manager names');
   console.log(`denylist: ${deny.length} terms from ${new Set(deny.map(d => `${d.league}:${d.roster}`)).size} rosters (terms not printed)`);
 
   let fail = 0;
-  if (o.reportPlans) {
+  if (o.reportPlans && doc) {
     const hits = scanPlansText(doc, deny);
     const byField = Object.entries(fieldCounts(hits)).map(([k, n]) => `${k} ${n}`).join(', ') || 'none';
     console.log(`${hits.length && o.strictPlans ? 'FAIL' : 'REPORT'} plans text: ${hits.length} name hits (${byField})`);

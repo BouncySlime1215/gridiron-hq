@@ -65,12 +65,16 @@ export const STEP_REGRET_ENV = 'GRIDIRON_STEP_REGRET';
 /**
  * STEP-REGRET: the index of the first step whose own gain on the confirm dice (its cumulative delta
  * minus the step before's) is not above 0, or -1 when every step gains. A step with no finite delta fails.
+ * A free-agent claim step (FLIP-CLAIMS) is a flip piece, not a move on its own: it is exempt here and
+ * judged by claim_stranded (the path with the flip declined must still beat doing nothing); the trade
+ * step after it must still gain on its own.
  */
 export function stepRegretIndex(steps) {
   let before = 0;
   for (let i = 0; i < steps.length; i++) {
     const d = Number(steps[i].delta);
-    if (!Number.isFinite(d) || !(d - before > 0)) return i;
+    if (!Number.isFinite(d)) return i;
+    if (!isClaim(steps[i]) && !(d - before > 0)) return i;
     before = d;
   }
   return -1;

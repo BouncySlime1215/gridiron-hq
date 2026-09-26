@@ -31,6 +31,8 @@ import { leagueWorld, worldStamp, ONE_WORLD_RUNS } from './league-world.js';
 import { mutualTitleGain } from './title-mutual.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
+// U1c: title deltas keep season-sim's 6 decimals (TITLE_DP), so the tab shows the card's number.
+const r6 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(6));
 
 const _cache = new Map();
 export function clearTitleOddsTradeCache() { _cache.clear(); }
@@ -97,7 +99,7 @@ export function titleOddsTrades(leagueId, {
       value_delta: d.me?.value_delta ?? null,
       fairness: d.fairness ?? null,
       title_before: impact.me.title_before, title_after: impact.me.title_after,
-      title_delta: r4(impact.me.title_delta),
+      title_delta: r6(impact.me.title_delta),
       // RL-6-3: the paired SE of that delta, and whether it clears 2 SE. A deal
       // inside the noise is still ranked, but shown greyed and never drives a banner.
       title_delta_se: impact.me.title_delta_se,
@@ -105,7 +107,7 @@ export function titleOddsTrades(leagueId, {
       playoff_delta: r4(impact.me.playoff_delta),
       // What the deal does for THEM, because a trade they will not accept is
       // worth nothing however much it helps us.
-      their_title_delta: r4(impact.them.title_delta),
+      their_title_delta: r6(impact.them.title_delta),
       their_title_delta_se: impact.them.title_delta_se,
       their_title_delta_clears_noise: impact.them.title_delta_clears_noise,
       mutual_title_gain: mutualTitleGain(impact.me, impact.them)

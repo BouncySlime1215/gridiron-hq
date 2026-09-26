@@ -242,10 +242,8 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     // is how a caller bounds that, instead of a bigger cap alone.
     // `outputSchema` (structured outputs) constrains the final text to a JSON
     // schema, so a JSON-only answer cannot come back as prose, a fence or nothing.
-    ...(effort || outputSchema ? { output_config: {
-      ...(effort ? { effort } : {}),
-      ...(outputSchema ? { format: { type: 'json_schema', schema: outputSchema } } : {})
-    } } : {}),
+    ...(outputSchema ? {} : effort ? { output_config: { effort } } : {}),
+    ...(outputSchema ? { output_config: { ...(effort ? { effort } : {}), format: { type: 'json_schema', schema: outputSchema } } } : {}),
     ...(cacheConversation ? { cache_control: cacheMark(cacheTtl) } : {})
   };
   const breakpoints = cacheBreakpoints(request);

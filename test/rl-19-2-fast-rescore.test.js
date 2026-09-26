@@ -108,6 +108,10 @@ const { tradeImpact, tradeImpactWorld } = simModule;
 // tab at the mocked instance, or its deals are simulated on empty projections
 // (every team scores 0, team 1 wins every run, every delta and SE is 0).
 mock.module('../server/services/season-sim.js', { namedExports: { ...simModule } });
+// ONE-NUMBER-FIX: the Title-impact tab always prices on the league world, so the world module must
+// bind the mocked sim too (the plain instance was loaded with the unmocked one by trade-engine.js).
+const leagueWorldModule = await import('../server/services/league-world.js?rl192');
+mock.module('../server/services/league-world.js', { namedExports: { ...leagueWorldModule } });
 const { titleOddsTrades } = await import('../server/services/title-odds-trades.js?rl192');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

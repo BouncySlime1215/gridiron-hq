@@ -109,6 +109,10 @@ const { simulateSeason, tradeImpact, tradeImpactWorld } = simModule;
 // tab at the mocked instance, or its deals are simulated on empty projections
 // (every team scores 0, team 1 wins every run, every delta and SE is 0).
 mock.module('../server/services/season-sim.js', { namedExports: { ...simModule } });
+// ONE-NUMBER-FIX: the tab and the card price on the league world, so the world module must bind
+// the mocked sim too (the plain instance was loaded with the unmocked one by trade-engine.js).
+const leagueWorldModule = await import('../server/services/league-world.js?rl63');
+mock.module('../server/services/league-world.js', { namedExports: { ...leagueWorldModule } });
 const { withRandomSeed } = await import('../server/services/stats-util.js');
 const { contradictionBar, judgeTradeVerdict } = await import('../server/services/trade-verify.js');
 const { mutualTitleGain, summariseTitleTrades, titleOddsTrades } = await import('../server/services/title-odds-trades.js?rl63');
@@ -245,23 +249,25 @@ test('RL-6-3: the sense-check judge reads the impact\'s own paired SE (call site
   assert.equal(j.contradicted, true, 'a -1.5pp loss past a 1.0pp bar contradicts "sound"');
 });
 
-test('RL-6-3: the Title-impact tab shows the same numbers tradeImpact gives the card and the sense-check (call site)', () => {
-  // 300 runs: on this fixture my delta clears the noise and theirs does not, so
-  // a me/them swap of any field is visible.
+test('RL-6-3: the Title-impact tab shows the same numbers tradeImpact gives the card and the sense-check (call site)', async () => {
+  // Priced on the league world (its run count): the two sides' deltas and SEs differ on this
+  // fixture, so a me/them swap of any field is visible.
   const out = titleOddsTrades(631, { teamId: '1', shortlist: 2, runs: 300 });
   assert.ifError(out.error);
   const d = out.deals[0];
   assert.ok(d, 'control: the fixture deal was simulated');
-  // TradeCard (POST /model/:id/trade-impact) and the sense-check call tradeImpact
-  // with no seed and no scoring: the defaults must be what this tab shows.
+  // TradeCard (POST /model/:id/trade-impact) and the sense-check price every deal on the league's
+  // one world (ONE-NUMBER-FIX: whatever the one-world flag says): that must be what this tab shows.
+  const { leagueWorld, ONE_WORLD_RUNS } = leagueWorldModule;
   const ref = tradeImpact(league(), { myTeamId: 1, theirTeamId: 2,
-    iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id), runs: 300 });
+    iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id), runs: ONE_WORLD_RUNS, world: leagueWorld(league()) });
   // Non-degenerate: team 1 is not a lock and the two sides' SEs differ, so a
   // me/them swap or a wrong seed cannot pass.
   assert.ok(ref.me.title_before > 0 && ref.me.title_before < 1, `team 1 title odds ${ref.me.title_before}`);
   assert.ok(ref.me.title_delta_se > 0 && ref.me.title_delta_se !== ref.them.title_delta_se,
     `me SE ${ref.me.title_delta_se} vs them SE ${ref.them.title_delta_se}`);
-  assert.notEqual(ref.me.title_delta_clears_noise, ref.them.title_delta_clears_noise, 'fixture: the two flags differ');
+  // On the world's run count both sides' noise flags can agree, so the swap guard is the deltas.
+  assert.notEqual(ref.me.title_delta, ref.them.title_delta, 'fixture: the two sides\' deltas differ');
   assert.equal(d.title_delta, ref.me.title_delta, 'one deal, one delta on every surface');
   assert.equal(d.title_delta_se, ref.me.title_delta_se);
   assert.equal(d.title_delta_clears_noise, ref.me.title_delta_clears_noise);

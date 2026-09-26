@@ -59,8 +59,8 @@ export const TOLERANCES = Object.freeze({
 export const CHECKS = Object.freeze({
   title_odds_paths: {
     row: 'B', title: 'Title odds differ between pages',
-    cause: 'Three separate simulations with their own caches and random seeds (My team uses a fresh random world per server start; Trade Lab uses one seed per sync; the trade finder its own fixed seed).',
-    trust: 'Use the Trade Lab / TradeCard number for decisions: it is repeatable on the same sync. Treat gaps of a few points as noise.',
+    cause: 'A page stopped reading the league\'s one world (league-world.js): My team, Trade Lab, the TradeCard and the trade finder all read its title odds, so any gap means one of them runs its own simulation again.',
+    trust: 'Use the Trade Lab / TradeCard number for decisions until the gap is fixed.',
   },
   projection_basis: {
     row: 'A', title: 'Title tab and trade finder rank players differently',
@@ -69,7 +69,7 @@ export const CHECKS = Object.freeze({
   },
   weekly_range: {
     row: 'C', title: 'Weekly ranges differ between pages',
-    cause: 'The pages started different lineups for the same week, or a page stopped reading the one weekly-range producer (lineup-week-range.js: p10 / p50 / p90 of the lineup total in the title odds\' world).',
+    cause: 'The pages started different lineups for the same week (every page ranges THE lineup fielded this week: trade-engine.js#thisWeekLineup, locked starters held), or a page stopped reading the one weekly-range producer (lineup-week-range.js: p10 / p50 / p90 of the lineup total in the title odds\' world, a finished game at its actual points).',
     trust: 'Use the trade card\'s range; it is the one producer\'s number for your highest-projected lineup.',
   },
   current_week: {
@@ -586,10 +586,13 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
   ];
   const week = Number.isFinite(leagueWeek.week) ? leagueWeek.week : tradeWeek.week;
 
-  // B: the title-odds paths, each exactly as its page calls it. The My team path is
-  // deliberately unseeded, as the page's /simulate call is (MyTeam.tsx, runs=1500).
-  const myTeamSim = attempt(() => sim.simulateSeason(lg, { runs: 1500, scoring: leagueScoring }));
-  const world = attempt(() => sim.tradeImpactWorld(lg, {}));
+  // B: the title-odds paths, each exactly as its page calls it (ONE-NUMBER-FIX): My team's
+  // /simulate serves league-world.js#oneWorldTitleOdds; the Title tab / TradeCard price on the
+  // league's world (its base is their "before"); the finder's horizon reads the same world. The
+  // audit used to run its own unseeded simulateSeason and its own tradeImpactWorld here, which no
+  // page served, so a gap between them measured the audit, not the app.
+  const myTeamSim = attempt(() => leagueWorldMod.oneWorldTitleOdds(lg));
+  const world = attempt(() => leagueWorldMod.leagueWorld(lg));
   const worldBase = world.error ? world : world.fail ? { error: world.fail.error ?? 'world failed' } : world.base;
   const horizon = attempt(() => te.myPlayoffOdds(lg));
   snap.playoff_teams = myTeamSim.playoff_teams ?? worldBase.playoff_teams ?? null;
@@ -644,7 +647,9 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
   snap.weekly_ranges = [
     range('trade_card', 'Trade card', ['Trade cards', 'Trade Lab'], () => {
       if (!mine) return { error: teams.error ?? 'your team is not in this league' };
-      const s = te.lineupSpread(te.bestLineup(mine.players, te.lineupSlots(lg), 'current_week_ppg'));
+      // The trade card / My team range as selfScout serves it: THE lineup fielded this week
+      // (trade-engine.js#thisWeekLineup: locked starters held), ranged by the one producer.
+      const s = te.lineupSpread(te.thisWeekLineup(lg, me, mine.players, te.lineupSlots(lg)));
       if (s.error) return { error: s.error };
       return { floor: s.floor, median: s.median, ceiling: s.ceiling };
     }),
@@ -660,8 +665,15 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
       const team = world.prep?.teams?.find(t => t.roster_id === me);
       const means = weekRange.worldWeekMeans(world, wk);
       if (!team || !means) return { error: 'your team has no simulated week' };
-      const ids = sim.lineupStarters(team.players, te.lineupSlots(lg), means).map(p => p.id);
-      const r = weekRange.lineupWeekRange(world, ids, wk);
+      // The sim's own choice (pool means) under the one lineup rule for this week: locked
+      // starters held (thisWeekLineup), a finished game at its actual (leagueLineupWeekRange).
+      const byId = new Map(team.players.map(p => [p.id, p]));
+      const priced = (mine?.players ?? []).filter(p => byId.has(p.id) || means.has(p.id))
+        .map(p => ({ ...p, sim_week_mean: means.get(p.id) ?? null }));
+      const ids = priced.length
+        ? te.thisWeekLineup(lg, me, priced, te.lineupSlots(lg), 'sim_week_mean').slots.map(f => f.player?.id).filter(id => id != null)
+        : sim.lineupStarters(team.players, te.lineupSlots(lg), means).map(p => p.id);
+      const r = weekRange.leagueLineupWeekRange(lg, ids, wk);
       if (r.error) return { error: r.error };
       return { floor: r.floor, median: r.median, ceiling: r.ceiling };
     }),

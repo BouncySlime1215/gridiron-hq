@@ -884,6 +884,24 @@ export function weekLineup(players, slots, key = 'adj_ppg') {
 }
 
 /**
+ * ONE-NUMBER-FIX: THE lineup a team fields this week, the one every "this week" range is taken
+ * over (the trade card and My team range, the ceiling lineup's comparison, the lineup posture's
+ * lock rule, the number audit). A starter whose game has kicked off or that ESPN has locked keeps
+ * his slot (lineup-lock.js, RL-4-2); a locked bench player cannot come in; a player on bye sits;
+ * every other slot is solved on `key`. Before this, the trade card and the ceiling lineup solved
+ * every slot as if nothing had kicked off, so a Thursday starter was swapped for a bench player on
+ * one page and held on the next (number audit, league 2, weekly_range).
+ */
+export function thisWeekLineup(lg, rosterId, players, slots, key = 'current_week_ppg', { now = Date.now() } = {}) {
+  const { season, week } = tradeWeekContext();
+  const pins = lockPins(rosterLocks(lg, rosterId, players, { season, week, now }));
+  const playing = players.filter(p => !p.bye_this_week || pins.has(p.id));
+  const line = pinnedBestLineup(playing, slots, key, pins);
+  const byes = players.filter(p => p.bye_this_week && !pins.has(p.id) && SCORED.has(p.position));
+  return byes.length ? { ...line, bench: (line.bench ?? []).concat(byes) } : line;
+}
+
+/**
  * bestLineup with some players pinned where they are (RL-4-2: a player whose game
  * has kicked off cannot move — lineup-lock.js).
  *
@@ -1628,11 +1646,9 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
  * league 3 was being told its December roster matters about twice as much as it
  * does, and league 5 about half as much.
  *
- * Seeded on purpose. The sim is Monte Carlo; an unseeded run would hand the
- * cache a new key every time and turn a cached search into an uncached one.
+ * Seeded on purpose: the league world is built on this NFL week's seed (one-world.js), so the
+ * odds are identical between calls and processes and cannot drift into a cache key.
  */
-const HORIZON_SIM_SEED = 20260918;
-const HORIZON_SIM_RUNS = 1000;
 
 /** The asset universe's own fingerprint. ~24 ms on production, so it is computed
  *  once per entry-point call and handed to everything that keys on it. */
@@ -1643,46 +1659,20 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const rosterId = String(myTeamId ?? lg?.my_team_id ?? '');
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
   if (!lg?.payload) return prior('this league is not synced yet');
-  const target = tradeWeekContext();
-  // The sim's start week comes from the one producer (simStartWeek: the league's
-  // own week, week 1 for last season's payload) — the same week /simulate uses —
-  // not the NFL game_lines week, which runs ahead of the league between Monday
-  // night and the next sync (B-01 review). target stays for the asset print only.
-  const start = simStartWeek(lg);
-  const { formatKey } = deriveFormat(lg);
-  // EA-07: the snapshot's one title.odds, the row the twin and the Title tab show.
-  if (oneWorldFlag().on) {
-    const world = leagueWorld(lg);
-    if (world.fail) return prior(`the season simulation could not run (${world.fail.error})`);
-    const mine = world.base.teams.find(t => String(t.roster_id) === rosterId);
-    if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
-    const stamp = worldStamp(lg, world);
-    return {
-      value: +mine.playoff_odds.toFixed(2), roster_id: rosterId, interval: mine.playoff_odds_95 ?? null,
-      source: `season simulation, ${world.base.runs} runs from week ${world.base.from_week} (one world ${stamp.snapshot_id})`
-    };
-  }
-  return cached(
-    `playoffOdds:${lg.id}:${rosterId}:${target.season}:${start}`,
-    print ?? assetPrint(lg, formatKey, target),
-    () => {
-      // A returned `error` is a NAMED state (no fixtures left, an unsynced
-      // schedule) and falls back. Anything thrown is a real defect and is left to
-      // throw — a silent 0.5 would hide it, which is how this number got lost in
-      // the first place.
-      const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
-      }));
-      if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
-      const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
-      if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
-      return {
-        value: +mine.playoff_odds.toFixed(2),
-        roster_id: rosterId,
-        interval: mine.playoff_odds_95 ?? null,
-        source: `season simulation, ${sim.runs} runs from week ${sim.from_week}`,
-      };
-    });
+  // The world starts on the league's own week (simStartWeek, inside tradeImpactWorld), the same
+  // week /simulate uses (B-01 review). `print` is kept for the callers' signature.
+  void print;
+  // EA-07 / ONE-NUMBER-FIX: the snapshot's one title.odds, the row the twin and the Title tab
+  // show, whatever the one-world flag says (one producer of this number).
+  const world = leagueWorld(lg);
+  if (world.fail) return prior(`the season simulation could not run (${world.fail.error})`);
+  const mine = world.base.teams.find(t => String(t.roster_id) === rosterId);
+  if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
+  const stamp = worldStamp(lg, world);
+  return {
+    value: +mine.playoff_odds.toFixed(2), roster_id: rosterId, interval: mine.playoff_odds_95 ?? null,
+    source: `season simulation, ${world.base.runs} runs from week ${world.base.from_week} (one world ${stamp.snapshot_id})`
+  };
 }
 
 /** Resolve the odds the horizon is built on: caller's number, else the sim, else the prior. */
@@ -3000,8 +2990,10 @@ export function selfScout(lg, myTeamId) {
   // and the depth test all describe the same eleven (RL-5-3).
   const lineup = weekLineup(me.players, slots);
   // The starting lineup's weekly total in a bad (p10) and a good (p90) week — see
-  // lineupSpread().
-  const spread = lineupSpread(lineup);
+  // lineupSpread(). Taken over THE lineup fielded this week (thisWeekLineup: locked starters
+  // held, this week's projection elsewhere), the one the lineup posture and the ceiling lineup
+  // range over too, so the same lineup-week prints one range everywhere (ONE-NUMBER-FIX).
+  const spread = lineupSpread(thisWeekLineup(lg, me.roster_id, me.players, slots));
 
   // League context: every rival's optimal lineup, so "strong at RB" means strong
   // relative to the ten teams you actually play, not to a national average.

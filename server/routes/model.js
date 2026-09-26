@@ -466,26 +466,16 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
-    // EA-07: with the one world on, the twin serves the snapshot's one title.odds
-    // (the same row the Title tab and the TradeCard start from). runs/seed/from_week
-    // no longer pick a different number; any sent is echoed back as ignored.
-    if (oneWorldFlag().on) {
-      const ignored = Object.fromEntries(['runs', 'seed', 'from_week']
-        .filter(k => req.query[k] != null).map(k => [k, req.query[k]]));
-      const world = oneWorldTitleOdds(lg, { ignored });
-      recordServed(res, 'title_odds', lg, world);
-      return res.json(world);
-    }
-    const runs = Math.min(6000, Number(req.query.runs) || 2000);
-    // The memo key uses the same producer on the same raw input that
-    // simulateSeason resolves internally, so the key and the body's from_week agree.
-    const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
-    const seed = req.query.seed ?? null;
-    const sim = withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
-      runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
-    })));
-    recordServed(res, 'title_odds', lg, sim);
-    res.json(sim);
+    // ONE-NUMBER-FIX: the twin always serves the snapshot's one title.odds (league-world.js), the
+    // same row the Title tab, the TradeCard's "before" and the finder's horizon start from. The
+    // unseeded per-request simulateSeason it ran with the one world off was a second producer of
+    // the same number (number audit, league 5, title_odds_paths). runs/seed/from_week no longer
+    // pick a different number; any sent is echoed back as ignored.
+    const ignored = Object.fromEntries(['runs', 'seed', 'from_week']
+      .filter(k => req.query[k] != null).map(k => [k, req.query[k]]));
+    const world = oneWorldTitleOdds(lg, { ignored });
+    recordServed(res, 'title_odds', lg, world);
+    return res.json(world);
   } catch (e) { next(e); }
 });
 
@@ -497,23 +487,11 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
     const { my_team_id, their_team_id, i_give = [], i_get = [] } = req.body ?? {};
     if (!their_team_id) return res.status(400).json({ error: 'their_team_id required' });
     const myTeamId = my_team_id ?? lg.my_team_id;
-    // EA-07: priced on the snapshot's world, so this card's "before" is the twin's
-    // title odds. The world fixes the runs and the seed; a client value is not used.
-    const impact = oneWorldFlag().on
-      ? tradeImpact(lg, {
-        myTeamId, theirTeamId: their_team_id,
-        iGive: i_give, iGet: i_get, runs: ONE_WORLD_RUNS, scoring: scoringFor(lg), world: leagueWorld(lg)
-      })
-      : tradeImpact(lg, {
-      myTeamId,
-      theirTeamId: their_team_id,
-      iGive: i_give, iGet: i_get,
-      runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS),
-      fromWeek: req.body?.from_week, // raw; tradeImpact resolves it with simStartWeek
-      seed: req.body?.seed ?? null,
-      // The league's own weights, the same value tradeImpact defaults to (RL-6-3); passed
-      // explicitly so this call site stays checked by test/scoring-call-sites.test.js (#163).
-      scoring: scoringFor(lg)
+    // EA-07 / ONE-NUMBER-FIX: always priced on the snapshot's world, so this card's "before" is
+    // the twin's title odds (one producer). The world fixes the runs and the seed.
+    const impact = tradeImpact(lg, {
+      myTeamId, theirTeamId: their_team_id,
+      iGive: i_give, iGet: i_get, runs: ONE_WORLD_RUNS, scoring: scoringFor(lg), world: leagueWorld(lg)
     });
     recordServed(res, 'trade_impact', lg, impact,
       { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get });

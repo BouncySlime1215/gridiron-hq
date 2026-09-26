@@ -57,7 +57,9 @@ mock.module('../server/services/season-sim.js', {
     worldPoolFor: () => null, rosBasisFlag: () => ({ on: false, preview: false }),
     // trade-engine.js imports the shared-world builder for RL-19-3's title-mutual
     // stage (default off); never called here.
-    tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } })
+    // ONE-NUMBER-FIX: /simulate and /trade-impact read the league world (league-world.js), which
+    // builds it here; the weights it is handed are what this file checks.
+    tradeImpactWorld: (_lg, opts = {}) => { seen.push({ at: 'tradeImpactWorld', scoring: opts.scoring }); return { fail: { error: 'not simulated in this test' } }; }
   }
 });
 mock.module('../server/services/player-week-engine.js', {
@@ -130,10 +132,10 @@ test('GET /api/model/projections (routes/model.js:431) hands buildProjections th
   assertLeagueWeights('buildProjections');
 });
 
-test('GET /api/model/:leagueId/simulate (routes/model.js:458) hands simulateSeason the league weights', async () => {
+test('GET /api/model/:leagueId/simulate (the league world, league-world.js) hands tradeImpactWorld the league weights', async () => {
   const res = await fetch(`${base}/${lg.id}/simulate?runs=10&seed=1`, { headers: auth });
   assert.equal(res.status, 200, await res.clone().text());
-  assertLeagueWeights('simulateSeason');
+  assertLeagueWeights('tradeImpactWorld');
 });
 
 test('POST /api/model/:leagueId/trade-impact (routes/model.js:477) hands tradeImpact the league weights', async () => {

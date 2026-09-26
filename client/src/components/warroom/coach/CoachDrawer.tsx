@@ -277,6 +277,9 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
       <div className="wr-answer" data-testid="coach-answer">
         <p className="wr-verdict" data-testid="coach-verdict">{shape.verdict.text}</p>
         {shape.why.length > 0 && <ul className="wr-why" data-testid="coach-why">{shape.why.map((w, i) => <li key={i}>{w.text}</li>)}</ul>}
+        {/* COACH-V2 unit 4: a disagreement between the lanes is one highlighted sentence, then the one Numbers & People card. */}
+        {shape.disagreement && <p className="wr-lanes-dis" data-testid="coach-lanes-disagree">{shape.disagreement}</p>}
+        {slot.numbersPeople && <div className="mt-2 mb-2" data-testid="coach-numbers-people"><NumbersPeopleCard item={slot.numbersPeople} variant="compact" /></div>}
         {shape.risks.map((r, i) => <p key={`k${i}`} className="wr-muted">{r.text}</p>)}
         {shape.more && shape.more.length > 0 && (
           <details className="wr-more" data-testid="coach-more">
@@ -287,6 +290,7 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
         {extra.map((t, i) => <p key={`o${i}`} className="wr-muted">{t}</p>)}
         {slot.refusals?.filter(r => r !== shape.verdict?.text).map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
         <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />
+        {slot.lanes && !slot.numbersPeople && <LanesReveal lanes={slot.lanes} />}
       </div>
     );
   }
@@ -297,7 +301,7 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
       {extra.map((t, i) => <p key={`o${i}`} className="wr-muted">{t}</p>)}
       {slot.refusals?.map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
       <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />
-      {slot.lanes && <LanesReveal lanes={slot.lanes} />}
+      {slot.lanes && !slot.numbersPeople && <LanesReveal lanes={slot.lanes} />}
       {/* NUMBERS-PEOPLE: the item this answer is about has a stored read: both lanes, compact (the shared card). */}
       {slot.numbersPeople && <div className="mt-2" data-testid="coach-numbers-people"><NumbersPeopleCard item={slot.numbersPeople} variant="compact" /></div>}
     </div>

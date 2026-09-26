@@ -37,6 +37,7 @@ import { peopleRead, pulseRead } from './brain-tools.js';
 import { readChatTradeInterest } from '../people/chat-trade-interest.js';
 import { jevLane, jevLines } from './jev-lane.js';
 import { neutralAnswer } from './answer-shape.js';
+import { reconcile, cardFor } from './reconcile.js';
 import { db, row } from '../../db/index.js';
 
 export const LANES_ENV = 'GRIDIRON_COACH_LANES';
@@ -253,7 +254,14 @@ export async function answerWithLanes({ question, askArgs, focus = {}, leagueId,
   const { ledger, remap } = mergeLedgers(a.ledger, b.ledger);
   let reply;
   let synth = null;
-  if (!b.answer.claims.length) {
+  let rec = null;
+  if (source.source === 'jev') {
+    // COACH-V2 unit 4: Claude vs Jev in Numbers & People's one vocabulary; AGREE merges with no call.
+    rec = await reconcile({ question, laneOne: a.answer, take: b.take, jevClaims: b.answer.claims, ledger, remap });
+    // The disagreement travels in the answer itself (one highlighted line), never only in a fold.
+    reply = rec.disagreement && rec.answer.shape ? { ...rec.answer, shape: { ...rec.answer.shape, disagreement: rec.disagreement } }
+      : rec.disagreement ? { ...rec.answer, refusals: [...(rec.answer.refusals ?? []), rec.disagreement] } : rec.answer;
+  } else if (!b.answer.claims.length) {
     reply = { claims: a.answer.claims.map(c => ({ ...c, lane: 'numbers' })), refusals: a.answer.refusals, as_of: a.answer.as_of };
   } else {
     synth = await synthesize({ question, a, b, ledger, remap, jev: source.source === 'jev',
@@ -265,13 +273,14 @@ export async function answerWithLanes({ question, askArgs, focus = {}, leagueId,
     numbers: { claims: a.answer.claims.map(c => c.text), refusals: a.answer.refusals, cost_usd: a.cost_usd ?? 0 },
     people: { claims: b.answer.claims.map(c => `${c.text}`), refusals: b.answer.refusals ?? [], cost_usd: b.cost_usd, ...source,
       ...(b.take ? { take: b.take } : {}) },
-    disagreement: synth?.verification.ok ? synth.disagreement : null,
-    action: synth?.verification.ok ? synth.action : null,
-    synthesis: synth ? (synth.verification.ok ? 'ok' : 'fell_back') : 'skipped',
-    cost_usd: { numbers: a.cost_usd ?? 0, people: b.cost_usd, synth: synth?.cost_usd ?? 0 }
+    disagreement: rec ? rec.disagreement : synth?.verification.ok ? synth.disagreement : null,
+    action: rec ? null : synth?.verification.ok ? synth.action : null,
+    synthesis: rec ? rec.reconciled : synth ? (synth.verification.ok ? 'ok' : 'fell_back') : 'skipped',
+    ...(rec ? { verdict: rec.verdict, card: cardFor({ focus, laneOne: a.answer, take: b.take, jevClaims: b.answer.claims, verdict: rec.verdict }) } : {}),
+    cost_usd: { numbers: a.cost_usd ?? 0, people: b.cost_usd, synth: synth?.cost_usd ?? rec?.cost_usd ?? 0 }
   };
   const out = { ...a, answer: reply, ledger: ledger.toJson(), lanes,
-    cost_usd: (a.cost_usd ?? 0) + b.cost_usd + (synth?.cost_usd ?? 0) };
+    cost_usd: (a.cost_usd ?? 0) + b.cost_usd + (synth?.cost_usd ?? 0) + (rec?.cost_usd ?? 0) };
   if (threadId != null) {
     cache.set(key, out);
     if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);

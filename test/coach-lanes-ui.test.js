@@ -62,3 +62,24 @@ test('no people lane: no toggle', async () => {
   assert.equal(one(ui.container, 'data-testid', 'coach-lanes'), null);
   ui.unmount();
 });
+
+test('COACH-V2 unit 4: a shaped answer shows the disagreement line and the ONE Numbers & People card inline, not the toggle', async () => {
+  const card = { key: 'move:L4-x', item_type: 'move', item_id: 'L4-x', title: 'This answer', subtitle: null, players: [],
+    numbers: { stance: 'go', basis: 'title_gain', why: 'Title odds move +10.1 pts if it lands.', cites: [] },
+    people: { stance: 'wait', basis: 'price', why: 'Jev: 31% he takes it as sent (chat read, ungraded).', label: 'chat read (ungraded)', cites: [] },
+    verdict: 'differ', read_at: null, history: [] };
+  const msg = { who: 'coach', text: 'x', question: 'q', claims: [{ text: 'Title odds move +10.1 pts if it lands.', cites: [] }], refusals: [],
+    shape: { verdict: { text: 'Send Team 2 the served offer, leading with his need.', cites: [] }, stance: 'go', basis: 'title odds',
+      why: [{ text: 'Title odds move +10.1 pts if it lands.', cites: [] }], risks: [], disagreement: 'Numbers say go; Jev reads wait because of his price.' },
+    lanes: { title: 'Claude + Jev', people: { source: 'jev', claims: ['Jev: 31%'] }, disagreement: 'Numbers say go; Jev reads wait because of his price.' },
+    numbersPeople: card };
+  const ui = mount(React.createElement(CoachDrawer, { coach: coachWith([{ who: 'nick', text: 'q' }, msg]), open: true, onClose() {} }));
+  await waitFor(() => one(ui.container, 'data-testid', 'coach-verdict'), 2000, 'the answer');
+  assert.match(textOf(one(ui.container, 'data-testid', 'coach-lanes-disagree')), /^Numbers say go; Jev reads wait/);
+  const np = one(ui.container, 'data-testid', 'np-card-compact');
+  assert.ok(np, 'the one NumbersPeopleCard, compact');
+  assert.equal(np.getAttribute('data-verdict'), 'differ');
+  assert.match(textOf(np), /Differ/);
+  assert.equal(one(ui.container, 'data-testid', 'coach-lanes'), null, 'no separate toggle when the card is shown');
+  ui.unmount();
+});

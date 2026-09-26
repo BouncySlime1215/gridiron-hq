@@ -52,6 +52,35 @@ day the panel is switched on.
 
 ## RED
 
+`test/data-quality.test.js` committed first (`5541d11b`); run on the RED commit:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/services/data-quality.js'
+# tests 1
+# pass 0
+# fail 1
+```
+
 ## GREEN
 
+```
+node --test test/data-quality.test.js
+# report 10.2 ms; overall attention; freshness: 3 of 3 sources behind; offer_orphans: 3 offers not tied
+#   to a record; number_health_trend: 1 league getting worse; fallbacks: 2 plans hidden, 1 other fallback
+# tests 12
+# pass 12
+# fail 0
+```
+
+Two fixture inserts were corrected after the first GREEN run (named columns for `player_week_usage`, a
+valid `model_basis` band on the `trade_outcomes` rows); no assertion or bar changed.
+
 ## Not covered
+
+- The Settings -> Health card is not drawn. `GET /api/data-quality` is its whole source; the card layout
+  is described in the PR body for the coordinator to wire with the design-system primitives.
+- The trend starts empty: the first daily point is written by the first number audit after migration 118
+  runs, so the panel shows "No history yet" on day one and a direction from day two.
+- Unit 53 (OFFLINE / LAST-GOOD MODE, in progress) will add its own last-good served state; its fallback
+  belongs in this section once it merges. This unit reads only what is on `main` today.
+- Nothing here was run against the live database; see "Needs local measurement" in the PR.

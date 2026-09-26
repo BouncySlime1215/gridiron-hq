@@ -84,7 +84,8 @@ test('B1: preview mode alone does not switch it on; only its own flag does', asy
 
 test('B2: freshness section equals dataFreshness source for source', () => {
   db.exec(`CREATE TABLE IF NOT EXISTS player_week_usage (season INTEGER, week INTEGER, player_id INTEGER)`);
-  db.prepare('INSERT INTO player_week_usage VALUES (2025, 17, 1)').run();
+  db.prepare(`INSERT OR IGNORE INTO players (id, name, position) VALUES (1, 'Test Player', 'WR')`).run();
+  db.prepare('INSERT INTO player_week_usage (season, week, player_id) VALUES (2025, 17, 1)').run();
   const tables = dataFreshness({ registry: FALLBACK_REGISTRY, currentSeason: 2026, currentWeek: 3, database: db });
   const section = dq.freshnessSection(tables);
   assert.equal(section.sources.length, tables.length);
@@ -119,8 +120,8 @@ function seedOffers() {
   raw.run(4, 2026, 'a-902', 'TRADE_DECLINE', 'EXECUTE', 2, 'p-902', iso(40), null);
 
   const to = db.prepare(`INSERT INTO trade_outcomes
-    (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at, model_p_accept, status, idea_id, sent_at, matched_tx_id, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+    (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, status, idea_id, sent_at, matched_tx_id, created_at)
+    VALUES (?,?,?,?,?,?,?,0.2,0.6,'heuristic_unanchored',?,?,?,?,?)`);
   to.run(4, 2026, 'app_proposed', '1', '3', iso(81), 0.4, 'proposed', 'i-1', iso(80), null, iso(81)); // unmatched 80 h: orphan
   to.run(4, 2026, 'app_proposed', '1', '5', iso(11), 0.4, 'proposed', 'i-2', iso(10), null, iso(11)); // 10 h: not yet
   to.run(4, 2026, 'app_proposed', '1', '2', iso(51), 0.4, 'proposed', 'i-3', iso(50), 'p-902', iso(51)); // matched: not
@@ -248,7 +249,7 @@ test('B7: a section whose reader throws is unknown in words; the others still se
 
 /* ------------------------------------------------------------------ B6 + B8, end to end */
 
-test('B6 + B8: flag on, the route serves all four sections fast with no dev text', async () => {
+test('B6 + B8: flag on, the route serves all four sections fast with no dev text', async t => {
   fs.writeFileSync(process.env.GRIDIRON_WARROOM_PLANS, JSON.stringify({
     schema: 'x', generated_at: iso(1), producer: 'p', producer_version: 'v', leagues: plansFixture().entries,
   }));
@@ -265,6 +266,7 @@ test('B6 + B8: flag on, the route serves all four sections fast with no dev text
     }
     assert.ok(['ok', 'attention'].includes(body.overall));
     assertNoDevText(body);
+    t.diagnostic(`report ${ms.toFixed(1)} ms; overall ${body.overall}; ${Object.entries(body.sections).map(([k, v]) => `${k}: ${v.headline}`).join('; ')}`);
     assert.ok(ms < 250, `report took ${ms.toFixed(0)} ms`);
   } finally { delete process.env.GRIDIRON_DATA_QUALITY; }
 });

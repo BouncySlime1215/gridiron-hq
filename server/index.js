@@ -53,6 +53,7 @@ const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
 const { default: numberAuditRouter } = await import('./routes/number-audit.js');
+const { default: dataQualityRouter } = await import('./routes/data-quality.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -165,6 +166,9 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
 // BROKEN-01b: read-only number-health rows the refresh loop writes (Settings card, nav dot).
 app.use('/api/number-audit', ...legacyAuthenticated, numberAuditRouter);
+// DATA QUALITY PANEL (item 35, GRIDIRON_DATA_QUALITY, off): freshness, offer orphans, number-health
+// trend and last-good fallbacks in one read-only report for Settings -> Health.
+app.use('/api/data-quality', ...legacyAuthenticated, dataQualityRouter);
 // Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);

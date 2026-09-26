@@ -106,20 +106,109 @@ export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
     if (s == null) reasons.add('unscored');
     else if (s < (rules.floor ?? BLUE_CHIP_SCORE)) reasons.add('below_blue_chip');
   }
-  const priced = [...g, ...r].every(id => rules.fc.has(id));
-  let over = null;
-  if (!priced) reasons.add('no_fc_value');
-  else {
-    const gv = g.reduce((s, id) => s + rules.fc.get(id), 0);
-    const rv = r.reduce((s, id) => s + rules.fc.get(id), 0);
-    over = overpayPct(gv, rv);
-    if (over > (rules.overpayCap ?? 0) + EPS) {
-      const twoForOne = g.length === 2 && r.length === 1 && g.every(id => depthFor(rules, id));
-      const rises = Number(premium?.points_delta) > 0 && Number(premium?.title_delta) > 0;
-      if (!(twoForOne && rises && over <= (rules.depthPremiumMax ?? DEPTH_PREMIUM_MAX) + EPS)) reasons.add('overpay');
+  const o = overpayCheck(rules, { give: g, get: r, premium });
+  if (!o.priced) reasons.add('no_fc_value');
+  else if (o.breaks) reasons.add('overpay');
+  return { ok: reasons.size === 0, reasons: [...reasons], overpay: o.over, requires_nick_confirm: needsOk };
+}
+
+/**
+ * Nick's overpay rule on ONE trade, on FantasyCalc value (rules.fc, fc-value.js): the cap is
+ * rules.overpayCap (0), and above it only a depth-only 2-for-1 up to +12% whose lineup points and
+ * title odds both rise (premium). Every step of a path is a real trade, so a chain's balance never
+ * excuses a step. -> { priced, over: fraction|null, breaks: boolean }
+ */
+export function overpayCheck(rules, { give = [], get = [], premium = null }) {
+  const g = give.map(S), r = get.map(S);
+  if (![...g, ...r].every(id => rules.fc.has(id))) return { priced: false, over: null, breaks: false };
+  const gv = g.reduce((s, id) => s + rules.fc.get(id), 0);
+  const rv = r.reduce((s, id) => s + rules.fc.get(id), 0);
+  const over = overpayPct(gv, rv);
+  if (!(over > (rules.overpayCap ?? 0) + EPS)) return { priced: true, over, breaks: false };
+  const twoForOne = g.length === 2 && r.length === 1 && g.every(id => depthFor(rules, id));
+  const rises = Number(premium?.points_delta) > 0 && Number(premium?.title_delta) > 0;
+  const excepted = twoForOne && rises && over <= (rules.depthPremiumMax ?? DEPTH_PREMIUM_MAX) + EPS;
+  return { priced: true, over, breaks: !excepted };
+}
+
+/** A served step's CAP-1C premium (confirm-dice deltas when present), or null. */
+function stepPremium(step) {
+  const v = step?.depth_premium?.status === 'ok' ? step.depth_premium.value : step?.depth_premium;
+  if (!v || typeof v !== 'object') return null;
+  return { points_delta: v.confirmed_lineup_points_delta ?? v.lineup_points_delta ?? v.confirmed?.points_delta ?? v.points_delta,
+    title_delta: v.confirmed_title_odds_delta ?? v.title_odds_delta ?? v.confirmed?.title_delta ?? v.title_delta };
+}
+
+/**
+ * gateServedSteps over every league of a plans file (ran and kept alike). rulesFor(leagueId) -> the
+ * league's rule set (ruleGate(...).rules) or null (not Nick's league: left as it is).
+ * -> { file, drops: [{ league, ...drop }] }
+ */
+export function gatePlansFile(file, rulesFor) {
+  const drops = [];
+  const leagues = (file?.leagues ?? []).map(e => {
+    const rules = e && !e.error ? rulesFor(e.league) : null;
+    if (!rules) return e;
+    const g = gateServedSteps(rules, e);
+    for (const d of g.drops) drops.push({ league: e.league, ...d });
+    return g.entry;
+  });
+  return { file: drops.length ? { ...file, leagues } : file, drops };
+}
+
+const unknownField = (source, reason) => ({ status: 'unknown', source, reason });
+export const STEP_OVERPAY_REASON = "No longer passes Nick's overpay rule at today's FantasyCalc prices (every step is a real trade: cap 0, "
+  + '+12% only on a depth-only 2-for-1 that raises lineup points and title odds). It waits for the next replan.';
+
+/**
+ * STEP-OVERPAY: every served step of a plans entry against the overpay rule at TODAY's FantasyCalc
+ * prices. A league the producer did not replan this run is kept as it was written (mergeKept), so its
+ * steps were priced on the values of their own run; a price move since can turn a legal step into an
+ * overpay (league 5, 2026-09-26: planned 07:01 at +9.5%, served at 09:35 at +24.7%). A move with any
+ * breaking step is withdrawn: dropped from alternatives, next_move and a risk mode's first step
+ * become unknown with the reason. Pure; the scores for the depth exception come from the entry's own
+ * blue-chip board. -> { entry, drops: [{ where, move_id, step, give, get, overpay }] }
+ */
+export function gateServedSteps(rules, entry) {
+  if (!entry || entry.error) return { entry, drops: [] };
+  const board = new Map();
+  if (entry.blue_chips?.status === 'ok') for (const r of entry.blue_chips.value?.rows ?? []) board.set(S(r.player), Number(r.score));
+  const r = { ...rules, scoreOf: id => (board.has(S(id)) ? board.get(S(id)) : rules.scoreOf?.(id) ?? null) };
+  const drops = [];
+  const breaking = (steps, where, moveId) => {
+    let bad = false;
+    (steps ?? []).forEach((st, k) => {
+      if (!st || !Array.isArray(st.give) || !Array.isArray(st.get)) return;
+      const o = overpayCheck(r, { give: st.give, get: st.get, premium: stepPremium(st) });
+      if (o.priced && o.breaks) {
+        bad = true;
+        drops.push({ where, move_id: moveId ?? null, step: k + 1, give: st.give.map(S), get: st.get.map(S), overpay: +o.over.toFixed(4) });
+      }
+    });
+    return bad;
+  };
+  let out = entry;
+  const nm = entry.next_move?.status === 'ok' ? entry.next_move.value : null;
+  if (nm && breaking(nm.steps, 'next_move', nm.move_id)) out = { ...out, next_move: unknownField(entry.next_move.source ?? 'plan.path', STEP_OVERPAY_REASON) };
+  if (entry.alternatives?.status === 'ok' && Array.isArray(entry.alternatives.value)) {
+    const kept = entry.alternatives.value.filter((m, i) => !breaking(m?.steps, `alternatives[${i}]`, m?.move_id));
+    // The deck stays best first with contiguous ranks (plans-schema.js).
+    if (kept.length !== entry.alternatives.value.length) {
+      out = { ...out, alternatives: { ...entry.alternatives, value: kept.map((m, i) => (m.rank === i + 1 ? m : { ...m, rank: i + 1 })) } };
     }
   }
-  return { ok: reasons.size === 0, reasons: [...reasons], overpay: over, requires_nick_confirm: needsOk };
+  if (entry.risk_modes?.status === 'ok' && Array.isArray(entry.risk_modes.value)) {
+    let changed = false;
+    const modes = entry.risk_modes.value.map(m => {
+      if (!m?.first_step || !breaking([m.first_step], `risk_modes.${m.mode}.first_step`, null)) return m;
+      changed = true;
+      const src = m.expected?.source ?? 'plan.path';
+      return { ...m, first_step: null, expected: unknownField(src, STEP_OVERPAY_REASON), if_complete: unknownField(src, STEP_OVERPAY_REASON),
+        p_complete: unknownField(src, STEP_OVERPAY_REASON) };
+    });
+    if (changed) out = { ...out, risk_modes: { ...entry.risk_modes, value: modes } };
+  }
+  return { entry: out, drops };
 }
 
 /* ------------------------------------------------------------------ readers */

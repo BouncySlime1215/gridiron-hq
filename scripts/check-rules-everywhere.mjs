@@ -20,6 +20,8 @@
  *   points and title odds, which no surface here carries, so it never applies)
  *   STEP-REGRET: every served step of the War Room plan (the file and the view as served) gains title
  *   odds on its own (a step at or below 0 breaks "every move beats doing nothing")
+ *   STEP-OVERPAY: every served step of the War Room plan passes the overpay rule on its own (cap 0; +12%
+ *   only on a depth-only 2-for-1 whose served lineup-points and title-odds deltas both rise)
  *
  * FantasyPros exposure (Nick's rule: never displayed or committed): the War Room view and Coach's
  * plan_read of the blue-chip board, as served, must carry no key matching /^fp_|fantasypros/i.
@@ -210,6 +212,40 @@ const stepRegretResult = (name, entry) => {
     bad: breaks.map(b => ({ give: [b.move_id], get: [`step ${b.step}`], v: [`step ${b.step} of ${b.move_id} (${b.where}) gains ${(b.delta * 100).toFixed(2)} pts of title odds, not above 0`] })) });
 };
 stepRegretResult('war-room plans file: STEP-REGRET', fs.existsSync(plansFile)
+  ? (JSON.parse(fs.readFileSync(plansFile, 'utf8')).leagues ?? []).find(l => S(l.league) === S(LEAGUE)) : null);
+
+/* ------------------------------------------------------------ STEP-OVERPAY on the served plan */
+// Nick's overpay rule applies to EVERY step of a War Room path (each is a real trade): FantasyCalc value
+// given never above value got, except a depth-only 2-for-1 up to +12% whose own served deltas (lineup
+// points and title odds) both rise. Restated here from the raw values, not imported from never-give.js.
+const stepOverpays = st => {
+  const g = (st.give ?? []).map(S), r = (st.get ?? []).map(S);
+  if (![...g, ...r].every(id => fc.has(id))) return null;          // unpriced: the package check above owns that
+  const gv = g.reduce((s, id) => s + fc.get(id), 0), rv = r.reduce((s, id) => s + fc.get(id), 0);
+  if (!(rv > 0) || gv <= rv + 1e-9) return null;
+  const over = gv / rv - 1;
+  const dp = st.depth_premium?.status === 'ok' ? st.depth_premium.value : st.depth_premium;
+  const pts = dp?.confirmed_lineup_points_delta ?? dp?.lineup_points_delta, tit = dp?.confirmed_title_odds_delta ?? dp?.title_odds_delta;
+  if (g.length === 2 && r.length === 1 && over <= 0.12 + 1e-9 && Number(pts) > 0 && Number(tit) > 0) return null;
+  return over;
+};
+const stepOverpayResult = (name, entry) => {
+  if (!entry) { results.push({ name, skip: 'not run: no plans entry for this league' }); return; }
+  const moves = [...(entry.next_move?.status === 'ok' ? [['next_move', entry.next_move.value]] : []),
+    ...(entry.alternatives?.status === 'ok' ? (entry.alternatives.value ?? []).map((m, i) => [`alternatives[${i}]`, m]) : [])];
+  const firsts = entry.risk_modes?.status === 'ok' ? (entry.risk_modes.value ?? []).filter(m => m?.first_step).map(m => [`${m.mode}.first_step`, { steps: [m.first_step] }]) : [];
+  const bad = [];
+  let n = 0;
+  for (const [where, m] of [...moves, ...firsts]) {
+    (m.steps ?? []).forEach((st, k) => {
+      n++;
+      const over = stepOverpays(st);
+      if (over != null) bad.push({ give: (st.give ?? []).map(S), get: (st.get ?? []).map(S), v: [`${where} step ${k + 1} overpays ${(over * 100).toFixed(1)}%`] });
+    });
+  }
+  results.push({ name, n, dropped: null, bad });
+};
+stepOverpayResult('war-room plans file: STEP-OVERPAY (every step)', fs.existsSync(plansFile)
   ? (JSON.parse(fs.readFileSync(plansFile, 'utf8')).leagues ?? []).find(l => S(l.league) === S(LEAGUE)) : null);
 
 /* ------------------------------------------------------------ FantasyPros exposure */

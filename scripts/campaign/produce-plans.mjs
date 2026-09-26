@@ -94,7 +94,7 @@ import { rbTitleMode } from '../../server/services/rb-title.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { applyNegotiatorSafety, blockedIds, negotiatorSafetyOn } from '../../server/services/campaign/negotiator-safety.js';
-import { withNeverGive } from '../../server/services/campaign/never-give.js';
+import { withNeverGive, ruleGate, gatePlansFile } from '../../server/services/campaign/never-give.js';
 import { holdStepRegret } from '../../server/services/campaign/serve-regret.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
@@ -591,7 +591,16 @@ async function main() {
     if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
     console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
     // A --leagues run keeps every other league's previous entry untouched.
-    const written = opts.leagues ? mergeKept(file, previous, { order: allIds, ran: leagues.map(l => l.id) }) : file;
+    const merged = opts.leagues ? mergeKept(file, previous, { order: allIds, ran: leagues.map(l => l.id) }) : file;
+    // STEP-OVERPAY: every served step of every league (kept ones too) against Nick's overpay rule at
+    // today's FantasyCalc prices, through the one rules module (never-give.js). A kept league was priced
+    // on its own run's values; a price move since must not leave an overpaying step on the deck.
+    const stepGate = gatePlansFile(merged, league => ruleGate({ row: svc.db.row, rows: svc.db.rows }, { leagueId: league, env }).rules);
+    for (const d of stepGate.drops) {
+      console.log(`[warroom] league ${d.league}: withdrew ${d.where} (${d.move_id ?? 'first step'}): step ${d.step} gives ${d.give.join('+')} for ${d.get.join('+')}, `
+        + `${(d.overpay * 100).toFixed(1)}% over on FantasyCalc value`);
+    }
+    const written = stepGate.file === merged ? merged : stepGate.file;
     const checked = validatePlans(written);
     if (!checked.ok) throw new Error(`plans file failed its contract check after reasoning: ${checked.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
     const tmp = `${out}.tmp-${process.pid}`;
@@ -616,7 +625,7 @@ async function main() {
     // REFRESH-L4: a --leagues run carries the kept leagues' screens from the last his-screens file.
     const ranIds = new Set(leagues.map(l => String(l.id)));
     await writeHisScreens(file, { log: line => console.log(line),
-      keep: written === file ? [] : written.leagues.map(e => String(e.league)).filter(id => !ranIds.has(id)) });
+      keep: merged === file ? [] : written.leagues.map(e => String(e.league)).filter(id => !ranIds.has(id)) });
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
@@ -635,7 +644,7 @@ async function main() {
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;
-    const keptNote = written === file ? '' : ` kept ${written.leagues.length - entries.length}`;
+    const keptNote = merged === file ? '' : ` kept ${written.leagues.length - entries.length}`;
     console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
     if (failed === entries.length && entries.length) process.exitCode = 1;
   } finally { release(); }

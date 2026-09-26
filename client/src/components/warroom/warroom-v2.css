@@ -370,7 +370,9 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-v2 .wr-ch-s { font-size: 12px; color: var(--c-muted); }
 .wr-drawer-ctx { margin: 0 16px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--c-muted); border-radius: var(--r-tile); background: var(--c-soft); }
 .wr-drawer-ctx span { min-width: 0; overflow-wrap: anywhere; }
-.wr-drawer-b { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 16px; display: flex; flex-direction: column; gap: 16px; overscroll-behavior: contain; }
+.wr-drawer-b { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 16px; display: flex; flex-direction: column; gap: 16px; overscroll-behavior: contain; }
+/* COACH-V2 drawer: the model-off / limit-used banner (plan answers still work). */
+.wr-ai-banner { margin: 0; padding: 10px 12px; border-radius: var(--r-tile); background: var(--c-amber-tint); color: var(--c-ink); font-size: 13px; overflow-wrap: anywhere; }
 .wr-fixedq { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .wr-v2 .wr-q { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 0; background: var(--c-soft);
   border-radius: var(--r-tile); padding: 12px 14px; font-size: 14px; font-weight: 500; transition: background-color var(--t), box-shadow var(--t), transform var(--t-fast); }

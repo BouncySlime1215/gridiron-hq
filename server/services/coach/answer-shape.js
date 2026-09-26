@@ -20,6 +20,8 @@
  * bullet, a long bullet, extra refusal lines), never the answer.
  */
 
+import { neutral } from '../people/neutral.js';
+
 export const LIMITS = Object.freeze({ verdictWords: 18, whyMax: 3, whyWords: 22, risksMax: 2, riskWords: 22, totalWords: 120 });
 export const STANCES = Object.freeze(['go', 'wait', 'avoid', 'none']);
 /** COACH-V2 unit 4: the deciding basis as the ONE vocabulary Numbers & People uses (numbers-people/lanes.js BASES). */
@@ -48,6 +50,7 @@ ANSWER FORMAT. Reply with the JSON object in the schema, filled like this:
 - "basis_key": the same reason as one of: title_gain (the odds the plan chases), price (value given or asked), willingness (whether he will deal), roster_fit (a lineup need), risk (injury, volatility, a weak guess), timing (why now or not now).
 - "why": one to ${LIMITS.whyMax} bullets, at most ${LIMITS.whyWords} words each; the first is the deciding reason; each carries ONE cited number with its label. Empty when you refused.
 - "risks": at most ${LIMITS.risksMax} lines, "If no: ..." or "Risk: ...", only when the plan has them.
+- Refer to any league-mate as they, them or their, never he, him or his. A line resting on chat reads ends with "(from chat, unverified)".
 - Never mention tables, columns, fields, schema, queries or any snake_case name, and never guess at them: when a fact is not on file, say so in plain words ("No health update on file yet.").
 - "refusals": at most one short line, only for what you could not answer; leave it empty when the verdict and why already answer.
 - Aim for about 80 words in all. Do not mention a number the plan does not serve unless Nick asked about it.
@@ -252,4 +255,68 @@ export function stripDevText(answer) {
   const verdict = bad.some(b => b.block === 'verdict') ? { text: NOT_ON_FILE, cites: [] } : s.verdict;
   const shape = { ...s, verdict, why, risks, ...(bad.some(b => b.block === 'disagreement') ? { disagreement: null } : {}) };
   return { answer: { ...answer, refusals, shape, claims: claimsOf(shape) }, dropped: bad };
+}
+
+/* ------------------------------------------------ league-mates are "they" */
+
+/**
+ * COACH-V2 drawer (Nick, 2026-09-26): a league-mate is "they", never he, him or his, in every
+ * line Coach shows, and a chat read is "(from chat, unverified)". The swap is Numbers & People's
+ * one guard (numbers-people/lanes.js#neutral). A line it cannot make neutral is dropped; a
+ * verdict it cannot make neutral keeps the plain verdict below.
+ */
+const OLD_LABEL = /\(?\bchat read,? \(?ungraded\)?\)?/gi;
+const OLD_SHORT = /\(chat reads?\)/gi;
+const relabel = t => String(t).replace(OLD_LABEL, m => (m.startsWith('(') ? '(from chat, unverified)' : 'from chat, unverified')).replace(OLD_SHORT, '(from chat, unverified)');
+export const NEUTRAL_VERDICT = 'Here is what your plan says about this.';
+
+/** One line, neutral and relabelled; null when it cannot be made neutral. */
+export function neutralLine(text) {
+  return text == null ? text : neutral(relabel(text));
+}
+
+/** The whole answer, every shown line neutral. -> { answer, dropped } */
+export function neutralAnswer(answer) {
+  let dropped = 0;
+  const line = l => { const t = neutralLine(l.text); if (t == null) { dropped++; return null; } return { ...l, text: t }; };
+  const claims = (answer?.claims ?? []).map(line).filter(Boolean);
+  const refusals = (answer?.refusals ?? []).map(r => { const t = neutralLine(r); if (t == null) dropped++; return t; }).filter(Boolean);
+  let shape = answer?.shape;
+  if (shape) {
+    const v = shape.verdict ? neutralLine(shape.verdict.text) : null;
+    if (shape.verdict && v == null) dropped++;
+    const dis = shape.disagreement ? neutralLine(shape.disagreement) : shape.disagreement;
+    shape = { ...shape, verdict: shape.verdict ? { ...shape.verdict, text: v ?? NEUTRAL_VERDICT } : shape.verdict,
+      why: (shape.why ?? []).map(line).filter(Boolean), risks: (shape.risks ?? []).map(line).filter(Boolean),
+      ...(shape.more ? { more: shape.more.map(line).filter(Boolean) } : {}),
+      ...(shape.disagreement !== undefined ? { disagreement: dis ?? null } : {}) };
+  }
+  return { answer: { ...answer, claims, refusals, ...(shape ? { shape } : {}) }, dropped };
+}
+
+/** The lanes block's shown lines in neutral words. */
+export function neutralLanes(lanes) {
+  if (!lanes) return lanes;
+  return { ...lanes, ...(lanes.disagreement ? { disagreement: neutralLine(lanes.disagreement) } : {}),
+    ...(lanes.people?.claims ? { people: { ...lanes.people, claims: lanes.people.claims.map(neutralLine).filter(Boolean),
+      ...(lanes.people.label ? { label: neutralLine(lanes.people.label) } : {}) } } : {}),
+    ...(lanes.card ? { card: neutralCard(lanes.card) } : {}) };
+}
+
+/** The Numbers & People card's lines in neutral words ("they", "(from chat, unverified)"). */
+export function neutralCard(item) {
+  if (!item) return item;
+  const lane = l => (l ? { ...l, ...(l.why ? { why: neutralLine(l.why) } : {}), ...(l.label ? { label: neutralLine(l.label) } : {}) } : l);
+  return { ...item, numbers: lane(item.numbers), people: lane(item.people) };
+}
+
+/**
+ * A stored Coach turn as the drawer shows it again: turns saved before the "they" rule and the
+ * "(from chat, unverified)" label read the same as new ones.
+ */
+export function neutralStored(payload = {}) {
+  const { answer } = neutralAnswer({ claims: payload.claims ?? [], refusals: payload.refusals ?? [], shape: payload.shape ?? null });
+  return { claims: answer.claims, refusals: answer.refusals, shape: answer.shape ?? null,
+    followups: (payload.followups ?? []).map(neutralLine).filter(Boolean), lanes: neutralLanes(payload.lanes ?? null),
+    numbers_people: neutralCard(payload.numbers_people ?? null) };
 }

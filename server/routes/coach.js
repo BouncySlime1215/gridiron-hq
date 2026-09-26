@@ -32,6 +32,7 @@ import { coachBriefFlag, BRIEF_ENV, morningBrief, weeklyCheckIn, readPlansFile }
 import { warRoomPlansPath } from '../services/warroom-flag.js';
 import { chatTurn } from '../services/coach/chat.js';
 import { activeThread, newThread, threadMessages, threadTurnLimit, setThreadFocus } from '../services/coach/threads.js';
+import { neutralStored, neutralLine } from '../services/coach/answer-shape.js';
 import { followupsFor } from '../services/coach/followups.js';
 import { budgetStatus } from '../services/llm-budget.js';
 
@@ -111,10 +112,14 @@ const leagueParam = req => {
 };
 
 /** A stored message as the drawer shows it: Nick's text, or Coach's grounded reply. */
-const shownMessage = m => (m.role === 'nick' ? { id: m.id, who: 'nick', text: m.text, at: m.created_at }
-  : { id: m.id, who: 'coach', text: m.text, intent: m.intent, at: m.created_at, claims: m.payload.claims ?? [], refusals: m.payload.refusals ?? [],
-    ledger: m.payload.ledger ?? null, followups: m.payload.followups ?? [], proposals: m.payload.proposals ?? [], lanes: m.payload.lanes ?? null,
-    shape: m.payload.shape ?? null, numbers_people: m.payload.numbers_people ?? null });
+const shownMessage = m => {
+  if (m.role === 'nick') return { id: m.id, who: 'nick', text: m.text, at: m.created_at };
+  // Stored turns read like new ones: league-mates are "they", chat reads "(from chat, unverified)".
+  const shown = neutralStored(m.payload);
+  return { id: m.id, who: 'coach', text: neutralLine(m.text) ?? shown.shape?.verdict?.text ?? '', intent: m.intent, at: m.created_at,
+    claims: shown.claims, refusals: shown.refusals, ledger: m.payload.ledger ?? null, followups: shown.followups, proposals: m.payload.proposals ?? [],
+    lanes: shown.lanes, shape: shown.shape, numbers_people: shown.numbers_people };
+};
 
 function threadView(userId, leagueId, thread) {
   const t = thread ?? activeThread(userId, leagueId, { create: false });

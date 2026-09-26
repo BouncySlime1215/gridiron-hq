@@ -160,6 +160,8 @@ test('focus resolution: pronouns keep the focus, a named manager is a partner sw
   assert.equal(f('what if he says no?').intent, 'if_no');
   assert.equal(f('and if he counters?').intent, 'if_no');
   assert.equal(f('what if he goes quiet').intent, 'if_no');
+  assert.equal(f('What if they say no?').intent, 'if_no', 'the chip, in neutral words, still routes');
+  assert.equal(f('what if they go quiet').intent, 'if_no');
   assert.deepEqual(f('what about Barnaby instead?'), { intent: 'partner_switch', roster: '2' });
   assert.deepEqual(f('what about team 4'), { intent: 'partner_switch', roster: '4' });
   assert.deepEqual(f('how about the Oakes Owls'), { intent: 'partner_switch', roster: '4' });
@@ -205,15 +207,15 @@ test('a conversation at $0: next move, why, what if no, other option, the other 
   grounded(why, 'why');
   assert.equal(why.intent, 'why');
   assert.match(texts(why), /^Why: /m);
-  assert.match(texts(why), /^His side: /m);
+  assert.match(texts(why), /^Their side: /m);
   assert.doesNotMatch(texts(why), /\.js|\bE1\b|_/, 'no engine asides');
   assert.equal(why.thread.focus.move_id, moveId, 'a pronoun follow-up keeps the focus');
 
   const no = await say(U, 'what if he says no?');
   grounded(no, 'if no');
-  assert.match(texts(no), /^If he says no: /m);
-  assert.match(texts(no), /^If he counters: /m);
-  assert.match(texts(no), /^If he goes quiet/m);
+  assert.match(texts(no), /^If they say no: /m);
+  assert.match(texts(no), /^If they counter: /m);
+  assert.match(texts(no), /^If they go quiet/m);
   assert.match(texts(no), /Quincy Marlowe/, 'the partner is named from the identity rows');
 
   const other = await say(U, 'any other option?');
@@ -289,4 +291,26 @@ test('the spend endpoint reports the Coach budget for today', async () => {
   const body = await (await fetch(`${base}/spend`, { headers: headers(9705) })).json();
   assert.equal(body.model_on, false);
   assert.equal(typeof body.spent_today_usd, 'number');
+});
+
+test('a turn stored before the "they" rule reads like a new one when the thread reopens', async () => {
+  const t = threads.newThread(9706, 4);
+  const shape = { verdict: { text: 'Send Team 2 the served offer, leading with his roster need.', cites: [] }, stance: 'go', basis: 'title odds',
+    why: [{ text: 'Jev puts his yes at 31% as sent (chat read).', cites: [] }], risks: [{ text: 'If he says no: the backup card is next.', cites: [] }],
+    disagreement: 'Numbers say go; Jev reads wait because of his price (chat read, ungraded).' };
+  const card = { key: 'move:M1', numbers: { stance: 'go', why: 'Title odds move.' },
+    people: { stance: 'wait', why: 'Jev: 31% he takes it as sent (chat read, ungraded).', label: 'chat read (ungraded)' } };
+  const payload = { claims: shape.why, refusals: [], shape, numbers_people: card, followups: ['What if he says no?'],
+    lanes: { people: { claims: [card.people.why], label: 'Jev, chat read (ungraded)' }, disagreement: shape.disagreement, card } };
+  run(`INSERT INTO coach_messages (thread_id, role, text, intent, payload_json) VALUES (?, 'nick', 'is it worth sending?', NULL, '{}')`, t.id);
+  run(`INSERT INTO coach_messages (thread_id, role, text, intent, payload_json) VALUES (?, 'coach', ?, 'DO', ?)`, t.id, shape.verdict.text, JSON.stringify(payload));
+  const open = await (await fetch(`${base}/thread/4`, { headers: headers(9706) })).json();
+  const m = open.messages[1];
+  const shown = JSON.stringify([m.text, m.claims, m.shape, m.followups, m.lanes, m.numbers_people]);
+  assert.doesNotMatch(shown, /\b(he|his|him)\b/i);
+  assert.doesNotMatch(shown, /ungraded|chat read\b(?! \(from)/i);
+  assert.equal(m.shape.verdict.text, 'Send Team 2 the served offer, leading with their roster need.');
+  assert.equal(m.shape.disagreement, 'Numbers say go; Jev reads wait because of their price (from chat, unverified).');
+  assert.deepEqual(m.followups, ['What if they say no?']);
+  assert.equal(m.numbers_people.people.label, 'from chat, unverified');
 });

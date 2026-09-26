@@ -111,7 +111,7 @@ const CLAIMS_OUTPUT = `YOUR OUTPUT. When you are ready to answer, reply with ONL
   "refusals": [ "what you could not answer, and why" ],
   "as_of": "how old the hand-collected data behind this is, or null"
 }
-Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.`;
+Refer to any league-mate as they, them or their, never he, him or his. Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.`;
 
 /** COACH-V2: the answer format (answer-shape.js) replaces the claims list on chat turns. */
 const SHAPED_OUTPUT = `YOUR OUTPUT. When you are ready to answer, reply with ONLY the JSON object in the answer schema: a verdict, a stance, a basis, why bullets, risks and refusals. Every line that states a number carries the cites that support it (its own cites). Write the way a knowledgeable friend would say it out loud: the answer first, no hedging, no restating of the question.${SHAPE_PROMPT}`;

@@ -175,8 +175,8 @@ export function EmptyState({ title, description, action, icon = 'inbox' }: { tit
   return <Card><div className="ds-empty" role="status"><span className="ds-empty-ic"><Icon name={icon} size={20} /></span><div className="ds-empty-t">{title}</div>
     {description && <p className="ds-empty-d">{description}</p>}{action && <div className="mt-3">{action}</div>}</div></Card>;
 }
-export function ErrorState({ title = 'Could not load this', message, retry }: { title?: string; message: string; retry?: () => void }) {
-  return <div className="ds-error" role="alert"><div className="ds-error-t">{title}</div><p className="mt-1 text-sm">{message}</p>{retry && <Button size="sm" className="mt-3" onClick={retry}>Retry</Button>}</div>;
+export function ErrorState({ title = 'Could not load this', message, retry, retryLabel = 'Retry' }: { title?: string; message: string; retry?: () => void; retryLabel?: string }) {
+  return <div className="ds-error" role="alert"><div className="ds-error-t">{title}</div><p className="mt-1 text-sm">{message}</p>{retry && <Button size="sm" className="mt-3" onClick={retry}>{retryLabel}</Button>}</div>;
 }
 
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {

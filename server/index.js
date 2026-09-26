@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
 import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
+import { createPwa } from './platform/pwa.js';
 // FP-GUARD: FantasyPros is never displayed, so no fp_* / FantasyPros key leaves in any API response.
 import { fantasyProsGuard } from './services/fantasypros-guard.js';
 
@@ -53,6 +54,8 @@ const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
 const { default: numberAuditRouter } = await import('./routes/number-audit.js');
+const { default: dataQualityRouter } = await import('./routes/data-quality.js');
+const { default: releaseNotesRouter } = await import('./routes/release-notes.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -116,6 +119,13 @@ startDraftFinalizeJob();
 
 app.get('/api/health', healthHandler());
 
+// STARTUP HEALTH (plan item 56, flag GRIDIRON_STARTUP_HEALTH, off by default): the trade-card routes
+// answer 503 with a plain banner instead of a card while the rules module, the FantasyCalc value reader
+// or the season trade ledger fails to load. Off, tradeSafety.gate is a pass-through and nothing is probed.
+const { createTradeSafety, startupHealthOn } = await import('./services/startup-health.js');
+const tradeSafety = createTradeSafety({ db: await import('./db/index.js') });
+if (startupHealthOn()) await tradeSafety.probe();
+
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
@@ -125,6 +135,10 @@ app.use('/api/auth', localAuthRouter);
 // established either way is the same `auth_sessions` row underneath.
 app.use('/api/auth', googleAuthRouter);
 
+// STARTUP HEALTH gate: matches only the trade-card paths (startup-health.js#CARD_ROUTES) and passes
+// everything else through. Mounted once, ahead of the routers, so their auth mounts stay as they are;
+// its 503 carries the fixed banner text only, never data.
+app.use(tradeSafety.gate);
 app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
@@ -148,6 +162,10 @@ app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/grades', ...legacyAuthenticated, gradesRouter);
+// The banner's source: { enabled: false } with the flag off, else { status: 'ok' | 'fail_closed', banner }.
+app.get('/api/trade-safety', ...legacyAuthenticated, async (_req, res, next) => {
+  try { res.json(await tradeSafety.status()); } catch (e) { next(e); }
+});
 app.use('/api/warroom', ...legacyAuthenticated, warroomNegotiateRouter);
 app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);
@@ -166,6 +184,11 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
 // BROKEN-01b: read-only number-health rows the refresh loop writes (Settings card, nav dot).
 app.use('/api/number-audit', ...legacyAuthenticated, numberAuditRouter);
+// DATA QUALITY PANEL (item 35, GRIDIRON_DATA_QUALITY, off): freshness, offer orphans, number-health
+// trend and last-good fallbacks in one read-only report for Settings -> Health.
+app.use('/api/data-quality', ...legacyAuthenticated, dataQualityRouter);
+// RELEASE NOTES (item 60, GRIDIRON_RELEASE_NOTES, off): Today's "what changed for you" note, shown once.
+app.use('/api/release-notes', ...legacyAuthenticated, releaseNotesRouter);
 // Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
@@ -218,9 +241,13 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   // only index.html (which points at the current hashes) must be revalidated.
   // Over a tunnel to a phone this turns three ~300ms round trips into zero.
   app.use('/assets', express.static(path.join(DIST, 'assets'), { immutable: true, maxAge: '1y' }));
+  // MOBILE-PWA (GRIDIRON_PWA): manifest + shell-only service worker, and index.html with the
+  // manifest link when on. Off, index.html is sent exactly as built (platform/pwa.js).
+  const pwa = createPwa({ distDir: DIST });
+  app.use(pwa.router);
   app.use(express.static(DIST, { index: false, maxAge: 0 }));
   // SPA fallback — client-side routes like /trade-lab must not 404 on refresh.
-  app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
+  app.get(/^(?!\/api\/).*/, pwa.sendIndex);
 }
 
 // Loopback-only by default (see the note at scripts/start.mjs's URL constant

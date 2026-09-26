@@ -100,6 +100,9 @@ import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { sellHighSummary } from '../../server/services/campaign/sell-high.js';
+import { playoffWeekSummary } from '../../server/services/campaign/playoff-week.js';
+import { priceInsurance, insuranceSummary } from '../../server/services/campaign/injury-insurance.js';
+import { servedTrade } from '../../server/services/campaign/injury-insurance-inputs.js';
 import { buyLowPositions, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
@@ -196,6 +199,27 @@ export function readObjectives(file) {
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${file}: expected an object keyed by league id`);
   return parsed;
+}
+
+/**
+ * INJURY INSURANCE (shadow): the adapter's inputs, Nick's side of the served move (res.best) and this
+ * season's sales (trade memory: no buy-backs), priced by injury-insurance.js. A failed read is
+ * recorded with its reason and logged, never a dead league entry and never a silent empty block.
+ */
+export async function insuranceForRun(adapter, res, log = () => {}, league = null, objectiveUntouchables = []) {
+  try {
+    const inp = await adapter.injuryInsurance();
+    const tm = res.trade_memory ?? {};
+    const sold = new Set([...(tm.sold_recently ?? []), ...(tm.buy_backs ?? []).map(b => b.player)].map(String));
+    const playerOf = id => { const p = adapter.players?.get(id) ?? adapter.players?.get(Number(id)); return p ? { position: p.position, ros_ppg: p.ros_ppg, available: p.available } : null; };
+    // integration-f: the objectives file's untouchables count too (never the drop), as the planner's neverDrop.
+    const untouchable = new Set([...(inp.untouchable ?? []), ...(objectiveUntouchables ?? [])].map(String));
+    return insuranceSummary(priceInsurance({ ...inp, untouchable, sold: new Set([...(inp.sold ?? []), ...sold].map(String)),
+      trade: servedTrade(res.best, playerOf) }));
+  } catch (e) {
+    log(`[warroom] league ${league}: injury insurance read failed: ${e.message}`);
+    return { lane: 'shadow', status: 'error', reason: e.message };
+  }
 }
 
 function readPrevious(file) {
@@ -317,6 +341,22 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  *         radarLedger (optional array): RADAR-WIRE's ledger rows (why-now.js#applyWhyNow) for each league that ships }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
+/**
+ * PLAYOFF-WEEK VALUE (shadow): the block for _run.inputs.playoff_week. Read after planning, so it can
+ * never constrain the search. A failed read is written as status 'error' with its reason and logged;
+ * the league's plan is unaffected.
+ */
+function playoffWeekBlock(adapter, entry, id, log) {
+  const me = adapter.league?.me;
+  const ids = [...(adapter.rosters?.get(me) ?? []), ...loveIdsOf(entry)];
+  try {
+    return playoffWeekSummary(adapter.playoffWeek(), { ids, targets: entry.targets ?? null });
+  } catch (e) {
+    log(`[warroom] league ${id}: playoff_week read failed: ${e.message}`);
+    return { lane: 'shadow', status: 'error', reason: String(e.message ?? e) };
+  }
+}
+
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
   flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
@@ -397,6 +437,8 @@ export async function buildPlansFile(leagues, {
             read_error: brain.read.error } : { status: 'not_read' },
           // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
+          // PRODUCER-SPEED (GRIDIRON_PRODUCER_SPEED=1): the roster-points memo's counts, only when it is on.
+          ...(adapter.speedStats?.() ? { producer_speed: adapter.speedStats() } : {}),
           // DRAFT-ID-MAP (shadow): join counts, only when GRIDIRON_DRAFT_ID_MAP gave the adapter a draft read.
           ...(adapter.draft ? { draft_id_map: draftSummary(adapter.draft) } : {}),
           // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.
@@ -405,7 +447,18 @@ export async function buildPlansFile(leagues, {
           // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): Nick's players whose TD rate beats expected by > 1pp.
           // A label, weight 0, read after planning; nothing served reads it.
           ...(adapter.sellHigh ? { sell_high: sellHighSummary(adapter.sellHigh(), { untouchable: adapter.untouchable ?? [] }) } : {}),
+          // PLAYOFF-WEEK VALUE (shadow, GRIDIRON_PLAYOFF_WEEK_VALUE): same-season matchup read on the playoff weeks
+          // for Nick's roster and this entry's targets, and the tiebreak it WOULD make (logged, never applied).
+          ...(adapter.playoffWeek ? { playoff_week: playoffWeekBlock(adapter, entry, id, log) } : {}),
+          // BENCH-CONSOLIDATION + ROSTER-SPOT VALUE (shadow, GRIDIRON_CONSOLIDATION=1): the finder's report, ids only.
+          // Written only when the flag is on, so off the entry is byte-for-byte the incumbent's; nothing served reads it.
+          ...(res.consolidation ? { consolidation: res.consolidation } : {}),
         };
+      }
+      // INJURY INSURANCE (shadow, GRIDIRON_INJURY_INSURANCE=1): a handcuff for each Blue chip, priced beside the
+      // served move. Read after planning, so it can never constrain the search; nothing served reads it.
+      if (entry._run && typeof adapter.injuryInsurance === 'function' && !res.error) {
+        entry._run.inputs.injury_insurance = await insuranceForRun(adapter, res, log, id, objective.untouchables ?? []);
       }
       if (buyLow) {
         entry = annotateEntryTargets(entry, buyLow.reads, blPositions);

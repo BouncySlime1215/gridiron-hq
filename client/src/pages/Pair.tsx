@@ -44,7 +44,7 @@ export default function Pair() {
         </div>
         <form onSubmit={submit} className="space-y-3">
           <input
-            inputMode="numeric" autoComplete="one-time-code" autoFocus
+            inputMode="numeric" autoComplete="one-time-code" autoFocus aria-label="Pairing code"
             value={code} onChange={e => setCode(e.target.value.replace(/[^\d-]/g, '').slice(0, 9))}
             placeholder="1234-5678"
             className="w-full rounded-lg border border-slate-300 px-3 py-3 text-center text-2xl font-mono tracking-[.2em] focus:border-emerald-500 focus:outline-none" />

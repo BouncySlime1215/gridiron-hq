@@ -24,6 +24,12 @@ import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { sellHighEnabled } from '../../server/services/campaign/sell-high.js';
 import { readSellHighInputs } from '../../server/services/campaign/sell-high-inputs.js';
+import { playoffWeekMode } from '../../server/services/campaign/playoff-week.js';
+import { readPlayoffWeekLines } from '../../server/services/campaign/playoff-week-inputs.js';
+import { matchupModel } from '../../server/services/matchups.js';
+import { scoringFor } from '../../server/services/scoring.js';
+import { insuranceEnabled } from '../../server/services/campaign/injury-insurance.js';
+import { handcuffsByStarter } from '../../server/services/campaign/injury-insurance-inputs.js';
 import { buyLowEnabled } from '../../server/services/campaign/buy-low.js';
 import { readBuyLow } from '../../server/services/campaign/buy-low-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
@@ -33,6 +39,7 @@ import { fcValues, fcValueOf, fcFormatValues } from '../../server/services/fc-va
 import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
 import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 import { searchWideFlag, CLAIM_POOL_SIZE } from '../../server/services/campaign/search-wide.js';
+import { producerSpeedEnabled, pointsMemo } from './points-memo.mjs';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -345,8 +352,9 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env),
-  searchWide = searchWideFlag(env) } = {}) {
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env), injuryInsurance = insuranceEnabled(env),
+  playoffWeek = playoffWeekMode(env) !== 'off',
+  searchWide = searchWideFlag(env), speed = producerSpeedEnabled(env) } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
   // planner can never disagree about the flag.
@@ -356,7 +364,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const wBase = tradeImpactWorld(lg, { fastLineups: fast });
+  // PRODUCER-SPEED (points-memo.mjs): only on top of PRODUCER-FAST's lineups; off, the adapter is as before.
+  const speedOn = !!(speed && fast);
+  const wBase = tradeImpactWorld(lg, { fastLineups: fast, fastSeasons: speedOn });
   if (wBase.fail) return { fail: String(wBase.fail?.error ?? wBase.fail) };
   // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): the top free agents are simulated as the world's universe, so
   // a claim step is priced on the same dice as the trades. That is a different world (season-sim.js:940), so
@@ -364,16 +374,18 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const claimIds = claims
     ? freeAgentPool(wBase.prep.assets, new Set(wBase.prep.teams.flatMap(t => t.players.map(p => p.id)))).slice(0, CLAIM_POOL_SIZE).map(p => p.id)
     : [];
-  const w0 = claimIds.length ? tradeImpactWorld(lg, { fastLineups: fast, universe: claimIds, projections: wBase.projections }) : wBase;
+  const w0 = claimIds.length ? tradeImpactWorld(lg, { fastLineups: fast, fastSeasons: speedOn, universe: claimIds, projections: wBase.projections }) : wBase;
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
   const worldFor = seed => {
-    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast, universe: claimIds }));
+    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast, fastSeasons: speedOn, universe: claimIds }));
     return worlds.get(seed);
   };
 
+  const memo = speedOn ? pointsMemo(svc.sim.teamPointsFast) : null;
   const teamPoints = (w, players) => {
+    if (memo) return memo(w, players);
     if (fast) return svc.sim.teamPointsFast(w, players);
     const out = new Map();
     // SIM-KDST: the week's K / D/ST points go in as season-sim's own teamPoints passes them.
@@ -408,7 +420,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       // SEARCH-WIDE: name the world's extra free agents (the claim universe), or tradeImpact rebuilds a world
       // without them on every rescore: ~100x slower, and the rebuilt world ignores `state` (delta 0).
       const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed,
-        world: { ...w, prep: { ...w.prep, teams }, points }, universe: w.extras ?? [] });
+        world: { ...w, prep: { ...w.prep, teams }, points, ...(memo ? { teamPoints: memo } : {}) }, universe: w.extras ?? [] });
       if (r.error) throw new Error(r.error);
       if (a === me) {
         const after = state.has(me) ? seasonAvg(points.get(me), w.runs) : baseAvg;
@@ -557,6 +569,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
 
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
+  // ROSTER-SPOT VALUE (consolidation.js): a list's starting-lineup points per game on ros_ppg, the same starters rule.
+  const lineupPpg = list => { const st = startersOf(list, slots); return list.filter(p => st.has(p.id)).reduce((s, p) => s + (Number(p.ros_ppg) || 0), 0); };
   const dl = deadlineWeek(svc, lg, payload);
   return {
     league: { id: leagueId, me, fetched_at: lg.fetched_at ?? '', week, deadline_week: dl,
@@ -566,7 +580,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       deadline_at: deadlineMs(payload) == null ? null : new Date(deadlineMs(payload)).toISOString(), review_hours: reviewHours(payload) },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock, chatInterest,
+    rosters, players, managers, starters, freeAgents, lineupPpg, priceStep, priceOf, sanity, tradeBlock, chatInterest,
     // FC-VALUE: which value Nick's rules read, and how many rostered players it could not price.
     valueSource: { status: fc.status, source: fc.source, fetched_at: fc.fetched_at, ...(fc.reason ? { reason: fc.reason } : {}),
       unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },
@@ -585,6 +599,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // SEARCH-WIDE: the waiver-claim record a claim's P(yes) is priced on (search-wide.js#claimProbability).
     ...(claimIds.length ? { waiverRecord: waiverRecord(svc, { leagueId, season }) } : {}),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
+    // PRODUCER-SPEED: the roster-points memo's counts (null when the flag is off).
+    speedStats: () => (memo ? { ...memo.stats } : null),
     // O1 radar: events + net validated opportunity change for this NFL week. Present only while
     // GRIDIRON_OPP_RADAR=1; otherwise opportunityRadar 'off', which why-now.js prints as "O1 radar off".
     ...(svc.radar?.radarFlag().on
@@ -609,8 +625,19 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
     // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): TD rate vs expected TD rate on Nick's roster, weeks < this week.
     ...(sellHigh ? { sellHigh: () => readSellHighInputs(svc.db, { season, week, ids: rosters.get(me) ?? [] }) } : {}),
+    // PLAYOFF-WEEK VALUE (shadow, GRIDIRON_PLAYOFF_WEEK_VALUE): this season's lines before this week, and the base
+    // world's own playoff weeks and expected points per player-week (season-sim, the one producer of both).
+    ...(playoffWeek ? { playoffWeek: () => ({
+      ...readPlayoffWeekLines(svc.db, { season, toWeek: week, scoring: scoringFor(lg) }),
+      as_of_week: week, playoff_weeks: w0.prep.bracketWeeks.flat(), players: w0.prep.assets,
+      expected: new Map([...w0.prep.weekData].map(([wk, d]) => [wk, d.expected])), schedule: matchupModel().schedule,
+    }) } : {}),
     // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only): usage-up / points-down reads for ids, weeks < this week.
     ...(buyLow ? { buyLow: ids => readBuyLow(svc.db, { season, week, ids }) } : {}),
+    // INJURY INSURANCE (shadow, GRIDIRON_INJURY_INSURANCE=1 only): the inputs to price a handcuff for each of
+    // Nick's Blue chips (injury-insurance.js). The handoff and miss rates are fit through last season.
+    ...(injuryInsurance ? { injuryInsurance: () => insuranceInputs(svc, { rosters, players, assets, me, slots, week, season, fc,
+      scoreOf: board.byId?.size ? id => board.byId.get(String(id)) ?? null : null, untouchable }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),
@@ -671,5 +698,31 @@ export function blueChipBoard(svc, lg, { rosters, players, assets, me, untouchab
       draft: { season: lg.season, picks: n, ...(pickReason ? { reason: pickReason } : {}) },
       fp: { status: fp.status, ...(fp.reason ? { reason: fp.reason } : {}), scrape_date: fp.scrape_date ?? null, prev_date: fp.prev_date ?? null,
         sync: svc.fpSync?.status ?? 'not_run' } },
+  };
+}
+
+/**
+ * INJURY INSURANCE inputs for Nick's roster: the one lineup (trade-engine.js bestLineup on ros_ppg, as
+ * roster-risk.js prices bye and fragility weeks), the board, FantasyCalc values, miss rates
+ * (1 - contingency.js#availability) and each starter's measured handcuffs with their owners.
+ */
+export async function insuranceInputs(svc, { rosters, players, assets, me, slots, week, season, fc, scoreOf, untouchable }) {
+  const c = await import('../../server/services/contingency.js');
+  const through = Number(season) - 1;
+  const owner = new Map();
+  for (const [t, ids] of rosters) for (const id of ids) owner.set(String(id), t);
+  const mine = (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean)
+    .map(p => ({ id: p.id, position: p.position, ros_ppg: p.ros_ppg, available: p.available }));
+  const avail = c.availability({ through });
+  const playerOf = id => { const a = assets.get(id) ?? assets.get(Number(id)); return a ? { position: a.position, ros_ppg: a.ros_ppg, available: a.available } : null; };
+  return {
+    roster: mine,
+    lineupPoints: ps => svc.engine.bestLineup(ps, slots, 'ros_ppg').points,
+    scoreOf,
+    valueOf: id => players.get(id)?.value ?? players.get(Number(id))?.value ?? fcValueOf(fc, Number(id)),
+    missRateOf: id => { const a = avail.get(Number(id)); return a ? 1 - a.available : null; },
+    handcuffs: handcuffsByStarter(c.handcuffValue({ through }), { starters: mine.map(p => p.id), playerOf, ownerOf: id => owner.get(String(id)) ?? null }),
+    untouchable: new Set([...untouchable].map(String)),
+    week,
   };
 }

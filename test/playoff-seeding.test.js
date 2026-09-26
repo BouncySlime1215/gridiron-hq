@@ -64,7 +64,7 @@ function league({ strength = {}, reseed = false, fromWeek = 1 } = {}) {
   return { prep, teams, points, ids };
 }
 
-const play = (L, runs, opts) => __test.playSeasons(L.prep, L.teams, runs, false, L.points, opts);
+const play = (L, runs, opts) => __test.playSeasons(L.prep, L.teams, runs, false, L.points, null, opts);
 
 /* ------------------------------------------------------------ flag */
 

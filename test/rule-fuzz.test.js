@@ -301,6 +301,42 @@ test('gate fuzz: 6,000 random offers, every mode; the tolerance gate never keeps
   assert.ok(kept > 1000, `only ${kept} offers passed the gate: the property was barely exercised`);
 });
 
+test('gate fuzz (U4): 277 is never given unless a get passes consistent() on the same data; today never', async () => {
+  const { ruleVerdict } = await import('../server/services/campaign/never-give.js');
+  const { consistentRead, consistentOfFrom } = await import('../scripts/rnd/consistent-chip.mjs');
+  const r = rng(CORPUS.gate_seed + 2);
+  const table = { positions: { QB: [-8, 0, 8], RB: [-6, 0, 6], WR: [-6, 0, 6], TE: [-4, 0, 4] } };
+  const baselines = new Map([['QB', { median: 20, line: 18 }], ['RB', { median: 17, line: 15 }], ['WR', { median: 16, line: 14 }], ['TE', { median: 11, line: 10 }]]);
+  const POS = ['QB', 'RB', 'WR', 'TE', 'K'];
+  const pick = xs => xs[Math.floor(r() * xs.length)];
+  let allowed = 0, tried = 0;
+  for (let i = 0; i < 3000; i++) {
+    const ids = Array.from({ length: 1 + Math.floor(r() * 2) }, (_, k) => String(3000 + i * 3 + k));
+    const inputs = new Map(ids.map(id => [id, r() < 0.1 ? undefined : {
+      position: pick(POS), score: r() < 0.1 ? null : 70 + r() * 30, hurt: pick([false, false, false, true, undefined]),
+      injuryStatus: pick([null, null, null, 'Questionable', 'Out', 'Doubtful', undefined]),
+      window: r() < 0.1 ? null : Array.from({ length: r() < 0.9 ? 6 : 5 }, () => ({ pts: r() < 0.05 ? null : r() * 30 })),
+      mean: r() < 0.05 ? null : 8 + r() * 20,
+    }]).filter(([, v]) => v));
+    const scoreOf = id => inputs.get(id)?.score ?? null;
+    const fc = new Map([['277', 100], ...ids.map(id => [id, 100])]);
+    const base = { neverGive: new Set(['160', '80', '277']), neverGet: new Set(), sold: new Set(), fc, scoreOf, closed: null };
+    const all = consistentOfFrom(inputs, { baselines, k: 1, table, servedPositions: ['QB', 'RB', 'WR', 'TE'] });
+    const t = { give: ['277'], get: ids };
+    const v = ruleVerdict({ ...base, consistentOf: all }, t);
+    tried++;
+    const passes = ids.some(id => inputs.has(id) && consistentRead(inputs.get(id), { baseline: baselines.get(inputs.get(id).position), k: 1, table }).consistent);
+    if (!v.reasons.includes('never_give')) {
+      allowed++;
+      assert.ok(passes, `gate seed ${CORPUS.gate_seed + 2} offer ${i}: 277 given for ${ids} with no consistent get`);
+    }
+    // Today (SERVED_POSITIONS empty, and no surface passes a reader): 277 is never given.
+    assert.ok(ruleVerdict({ ...base, consistentOf: consistentOfFrom(inputs, { baselines, k: 1, table }) }, t).reasons.includes('never_give'));
+    assert.ok(ruleVerdict(base, t).reasons.includes('never_give'));
+  }
+  assert.ok(allowed > 20 && allowed < tried, `the property was barely exercised: ${allowed} of ${tried}`);
+});
+
 test('gate fuzz: 5,000 random packages; the cap at 0 never lets more value out than in', () => {
   const r = rng(CORPUS.gate_seed + 1);
   for (let i = 0; i < 5000; i++) {

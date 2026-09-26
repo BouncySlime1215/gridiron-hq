@@ -1,24 +1,30 @@
 /**
  * COACH-LANES: two lanes and one reply, for questions that go to the model.
+ * Nick's rule (2026-09-25/26): Claude and Jev each own a lane.
  *
- *   Lane A (numbers)  askCoach as it always ran: the plan and the app's rows, every
- *                     number cited and checked by verify.js.
- *   Lane B (people)   the same question with the STORED people signals for the
- *                     manager and players in focus: his profile labels (people_read),
- *                     his labelled chat statements (pulse_read) and what his trade
- *                     screenshots showed (chat_trade_interest). Ids, labels and counts
- *                     only; raw chat text never enters a Coach prompt. Every claim it
- *                     makes is a "chat read (ungraded)": it never overrides a number.
- *   Synthesis         one reply from both: where they agree it says so, where they
- *                     disagree it says so plainly ("numbers say X; chat suggests Y
- *                     because ...") with the recommended action. It passes verify.js
- *                     like every Coach answer; when it cannot, Coach shows lane A with
- *                     lane B's lines under their label instead of guessing.
+ *   Lane 1 (Claude solo)   askCoach as it always ran: the plan and the app's rows, every
+ *                          number cited and checked by verify.js.
+ *   Lane 2 (Claude -> Jev) Jev leads: it reads lane 1's verified lines plus the STORED
+ *                          people signals for the manager in focus (his profile labels,
+ *                          his labelled chat statements, what his trade screenshots showed;
+ *                          labels and ids only, the manager pseudonymised) and answers typed
+ *                          questions (jev-lane.js): P(he takes it), whether Claude's call is
+ *                          right for him, go / wait / avoid and on what basis. Its lines are
+ *                          rendered without a model and labelled a chat read (ungraded).
+ *                          Where Jev is not callable (JEV-01a #441 not on this build), the
+ *                          Claude read of the same stored signals stands in, labelled so.
+ *   Synthesis              one reply comparing Claude with Jev: agreement said once, a
+ *                          disagreement said plainly ("Numbers say X; Jev reads Y because
+ *                          Z.") with the recommended action. It passes verify.js like every
+ *                          Coach answer; when it cannot, Coach shows lane 1 with lane 2's
+ *                          lines under their label instead of guessing.
  *
- * A and B run in parallel. B is skipped when nobody is in focus or there is no
- * stored signal for him (then A's answer is the reply, as before). Each lane
- * logs its own model and cost in ai_usage (coach:lane_numbers, coach:lane_people,
- * coach:synth), all under the Coach budget. A turn asked twice reuses its lanes.
+ * Lane 2 runs after lane 1 (it reads lane 1's read). It is skipped when nobody is
+ * in focus or nothing is stored for him (lane 1's answer is then the reply). Each
+ * lane logs its own model and cost in ai_usage (coach:lane_numbers, jev:coach_take
+ * through the Jev gateway, coach:lane_people when standing in, coach:synth). A turn
+ * asked twice reuses its lanes. Modular for COACH-V2: jev-lane.js owns lane 2, this
+ * file owns orchestration, reconcile will replace synthesize().
  *
  * Coach never sends offers and never builds a trade: the synthesis may only
  * recommend what the numbers lane cited from the served plan.
@@ -29,6 +35,7 @@ import { newLedger } from './ledger.js';
 import { verifyAnswer } from './verify.js';
 import { peopleRead, pulseRead } from './brain-tools.js';
 import { readChatTradeInterest } from '../people/chat-trade-interest.js';
+import { jevLane, jevLines } from './jev-lane.js';
 import { db, row } from '../../db/index.js';
 
 export const LANES_ENV = 'GRIDIRON_COACH_LANES';
@@ -37,6 +44,7 @@ export const lanesOn = (env = process.env) => env[LANES_ENV] !== '0';
 
 export const LANE_MODELS = Object.freeze({ numbers: COACH_MODEL, people: COACH_MODEL, synth: COACH_MODEL, synth_trade: 'claude-opus-5-5' });
 export const PEOPLE_LABEL = 'chat read (ungraded)';
+export const JEV_LABEL = 'Jev, chat read (ungraded)';
 const TRADE = /\b(trades?|offers?|deals?|packages?|swap|flip|accept|counter)\b/i;
 const PEOPLE_OUTPUT_TOKENS = 3000;
 const SYNTH_OUTPUT_TOKENS = 4000;
@@ -167,10 +175,12 @@ If the lanes agree, say so in one claim. If they disagree, fill "disagreement" w
 
 Reply with ONLY the JSON object in the schema.`;
 
-async function synthesize({ question, a, b, ledger, remap, model }) {
+async function synthesize({ question, a, b, ledger, remap, model, jev = false }) {
   const lines = (lane, claims, map = x => x) => claims.map(c => ({ lane, text: c.text, cites: c.cites.map(map) }));
   const given = [...lines('numbers', a.answer.claims), ...lines('people', b.answer.claims, remap)];
-  const prompt = `QUESTION: ${question}\n\nLANE LINES:\n${JSON.stringify(given)}\n\nNUMBERS LANE REFUSALS: ${JSON.stringify(a.answer.refusals)}`;
+  const who = jev ? 'The PEOPLE lane is Jev (a people and chat evaluator) reading Claude\'s numbers lane; call it "Jev" and write a disagreement as "Numbers say X; Jev reads Y because Z."'
+    : 'The PEOPLE lane is Claude reading stored people signals (Jev is not wired here); call it "the chat read".';
+  const prompt = `QUESTION: ${question}\n\n${who}\n\nLANE LINES:\n${JSON.stringify(given)}\n\nNUMBERS LANE REFUSALS: ${JSON.stringify(a.answer.refusals)}`;
   const msg = await callClaude({ feature: 'coach:synth', model, maxTokens: SYNTH_OUTPUT_TOKENS, system: SYNTH_SYSTEM,
     messages: [{ role: 'user', content: prompt }], outputSchema: SYNTH_SCHEMA });
   const parsed = parseJson(msg);
@@ -215,19 +225,40 @@ export async function answerWithLanes({ question, askArgs, focus = {}, leagueId,
     const a = await askCoach(askArgs);
     return { ...a, lanes: { numbers: { claims: a.answer.claims.length }, people: { skipped: 'nobody in focus has a stored people signal' } } };
   }
-  const [a, b] = await Promise.all([askCoach({ ...askArgs, feature: 'coach:lane_numbers' }), laneB({ question, focus, signals: people })]);
+  // Lane 1: Claude solo, on the numbers and the plan.
+  const a = await askCoach({ ...askArgs, feature: 'coach:lane_numbers' });
+  // Lane 2: Claude -> Jev. Jev reads lane 1's verified lines and the stored signals and leads the take.
+  const j = await jevLane({ question, laneOne: a.answer, signals: people, focus });
+  let b;
+  let source;
+  if (j.status === 'ok') {
+    const lb = newLedger();
+    const e = lb.record({ tool: 'people_read', tables: ['jev_take'], columns: Object.keys(j.rows[0]), rows: j.rows });
+    const draft = { claims: jevLines(j.take, col => `${e.id}#0.${col}`), refusals: [], as_of: null };
+    const v = verifyAnswer({ answer: draft, ledger: lb, question });
+    const bad = new Set(v.violations.map(x => x.text).filter(Boolean));
+    b = { answer: { ...draft, claims: draft.claims.filter(c => !bad.has(c.text)) }, ledger: lb.toJson(), cost_usd: j.cost_usd, take: j.take };
+    source = { source: 'jev', label: JEV_LABEL };
+  } else {
+    // Jev is not callable here (or failed): the Claude read of the same stored signals stands in, labelled as such.
+    b = await laneB({ question, focus, signals: people });
+    source = { source: 'claude_people', label: PEOPLE_LABEL, jev: j.status, jev_reason: j.reason };
+  }
   const { ledger, remap } = mergeLedgers(a.ledger, b.ledger);
   let reply;
   let synth = null;
   if (!b.answer.claims.length) {
     reply = { claims: a.answer.claims.map(c => ({ ...c, lane: 'numbers' })), refusals: a.answer.refusals, as_of: a.answer.as_of };
   } else {
-    synth = await synthesize({ question, a, b, ledger, remap, model: TRADE.test(question) ? LANE_MODELS.synth_trade : LANE_MODELS.synth });
+    synth = await synthesize({ question, a, b, ledger, remap, jev: source.source === 'jev',
+      model: TRADE.test(question) ? LANE_MODELS.synth_trade : LANE_MODELS.synth });
     reply = synth.verification.ok ? synth.answer : fallback(a, b, remap);
   }
   const lanes = {
+    title: source.source === 'jev' ? 'Claude + Jev' : 'Numbers + People',
     numbers: { claims: a.answer.claims.map(c => c.text), refusals: a.answer.refusals, cost_usd: a.cost_usd ?? 0 },
-    people: { claims: b.answer.claims.map(c => `${c.text}`), refusals: b.answer.refusals, cost_usd: b.cost_usd, label: PEOPLE_LABEL },
+    people: { claims: b.answer.claims.map(c => `${c.text}`), refusals: b.answer.refusals ?? [], cost_usd: b.cost_usd, ...source,
+      ...(b.take ? { take: b.take } : {}) },
     disagreement: synth?.verification.ok ? synth.disagreement : null,
     action: synth?.verification.ok ? synth.action : null,
     synthesis: synth ? (synth.verification.ok ? 'ok' : 'fell_back') : 'skipped',

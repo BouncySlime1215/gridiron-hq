@@ -41,6 +41,20 @@ test('both lanes: a collapsed "Numbers + People" toggle and the disagreement lin
   ui.unmount();
 });
 
+test('Jev led lane 2: the toggle says "Claude + Jev" and the lanes are named Claude and Jev', async () => {
+  const lanes = { title: 'Claude + Jev', numbers: { claims: ['The offer stands.'] },
+    people: { source: 'jev', claims: ['Jev: 31% he takes it as sent (chat read, ungraded).'], label: 'Jev, chat read (ungraded)' },
+    disagreement: 'Numbers say send it; Jev reads wait because of his price.', action: null };
+  const ui = mount(React.createElement(CoachDrawer, { coach: coachWith([{ who: 'nick', text: 'q' }, reply(lanes)]), open: true, onClose() {} }));
+  await waitFor(() => one(ui.container, 'data-testid', 'coach-lanes'), 2000, 'the toggle');
+  const box = one(ui.container, 'data-testid', 'coach-lanes');
+  assert.match(textOf(box), /^Claude \+ Jev \(they disagree\)/);
+  click(one(box, 'aria-expanded', 'false'));
+  await waitFor(() => one(box, 'data-testid', 'coach-lanes-detail'), 2000, 'the lanes open');
+  assert.match(textOf(one(box, 'data-testid', 'coach-lanes-detail')), /Claude \(numbers\).*Jev \( ?chat read, ungraded ?\).*31%/);
+  ui.unmount();
+});
+
 test('no people lane: no toggle', async () => {
   const lanes = { numbers: { claims: ['The offer stands.'] }, people: { skipped: 'nobody in focus has a stored people signal' } };
   const ui = mount(React.createElement(CoachDrawer, { coach: coachWith([{ who: 'nick', text: 'q' }, reply(lanes)]), open: true, onClose() {} }));

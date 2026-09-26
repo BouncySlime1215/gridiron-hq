@@ -38,13 +38,15 @@ export interface CoachMessage {
   followups?: string[];
   /** COACH-CHAT: actions Coach proposes (rendered as action cards; nothing runs without a tap). */
   proposals?: CoachProposal[];
-  /** COACH-LANES: the numbers and people lanes behind a model answer (collapsed under "Numbers + People"). */
+  /** COACH-LANES: the numbers and people lanes behind a model answer (collapsed under "Claude + Jev"). */
   lanes?: CoachLanes | null;
 }
 
 export interface CoachLanes {
+  /** "Claude + Jev" when Jev led lane 2, else "Numbers + People". */
+  title?: string;
   numbers?: { claims?: string[]; refusals?: string[] };
-  people?: { claims?: string[]; refusals?: string[]; skipped?: string; label?: string };
+  people?: { claims?: string[]; refusals?: string[]; skipped?: string; label?: string; source?: 'jev' | 'claude_people' };
   disagreement?: string | null;
   action?: string | null;
 }

@@ -37,11 +37,18 @@ const { setAnthropicClientForTesting } = await import('../server/services/claude
 const { chatTurn } = await import('../server/services/coach/chat.js');
 const { setBrainSources } = await import('../server/services/coach/brain-tools.js');
 const { clearLaneCache, safeSignal, PEOPLE_LABEL, LANE_MODELS } = await import('../server/services/coach/lanes.js');
+const { setJevAsk } = await import('../server/services/coach/jev-lane.js');
 await import('../server/routes/coach.js');
 
 run(`INSERT OR IGNORE INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
      VALUES (4, 'espn', 'fx-4', 2026, 'Fixture', '1', 4, 1, '{}', '2026-09-23 01:00:00')`);
 run(`INSERT OR IGNORE INTO players (id, name, position) VALUES (901, 'Fixture Receiver', 'WR')`);
+// Made-up manager names: the Jev state must carry none of them.
+const MANAGER_NAMES = ['Quincy Marlowe', 'Marlowe Mariners', 'Barnaby Finch'];
+run(`INSERT OR REPLACE INTO league_member_identity (league_id, roster_id, espn_name, team_name, chat_name, match_method, confidence)
+     VALUES (4, '3', 'Quincy Marlowe', 'Marlowe Mariners', NULL, 'fixture', 'confirmed')`);
+run(`INSERT OR REPLACE INTO league_member_identity (league_id, roster_id, espn_name, team_name, chat_name, match_method, confidence)
+     VALUES (4, '2', 'Barnaby Finch', 'Finch Falcons', NULL, 'fixture', 'confirmed')`);
 let nextUser = 9900;
 const newUser = () => { const id = ++nextUser; run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (?, ?, 'Reader')`, id, `lanes-${id}`); return id; };
 
@@ -100,32 +107,67 @@ test('the no-chat-text guard keeps labels and drops speech', () => {
   assert.equal(safeSignal(0.4), 0.4);
 });
 
-test('both lanes run in parallel, a disagreement is surfaced, costs are logged per lane, no chat text leaks', async () => {
+test('lane 2 is Claude -> Jev: Jev reads lane 1 and leads; the reply compares them; no names or chat text reach Jev', async () => {
   clearLaneCache();
   const user = newUser();
   setAnthropicClientForTesting(lanesClient({ synth: {} }));
   await chatTurn({ userId: user, leagueId: 4, question: "What's my next move?", hasModel: true, context: { league: 4 } });
-  const client = lanesClient({ gateBoth: true, synth: {
+  const states = [];
+  setJevAsk(async ({ state, questions }) => {
+    states.push(state);
+    assert.deepEqual(Object.keys(questions), ['p_accept', 'claude_call_right', 'better_stance', 'basis']);
+    return { ok: true, costUsd: 0.0004, answers: {
+      p_accept: { type: 'boolean', probability: 0.31 }, claude_call_right: { type: 'boolean', probability: 0.35 },
+      better_stance: { type: 'choice', choice: 'wait', probabilities: { go: 0.2, wait: 0.6, avoid: 0.2 } },
+      basis: { type: 'choice', choice: 'price', probabilities: { price: 0.7, willingness: 0.1, timing: 0.1, roster_fit: 0.05, risk: 0.05 } } } };
+  });
+  const client = lanesClient({ synth: {
+    claims: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'], lane: 'numbers' },
+      { text: 'Jev puts his yes at 31% as sent.', cites: ['r2#0.p_accept'], lane: 'people' }],
+    refusals: [], as_of: null,
+    disagreement: 'Numbers say send it; Jev reads wait because of his price.', action: 'Send the served offer as it is.' } });
+  setAnthropicClientForTesting(client);
+  try {
+    const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
+    assert.equal(states.length, 1);
+    assert.match(states[0], /Fixture Receiver is the player in question\./, "Jev reads lane 1's verified line");
+    assert.match(states[0], /MANAGER M1/);
+    for (const name of MANAGER_NAMES) assert.ok(!states[0].includes(name), 'no manager name in the Jev state');
+    assert.doesNotMatch(states[0], /SENTINEL-CHAT-LINE|roster_id/, 'no chat text, no roster id');
+    assert.equal(out.lanes.title, 'Claude + Jev');
+    assert.equal(out.lanes.people.source, 'jev');
+    assert.deepEqual(out.lanes.people.claims, ['Jev: 31% he takes it as sent (chat read, ungraded).',
+      'Jev: wait, mainly on price (chat read, ungraded).', "Jev doubts Claude's call: only 35% that it is right for him (chat read, ungraded)."]);
+    assert.equal(out.lanes.synthesis, 'ok');
+    assert.match(out.lanes.disagreement, /^Numbers say .*; Jev reads /);
+    assert.equal(out.verification.ok, true);
+    assert.ok(out.answer.claims.find(c => c.lane === 'people').text.includes(PEOPLE_LABEL), 'a Jev claim is labelled');
+    assert.deepEqual([...new Set(client.sent.map(x => x.lane))].sort(), ['numbers', 'synth'], 'no Claude people call when Jev leads');
+    const stored = rows(`SELECT payload_json FROM coach_messages WHERE role = 'coach' ORDER BY id DESC LIMIT 1`)[0];
+    assert.equal(JSON.parse(stored.payload_json).lanes.people.source, 'jev', 'the lanes are kept with the reply');
+  } finally { setJevAsk(null); }
+});
+
+test('Jev not wired on this build: the Claude read of the stored signals stands in, labelled, costs logged per lane', async () => {
+  clearLaneCache();
+  const user = newUser();
+  setAnthropicClientForTesting(lanesClient({ synth: {} }));
+  await chatTurn({ userId: user, leagueId: 4, question: "What's my next move?", hasModel: true, context: { league: 4 } });
+  const client = lanesClient({ synth: {
     claims: [{ text: 'Fixture Receiver is the player in question.', cites: ['r1#0.name'], lane: 'numbers' },
       { text: 'His profile lists P21 (WR) as a want.', cites: ['r2#0.wants'], lane: 'people' }],
-    refusals: [], as_of: null,
-    disagreement: 'Numbers say the offer stands; chat suggests he wants P21 (WR) himself because his profile lists him.',
-    action: 'Send the served offer as it is.' } });
+    refusals: [], as_of: null, disagreement: null, action: null } });
   setAnthropicClientForTesting(client);
   const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
-  assert.deepEqual(client.events.slice(0, 2).sort(), ['start:numbers', 'start:people'], 'A and B start before either ends');
-  assert.equal(out.lanes.synthesis, 'ok');
-  assert.match(out.lanes.disagreement, /^Numbers say .*; chat suggests /);
-  assert.equal(out.verification.ok, true);
-  const people = out.answer.claims.find(c => c.lane === 'people');
-  assert.ok(people.text.includes(PEOPLE_LABEL), 'a people claim is labelled');
+  assert.equal(out.lanes.people.source, 'claude_people');
+  assert.equal(out.lanes.people.jev, 'unavailable');
+  assert.match(out.lanes.people.jev_reason, /JEV-01a/);
+  assert.equal(out.lanes.title, 'Numbers + People');
   for (const { body } of client.sent) assert.doesNotMatch(JSON.stringify(body), /SENTINEL-CHAT-LINE/, 'no chat text in any prompt');
   const logged = rows(`SELECT feature, model FROM ai_usage WHERE feature LIKE 'coach:%' ORDER BY id`).map(r => `${r.feature}|${r.model}`);
   assert.ok(logged.includes(`coach:lane_people|${LANE_MODELS.people}`));
   assert.ok(logged.some(l => l.startsWith('coach:lane_numbers|')));
   assert.ok(logged.includes(`coach:synth|${LANE_MODELS.synth}`));
-  const stored = rows(`SELECT payload_json FROM coach_messages WHERE role = 'coach' ORDER BY id DESC LIMIT 1`)[0];
-  assert.equal(JSON.parse(stored.payload_json).lanes.synthesis, 'ok', 'the lanes are kept with the reply');
 });
 
 test('a synthesis with an unsupported number is not shown: lane A plus the labelled people lines', async () => {

@@ -6,7 +6,7 @@ The pre-registration (bar B1-B6) was committed in the RED commit, before any fix
 
 ## RED
 
-On origin/main 46b39464, `test/a11y-check.test.js` fails 7 of 12 tests. `node scripts/check-a11y.mjs` reports:
+On origin/main 46b39464, `test/a11y-check.test.js` fails 7 of 12 tests. After main moved to ef726b35 (#518 trimmed DevHub), the check reads the same numbers except the scan: 130 files and 18 enforced findings (15 unlabeled controls, 3 click-only elements). `node scripts/check-a11y.mjs` reports:
 
 - **Contrast:** 10 of 78 pairs are below AA.
 - **Structure:** 5 gaps.

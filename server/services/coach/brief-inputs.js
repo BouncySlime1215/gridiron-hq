@@ -20,6 +20,7 @@
  * per number).
  */
 import { createRequire } from 'node:module';
+import { etDay, dayBefore } from '../et-day.js';
 import { readCredibility as credibilityRun, METHOD_VERSION } from '../people/credibility.js';
 
 const require = createRequire(import.meta.url);
@@ -186,4 +187,25 @@ export function readInjuries(db, { leagueId, me, since, until, watch = [], exclu
     .map(r => ({ ...r, key: `i:${r.player_id ?? r.name}:${r.status}:${r.at}` }))
     .filter(r => !exclude.has(r.key));
   return { status: 'ok', rows: rows.map(({ key, ...r }) => r), keys: rows.map(r => r.key), as_of: until, period: latest.period };
+}
+
+/**
+ * SPEND-SERVER: yesterday's API spend for the morning brief ("Yesterday: $X API, N calls"), New York
+ * day, read through the brief's own database handle (the brief never opens another). All sources
+ * count: it is what was spent. A read that fails says so.
+ */
+export function readYesterdaySpendSync(db, { now = new Date() } = {}) {
+  try {
+    const has = db.prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ai_usage'`).get();
+    if (!has) return { status: 'failed', reason: 'no AI usage is logged on this database', rows: [], keys: [] };
+    const yesterday = dayBefore(etDay(now));
+    const since = new Date(now.getTime() - 3 * 864e5).toISOString().replace('T', ' ').slice(0, 19);
+    const list = db.prepare('SELECT created_at, cost_usd, calls FROM ai_usage WHERE created_at >= ?').all(since)
+      .filter(r => etDay(r.created_at) === yesterday);
+    const cost = list.reduce((s, r) => s + (Number(r.cost_usd) || 0), 0);
+    const calls = list.reduce((s, r) => s + (Number(r.calls) || 0), 0);
+    return { status: 'ok', rows: [{ date: yesterday, cost_usd: +cost.toFixed(4), calls }], keys: [] };
+  } catch (e) {
+    return { status: 'failed', reason: `yesterday's AI spend could not be read (${e?.message ?? e})`, rows: [], keys: [] };
+  }
 }

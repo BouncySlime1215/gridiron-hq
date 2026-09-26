@@ -31,6 +31,10 @@ const ONLY = arg('intents') ? new Set(arg('intents').split(',')) : null;
 if (!OUT) { console.error('--out <dir> is required'); process.exit(2); }
 if (!process.env.GRIDIRON_DB_PATH) { console.error('GRIDIRON_DB_PATH must point at a copy of the app DB'); process.exit(2); }
 const imp = rel => import(pathToFileURL(path.join(ROOT, rel)).href);
+// SPEND-SERVER: a judge runs on a DB copy, so its calls are tagged test and appended to the shared
+// ledger the live app ingests (ai-ledger.js). Set before any server module loads.
+process.env.GRIDIRON_AI_SOURCE ||= 'test';
+process.env.GRIDIRON_AI_LEDGER ||= path.join(process.env.HOME ?? '', 'gridiron-local', 'ai-usage-offline.jsonl');
 
 const SET = JSON.parse(fs.readFileSync(path.join(HERE, 'judge-questions.json'), 'utf8'));
 const { run } = await imp('server/db/index.js');

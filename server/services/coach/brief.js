@@ -37,7 +37,7 @@ import fs from 'node:fs/promises';
 import { previewUnconfirmed, previewFields, previewText } from '../preview-mode.js';
 import { newLedger } from './ledger.js';
 import { verifyAnswer } from './verify.js';
-import { readStatements, readCredibility, readReplies, readInjuries } from './brief-inputs.js';
+import { readStatements, readCredibility, readReplies, readInjuries, readYesterdaySpendSync } from './brief-inputs.js';
 import { claimsFor } from './brief-claims.js';
 import { outOfDateReason } from '../campaign/plan-age.js';
 
@@ -184,7 +184,7 @@ function ground(draft, ledger) {
 
 const HEADINGS = {
   statements: 'Overnight', credibility: 'Overnight', replies: 'Overnight', injuries: 'Overnight',
-  next_move: 'Next move', brain: 'Brain status', itinerary: 'Itinerary', footer: null
+  next_move: 'Next move', brain: 'Brain status', itinerary: 'Itinerary', spend: 'AI spend', footer: null
 };
 
 /** The text Nick reads: claims grouped under their headings, in order. */
@@ -255,7 +255,8 @@ export function morningBrief({ db, file, leagueId = TARGET_LEAGUE, now = new Dat
     statements: readStatements(db, { leagueId, since: from, until, exclude }),
     credibility: readCredibility(db, { leagueId, until }),
     replies: readReplies(db, { leagueId, me, since: from, until, partnerOf, exclude }),
-    injuries: readInjuries(db, { leagueId, me, since: from, until, watch: step ? [...step.give, ...step.get] : [], exclude })
+    injuries: readInjuries(db, { leagueId, me, since: from, until, watch: step ? [...step.give, ...step.get] : [], exclude }),
+    spend: readYesterdaySpendSync(db, { now })
   };
   const key = { league: leagueId, kind: 'morning', plan_version: version,
     window_key: `${etDate(now)}|${sha(JSON.stringify(Object.values(inputs).map(s => [s.status, s.rows])))}` };

@@ -248,12 +248,20 @@ export function setDailyBudget(key, usd) {
 }
 
 /** Dollars recorded today (local day) against a budget key: `key` itself and every `key:*` feature. */
+let sourceColumn = false;
+/** Cached once true (a database that has run migration 117 keeps the column); re-checked while false. */
+const hasSourceColumn = () => (sourceColumn ||= rows('PRAGMA table_info(ai_usage)').some(c => c.name === 'source'));
+
 export function spentTodayUsd(key) {
   const k = String(key);
+  // SPEND-SERVER: in the app, test calls (judges and builders on DB copies, ingested from the shared
+  // ledger) are counted in the spend summary but never against a budget: they must not stop Nick's own
+  // Coach. A test process's own calls still count against its copy's budget (that is its brake).
+  const notTest = hasSourceColumn() && (process.env.GRIDIRON_AI_SOURCE ?? '') === '' ? " AND (source IS NULL OR source != 'test')" : '';
   const today = rows(`SELECT model, cost_usd, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens
                       FROM ai_usage
                       WHERE created_at >= datetime('now', 'localtime', 'start of day', 'utc')
-                        AND (feature = ? OR substr(feature, 1, ?) = ?)`, k, k.length + 1, `${k}:`);
+                        AND (feature = ? OR substr(feature, 1, ?) = ?)${notTest}`, k, k.length + 1, `${k}:`);
   return today.reduce((sum, r) => sum + (rowCostUsd(r) ?? 0), 0);
 }
 

@@ -110,7 +110,7 @@ export default function QuickJump() {
     {open && createPortal(<div className="quick-jump-backdrop" onMouseDown={() => setOpen(false)}>
       <section className="quick-jump-panel" role="dialog" aria-modal="true" aria-label="Jump to a feature" onMouseDown={e => e.stopPropagation()}>
         <div className="quick-jump-search"><span>⌕</span>
-          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onSearchKey}
+          <input autoFocus aria-label="Search players or features" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onSearchKey}
             placeholder="Search players, or jump to a feature…"
             role="combobox" aria-expanded="true" aria-controls="quick-jump-results"
             aria-activedescendant={activeId} aria-autocomplete="list" />

@@ -208,3 +208,31 @@ test('a locked starter flagged out holds his slot on the matchup card and counts
   assert.equal(card.my_projection, 18 + 15 + 12 + 11 + 8, JSON.stringify(card.lineup));
   assert.equal(card.my_projection, +lineupCall(id, { providers: {}, now: MID }).projected_points.toFixed(1));
 });
+
+// ONE-NUMBER-FIX follow-up (league 2, week 3): a Thursday starter ESPN has locked, whose game is
+// over (actual 35.3) and whose week projection is gone. The matchup card held him in his slot
+// but counted him 0, while the served weekly range (settled-points.js) counted his 35.3. Both now
+// read settled-points.js: his actual, with no spread.
+test('a starter whose game is final counts at his actual score in the win-probability projection, as in the range', () => {
+  const AFTER = Date.parse('2026-09-21T00:00:00Z');   // 8 pm ET, more than 4 h after EAR's 1:00 pm kickoff
+  run(`INSERT OR IGNORE INTO nfl_teams (id, abbr, name, conference, division) VALUES (981, 'EAR', 'Early team', 'AFC', 'East'),
+       (982, 'LAT', 'Late team', 'NFC', 'West')`);
+  const mine = () => {
+    const r = [player('Quarterback', 'QB', 18), player('Thursday Back', 'RB', null, { team: 'EAR' }), player('Late Back', 'RB', 15),
+      player('Wideout One', 'WR', 12), player('Wideout Two', 'WR', 11), player('Tight End', 'TE', 8)];
+    r[1].entry.playerPoolEntry.lineupLocked = true;
+    r[1].entry.playerPoolEntry.player.stats = [{ scoringPeriodId: 2, statSourceId: 0, statSplitTypeId: 1, appliedTotal: 35.3 }];
+    for (const p of r) run('INSERT OR IGNORE INTO players (id, name, position, team_id, espn_id) VALUES (?, ?, ?, ?, ?)',
+      p.asset.id, p.asset.name, p.asset.position, p.asset.team_abbr === 'EAR' ? 981 : 982, p.asset.espn_id);
+    return r;
+  };
+  const slots = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE'];
+  const card = lineupPosture(matchupLeague(mine(), theirSix(80), slots).lg, { myTeamId: '1', now: AFTER });
+  assert.equal(card.my_projection, +(18 + 35.3 + 15 + 12 + 11 + 8).toFixed(1), JSON.stringify(card.lineup));
+  const rb = card.lineup.find(l => l.player === 'Thursday Back');
+  assert.equal(rb.ppg, 35.3);
+  assert.equal(rb.settled, true);
+  // Control: before his game is final (kickoff + under 4 h) nothing is settled; he is his projection (0 here).
+  const live = lineupPosture(matchupLeague(mine(), theirSix(80), slots).lg, { myTeamId: '1', now: MID });
+  assert.equal(live.my_projection, 18 + 0 + 15 + 12 + 11 + 8, 'control: in progress is not a final score');
+});

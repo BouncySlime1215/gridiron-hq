@@ -873,7 +873,7 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
       // U1c: title odds at 6 decimals (0.0001 is a whole 0.01 point, too coarse at 0.1-0.2% odds).
       title_odds: +((rbMode === 'on' ? c.mean : s.title / runs)).toFixed(TITLE_DP),
       title_odds_95: rbMode === 'on' ? c.ci : binomial95(s.title, runs),
-      ...(rbMode === 'shadow' ? { title_odds_rb: +c.mean.toFixed(TITLE_DP), title_odds_rb_se: +c.se.toFixed(TITLE_DP) } : {}),
+      ...(rbMode === 'shadow' || rbMode === 'deltas' ? { title_odds_rb: +c.mean.toFixed(TITLE_DP), title_odds_rb_se: +c.se.toFixed(TITLE_DP) } : {}),
       finals_odds: +(s.finals / runs).toFixed(4),
       expected_wins: +(s.wins / runs).toFixed(2),
       expected_points: +(s.points / runs).toFixed(1)
@@ -1067,7 +1067,8 @@ export function tradeImpactWorld(lg, {
     scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag),
     teamMeanSd: teamMeanSd(horizonFlag), rbTitle: rbTitleMode(),
     // U1b: a flag-on world's rescores carry batch SEs; its key (and the rescore cache's hash) says so.
-    ...(rbTitleMode() !== 'off' ? { rbSe: `batch${RB_SE_BATCHES}` } : {})
+    // U1c changed the conditional values (joint rounds): a new stamp, so no older cached RB result is reused.
+    ...(rbTitleMode() !== 'off' ? { rbSe: `batch${RB_SE_BATCHES}-joint` } : {})
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -1252,14 +1253,22 @@ export function tradeImpact(lg, {
   if (before.error || after.error) return before.error ? before : after;
 
   const pick = (sim, id) => sim.teams.find(t => t.roster_id === id);
+  // RB-DELTAS: under 'deltas' the served title delta and its SE are the conditional estimate's; levels stay plain.
+  const deltasMode = before.rb_title === 'deltas';
   const delta = id => {
     const b = pick(before, id), a = pick(after, id);
     const rb = before.per_run.get(id), ra = after.per_run.get(id);
-    const title_delta = +(a.title_odds - b.title_odds).toFixed(TITLE_DP);
+    const plainDelta = +(a.title_odds - b.title_odds).toFixed(TITLE_DP);
     const playoff_delta = +(a.playoff_odds - b.playoff_odds).toFixed(4);
     // U1b: under RB-TITLE the paired SE comes from the batch means (the pooled-score error included).
-    const title_delta_se = rb.title_batches && ra.title_batches
+    const plainSe = rb.title_batches && ra.title_batches
       ? +batchPairedSe(rb.title_batches, ra.title_batches).toFixed(TITLE_DP) : pairedSe(rb.title, ra.title, TITLE_DP);
+    const hasRb = !!(rb.title_rb && ra.title_rb);
+    const rbDelta = hasRb ? +(a.title_odds_rb - b.title_odds_rb).toFixed(TITLE_DP) : null;
+    const rbSe = !hasRb ? null : rb.title_rb_batches && ra.title_rb_batches
+      ? +batchPairedSe(rb.title_rb_batches, ra.title_rb_batches).toFixed(TITLE_DP) : pairedSe(rb.title_rb, ra.title_rb, TITLE_DP);
+    const title_delta = deltasMode && hasRb ? rbDelta : plainDelta;
+    const title_delta_se = deltasMode && hasRb ? rbSe : plainSe;
     const playoff_delta_se = pairedSe(rb.playoffs, ra.playoffs);
     return {
       roster_id: id, owner: b.owner,
@@ -1272,17 +1281,15 @@ export function tradeImpact(lg, {
       playoff_delta, playoff_delta_se,
       playoff_delta_clears_noise: playoff_delta_se != null && Math.abs(playoff_delta) > TRADE_DELTA_NOISE_SE * playoff_delta_se,
       wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2),
-      // RB-TITLE shadow: the conditional delta beside the served one, never served.
-      ...(rb.title_rb && ra.title_rb ? {
-        title_delta_rb: +(a.title_odds_rb - b.title_odds_rb).toFixed(TITLE_DP),
-        title_delta_rb_se: rb.title_rb_batches && ra.title_rb_batches
-          ? +batchPairedSe(rb.title_rb_batches, ra.title_rb_batches).toFixed(TITLE_DP) : pairedSe(rb.title_rb, ra.title_rb, TITLE_DP)
-      } : {})
+      // RB-TITLE shadow / RB-DELTAS: both estimators' deltas side by side (the shadow table reads them).
+      ...(hasRb ? { title_delta_rb: rbDelta, title_delta_rb_se: rbSe, title_delta_plain: plainDelta, title_delta_plain_se: plainSe } : {})
     };
   };
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
     // U1: which title estimator every title number and SE here is on (GRIDIRON_RB_TITLE=1: 'conditional').
     title_estimator: before.title_estimator === 'conditional' ? 'conditional' : 'indicator',
+    // RB-DELTAS: which estimator the served title deltas and their SEs are on.
+    delta_estimator: before.title_estimator === 'conditional' || deltasMode ? 'conditional' : 'indicator',
     ...(before.projection_basis ? { projection_basis: before.projection_basis,
       ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     // EA-07: whether this deal was priced on the caller's world (the snapshot's one

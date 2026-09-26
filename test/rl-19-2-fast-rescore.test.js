@@ -237,7 +237,9 @@ test('RB-TITLE: fast rescore equals the old path under shadow and on; shadow lea
   }
   const shadow = withRb('shadow', () => fast(args));
   for (const side of ['me', 'them']) {
-    const { title_delta_rb, title_delta_rb_se, ...served } = shadow[side];
+    const { title_delta_rb, title_delta_rb_se, title_delta_plain, title_delta_plain_se, ...served } = shadow[side];
+    assert.equal(title_delta_plain, served.title_delta, `${side}: shadow logs the plain delta it serves`);
+    assert.equal(title_delta_plain_se, served.title_delta_se);
     assert.deepEqual(served, off[side], `${side}: shadow does not move a served field`);
     assert.equal(typeof title_delta_rb, 'number');
     assert.equal(typeof title_delta_rb_se, 'number');
@@ -277,4 +279,30 @@ test('U1: every side carries each arm\'s title SE and the estimator; on, they ar
   process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
   try { assert.equal(withRb(null, () => fast(args)).title_estimator, 'indicator'); }
   finally { if (prev == null) delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED; else process.env.GRIDIRON_PREVIEW_UNCONFIRMED = prev; }
+});
+
+test('RB-DELTAS: deltas serves the conditional delta and SE; levels stay the plain ones; both logged', () => {
+  const withRb = (value, fn) => {
+    const prior = process.env.GRIDIRON_RB_TITLE;
+    if (value == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = value;
+    try { return fn(); } finally {
+      if (prior == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = prior;
+    }
+  };
+  const args = { ...DEALS[1], runs: RUNS, seed: 17 };
+  const shadow = withRb('shadow', () => fast(args));
+  const deltas = withRb('deltas', () => fast(args));
+  assert.deepEqual(withRb('deltas', () => fast(args)), withRb('deltas', () => old(args)), 'fast = old path under deltas');
+  assert.equal(deltas.delta_estimator, 'conditional');
+  assert.equal(deltas.title_estimator, 'indicator');
+  assert.equal(shadow.delta_estimator, 'indicator');
+  for (const side of ['me', 'them']) {
+    const s = shadow[side], d = deltas[side];
+    assert.equal(d.title_before, s.title_before, `${side}: served level is plain`);
+    assert.equal(d.title_after, s.title_after);
+    assert.equal(d.title_delta, s.title_delta_rb, `${side}: served delta is RB`);
+    assert.equal(d.title_delta_se, s.title_delta_rb_se);
+    assert.equal(d.title_delta_plain, s.title_delta);
+    assert.equal(d.title_delta_clears_noise, Math.abs(d.title_delta) > 2 * d.title_delta_se);
+  }
 });

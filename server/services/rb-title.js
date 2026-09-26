@@ -23,16 +23,23 @@
  *
  * GRIDIRON_RB_TITLE: unset / '0' = off (the sim is byte-identical to before);
  * 'shadow' = computed and carried beside the served odds (title_odds_rb), never served;
- * '1' = served. Preview mode does NOT turn it on: it moves a served number.
+ * 'deltas' = served for paired deltas only (levels stay plain); '1' = served for both.
+ * Preview mode does NOT turn it on: it moves a served number.
  */
 
 export const RB_TITLE_ENV = 'GRIDIRON_RB_TITLE';
 
-/** 'off' | 'shadow' | 'on', read per call so a test or a run can flip it. */
+/**
+ * 'off' | 'shadow' | 'deltas' | 'on', read per call so a test or a run can flip it.
+ * RB-DELTAS: 'deltas' serves the conditional estimate for paired title DELTAS and their SEs (what every
+ * rule reads) and keeps served title LEVELS on plain Monte Carlo (the level estimate leans up slightly,
+ * docs/tdd/2026-09-25-u1c-joint-round.tdd.md). 'shadow' serves plain for both and carries RB beside it.
+ */
 export function rbTitleMode() {
   const v = process.env[RB_TITLE_ENV];
   if (v === '1' || v === 'on') return 'on';
   if (v === 'shadow') return 'shadow';
+  if (v === 'deltas') return 'deltas';
   return 'off';
 }
 

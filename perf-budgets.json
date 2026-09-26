@@ -1,0 +1,48 @@
+{
+  "budget_pct": 10,
+  "metric": "first-load gzip bytes (level 9) per area route",
+  "areas": {
+    "/": {
+      "area": "Today",
+      "raw": 549422,
+      "gzip": 155654,
+      "files": 9
+    },
+    "/trades": {
+      "area": "Trades",
+      "raw": 677728,
+      "gzip": 192345,
+      "files": 10
+    },
+    "/my-team": {
+      "area": "My team",
+      "raw": 592068,
+      "gzip": 166540,
+      "files": 9
+    },
+    "/league": {
+      "area": "League",
+      "raw": 473840,
+      "gzip": 132841,
+      "files": 5
+    },
+    "/players": {
+      "area": "Players",
+      "raw": 509222,
+      "gzip": 144006,
+      "files": 7
+    },
+    "/draft": {
+      "area": "Draft",
+      "raw": 510961,
+      "gzip": 143167,
+      "files": 6
+    },
+    "/settings": {
+      "area": "Settings",
+      "raw": 480066,
+      "gzip": 135056,
+      "files": 5
+    }
+  }
+}

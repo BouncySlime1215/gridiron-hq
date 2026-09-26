@@ -121,3 +121,22 @@ test('B6: the CLI exits 1 on a breach under GRIDIRON_PERF_BUDGETS=enforce, 0 in 
 test('the build writes the manifest the check reads', () => {
   assert.match(read('client/vite.config.ts'), /manifest:\s*true/);
 });
+
+test('long tasks: the longest task per area over runs, judged against 50 ms', async () => {
+  const { verdicts, LONGTASK_BUDGET_MS } = await import('../scripts/perf-longtasks.mjs');
+  assert.equal(LONGTASK_BUDGET_MS, 50);
+  const run = tasks => [{ path: '/a', area: 'A', tasks }, { path: '/b', area: 'B', tasks: [] }];
+  const v = verdicts([run([{ start: 1, duration: 51 }]), run([{ start: 2, duration: 20 }, { start: 3, duration: 50 }])]);
+  assert.deepEqual(v.map(x => [x.path, x.max_ms, x.count, x.runs, x.status]), [['/a', 51, 3, 2, 'over'], ['/b', 0, 0, 2, 'pass']]);
+  assert.equal(verdicts([run([{ start: 1, duration: 50 }])])[0].status, 'pass', 'exactly 50 ms is within budget');
+});
+
+test('long tasks: CHROME_PATH wins; the probe fails loudly on a blind observer or a missed click', async () => {
+  const { findChrome } = await import('../scripts/perf-longtasks.mjs');
+  const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'chrome-')), 'chrome');
+  fs.writeFileSync(fake, '');
+  assert.equal(findChrome({ CHROME_PATH: fake }), fake);
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/perf-longtasks.mjs'), 'utf8');
+  assert.match(src, /canary/i, 'a blind observer must fail the probe, not report zeros');
+  assert.match(src, /landed on/, 'a click that does not reach the area must fail the probe');
+});

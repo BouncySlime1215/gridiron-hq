@@ -235,7 +235,7 @@ export async function answerWithLanes({ question, askArgs, focus = {}, leagueId,
   emit({ t: 'lane1', answer: neutralAnswer(a.answer).answer, ledger: a.ledger });
   emit({ t: 'lane2_start', who: partnerLabel ?? null });
   // Lane 2: Claude -> Jev. Jev reads lane 1's verified lines and the stored signals and leads the take.
-  const j = await jevLane({ question, laneOne: a.answer, signals: people, focus });
+  const j = await jevLane({ question, laneOne: a.answer, signals: people, focus, leagueId });
   let b;
   let source;
   if (j.status === 'ok') {

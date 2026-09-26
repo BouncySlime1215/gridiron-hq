@@ -127,7 +127,8 @@ async function ask({ feature, system, prompt, model }) {
 
 /** Jev's numbers as the tab labels them (the view relabels stored rows by key, so old rows read the same). */
 export const JEV_CITE_LABELS = Object.freeze({
-  p_jev_stance: 'Jev: sure of this call', p_jev_backs_claude: 'Jev: chat backs Claude', p_jev_willing: 'Jev: he deals now'
+  p_jev_stance: 'Jev: sure of this call', p_jev_backs_claude: 'Jev: chat backs Claude', p_jev_accept: 'Jev: he accepts a fair offer',
+  p_jev_willing: 'Jev: he deals now'
 });
 
 /** Jev's probabilities and the signals it read, as the lane's cited numbers and labels. */
@@ -135,7 +136,7 @@ function jevCites(take, rows) {
   const cites = [
     { key: 'p_jev_stance', label: JEV_CITE_LABELS.p_jev_stance, value: take.probabilities?.stance },
     { key: 'p_jev_backs_claude', label: JEV_CITE_LABELS.p_jev_backs_claude, value: take.probabilities?.backs_claude },
-    { key: 'p_jev_willing', label: JEV_CITE_LABELS.p_jev_willing, value: take.probabilities?.willing }
+    { key: 'p_jev_accept', label: JEV_CITE_LABELS.p_jev_accept, value: take.probabilities?.accept }
   ].filter(c => typeof c.value === 'number').map(c => ({ ...c, value: +c.value.toFixed(4) }));
   const SHOWN = ['in_market', 'wants', 'shopping', 'untouchable', 'p_open_to_trade', 'phrase', 'kind'];
   for (const r of rows) {
@@ -172,7 +173,7 @@ export async function readBothLanes(items, { signalsFor, jevLane = createJevLane
   const takes = await inBatches(toJev, JEV_CONCURRENCY, async item => {
     const k = itemKey(item);
     const claude = laneA.get(k);
-    const input = { item: { key: k, kind: item.item_type }, facts: factsFor(item),
+    const input = { item: { key: k, kind: item.item_type, move_id: item.item_type === 'move' ? item.item_id : null, players: item.players }, facts: factsFor(item),
       claude: { stance: claude.stance, basis: claude.basis, why: claude.why }, signals: blocks.get(k) };
     const take = await jevLane(input);
     prompts.jev.push({ key: k, input });

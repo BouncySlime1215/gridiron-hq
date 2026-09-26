@@ -15,6 +15,13 @@ tab and inline in Coach answers.
 | `test/numbers-people-ui.test.js` | the tab rendered and clicked: summary line, DIFFER first and highlighted, Claude / Jev columns, "chat read (ungraded)", verdict badges, scoreboard thin vs scored, timeline, Refresh with the thinking animation, budget notice without an error, Ask Coach sets the focus then opens Coach, fold after four cards, primitives only |
 | `test/numbers-people-coach.test.js` | the same NumbersPeopleCard, compact, inside a Coach answer; Details expands; nothing extra without a read; one copy of the card |
 
+## Lane 2 is the COACH-LANES Jev stage
+
+After #488 merged, lane 2 calls `server/services/coach/jev-lane.js#jevLane` (same typed questions,
+pseudonymised state, strict answer reading) with a direct Jev client (`directJevAsk`, ai's
+experimental_evaluate on typesafe-ai/jev). JEV-01a's gateway (#441) is not on main; when it lands,
+its ask replaces `directJevAsk`.
+
 ## Red / green
 
 The unit was written against its tests in one pass (no separate RED commit). The tests were shown

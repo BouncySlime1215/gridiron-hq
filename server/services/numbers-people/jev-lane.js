@@ -1,64 +1,54 @@
 /**
- * NUMBERS-PEOPLE lane 2, "Claude -> Jev": Claude's read of an item is fed to Jev, and Jev leads
- * the lane. Jev (typesafe-ai/jev on the Vercel AI Gateway) answers typed questions about one
- * state: here the item's plan facts, Claude's call on it, and the STORED people signals for the
- * league-mates on it (coach/lanes.js#peopleSignals: labels, counts and ids; no chat text; no
- * league-mate names). Jev gives its own take from the people side:
+ * NUMBERS-PEOPLE lane 2, "Claude -> Jev": Claude's read of one key item is fed to Jev, and Jev
+ * leads the lane with its own take from the people side.
  *
- *   stance        choice: go / wait / avoid                      -> the lane's stance
- *   basis         choice: the one thing that decides it           -> the lane's basis
- *   backs_claude  boolean: do the people signals support Claude's call?
- *   willing       boolean: does the other manager read as willing to deal right now?
+ * The Jev stage is COACH-LANES' (server/services/coach/jev-lane.js, #488): the same typed
+ * questions (JEV_TAKE_QUESTIONS: p_accept, claude_call_right, better_stance, basis), the same
+ * pseudonymised state (MANAGER M1, stored people-signal labels only, no roster ids, no chat text)
+ * and the same strict reading of the answers (readTake). This file only adapts one plan item to
+ * that stage and supplies the Jev client.
  *
- * Jev returns probabilities, not prose, so the one-line why is written here from its answers
- * (no numbers in it; the probabilities are shown as the lane's cited numbers).
+ * THE JEV CLIENT. The server's one Jev client is meant to be JEV-01a's gateway (#441, open, not on
+ * main); without it coach/jev-lane.js reports "unavailable". So this lane calls Jev directly the way
+ * the Jev scripts do (build-manager-archetypes.mjs: ai's experimental_evaluate on typesafe-ai/jev,
+ * AI_GATEWAY_API_KEY read for presence only) and records the cost in ai_usage as
+ * numbers_people:jev. When #441 lands, pass its gateway's ask as `ask` and delete directJevAsk.
+ * Jev is not budget-capped (Nick, 9/23: no Jev limits).
  *
- * The interface is `jevLane(input) -> take`. What is on main today is the call path the Jev
- * scripts use (build-manager-archetypes.mjs: ai's experimental_evaluate, AI_GATEWAY_API_KEY);
- * JEV-01a (#441, open) adds the one server Jev client (server/services/jev/gateway.js, with the
- * engine event log and runaway monitor). When it lands, `createJevLane({ evaluate })` should
- * be given that gateway's ask instead of the direct call. Spend is logged in ai_usage as
- * numbers_people:jev; Jev is not budget-capped (Nick, 9/23: no Jev limits).
+ * Interface: `jevLane(input) -> take`, input { item: {key, kind, move_id?, players?}, facts, claude:
+ * {stance, basis, why}, signals: [labels] }; take { lead: 'jev', stance, basis, why, probabilities,
+ * cost_usd } or { skipped, reason }.
  */
 import { recordUsage } from '../claude.js';
+import { jevLane as jevStage } from '../coach/jev-lane.js';
 
 export const JEV_MODEL = 'typesafe-ai/jev';
 export const JEV_KEY_ENV = 'AI_GATEWAY_API_KEY';
 export const JEV_FEATURE = 'numbers_people:jev';
 const LEAN = 0.5;
 
-export const JEV_QUESTIONS = Object.freeze({
-  stance: { type: 'choice', instructions: 'Taking the people signals into account, and knowing CLAUDE\'s call from the numbers, what should NICK do about this item right now?',
-    criteria: { go: 'Go: act on it this week.', wait: 'Wait: not yet; keep watching.', avoid: 'Avoid: do not pursue it.' } },
-  basis: { type: 'choice', instructions: 'Which ONE thing decides that call?',
-    criteria: { title_gain: 'What it does to the odds the plan chases.', price: 'What it costs NICK in value.',
-      willingness: 'Whether the other manager will deal.', roster_fit: 'NICK\'s lineup need.',
-      risk: 'Injury, volatility, or a guess too weak to lean on.', timing: 'Why now, or why not now.' } },
-  backs_claude: { type: 'boolean', instructions: 'Do the people signals SUPPORT CLAUDE\'s call on this item (rather than cut against it)?' },
-  willing: { type: 'boolean', instructions: 'From the people signals only: does the other manager read as willing to make a deal with NICK right now?' }
-});
+const defaultEvaluate = async args => (await import('ai')).experimental_evaluate(args);
 
-/** The Jev state for one item: facts, Claude's call, the stored signals. Ids and labels only. */
-export function jevState({ item, facts, claude, signals }) {
-  const lines = [
-    `Fantasy football trade planning. NICK is the user. Item: ${item.kind} (${item.key}).`,
-    'PLAN FACTS (numbers from the app\'s plan):',
-    ...Object.entries(facts).map(([k, f]) => `- ${f.means}: ${f.value}`),
-    // Claude's call and reason, not its basis label: Jev picks the deciding factor on its own.
-    `CLAUDE's call from the numbers alone: ${claude.stance.toUpperCase()}.${claude.why ? ` Claude: ${claude.why}` : ''}`,
-    'STORED PEOPLE SIGNALS about the other manager(s) on this item (ungraded chat reads; labels only):',
-    ...signals.map(s => `- ${Object.entries(s).filter(([k]) => k !== 'ref').map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('; ')}`)
-  ];
-  return lines.join('\n');
+/** A Jev client with the shape coach/jev-lane.js expects: ({state, questions}) -> {ok, answers, costUsd} | {unavailable} | {ok: false, error}. */
+export function directJevAsk({ evaluate = defaultEvaluate, env = process.env, record = recordUsage } = {}) {
+  return async ({ state, questions }) => {
+    if (!env[JEV_KEY_ENV]) return { ok: false, unavailable: `Jev has no gateway key here (${JEV_KEY_ENV} is not set).` };
+    let result;
+    try {
+      result = await evaluate({ model: JEV_MODEL, state, questions });
+    } catch (e) {
+      const status = e?.statusCode ?? e?.status ?? null;
+      return { ok: false, error: `${status ? `${status} ` : ''}${String(e?.message ?? e)}`.slice(0, 200) };
+    }
+    const usage = { input_tokens: result?.usage?.inputTokens ?? 0, output_tokens: result?.usage?.outputTokens ?? 0 };
+    return { ok: true, answers: result?.answers, costUsd: record(JEV_FEATURE, JEV_MODEL, usage) ?? 0 };
+  };
 }
 
-const pick = a => (a?.choice ?? (a?.probabilities ? Object.entries(a.probabilities).sort((x, y) => y[1] - x[1])[0]?.[0] : null)) ?? null;
-const prob = (a, key) => (a?.type === 'boolean' ? a.probability : a?.probabilities?.[key]) ?? null;
-
-/** Jev's one-line why, written from its answers (no numbers: those are the lane's cites). */
-export function jevWhy({ stance, claude, backs, willing }) {
+/** Jev's one-line why, written from its answers (no numbers: those are the lane's cited numbers). */
+export function jevWhy({ stance, claude, backs, accept }) {
   const same = stance === claude.stance;
-  const deal = willing == null ? null : willing >= LEAN ? 'he reads as open to a deal' : 'he does not read as ready to deal';
+  const deal = accept == null ? null : accept >= LEAN ? 'he reads as likely to take a fair offer' : 'he does not read as likely to accept';
   let side;
   if (same) side = backs == null || backs >= LEAN ? 'The chat read backs Claude\'s call' : 'Same call as Claude, though the chat gives it little support';
   else side = backs != null && backs >= LEAN ? 'The chat read partly backs Claude' : 'The chat read cuts against Claude\'s call';
@@ -66,37 +56,30 @@ export function jevWhy({ stance, claude, backs, willing }) {
   return `${[side, deal].filter(Boolean).join('; ')}${turn}.`;
 }
 
-const defaultEvaluate = async args => (await import('ai')).experimental_evaluate(args);
+/** One plan item as the stage's lane-one read: Claude's call and the plan facts it read. */
+function laneOneOf({ item, facts, claude }) {
+  const call = `Claude's call on this ${item.kind}: ${claude.stance.toUpperCase()}.${claude.why ? ` ${claude.why}` : ''}`;
+  return { claims: [{ text: call }, ...Object.values(facts).map(f => ({ text: `${f.means}: ${f.value}` }))] };
+}
 
-/**
- * `jevLane(input) -> take`. input: { item: {key, kind}, facts: {key: {value, means}}, claude:
- * {stance, basis, why}, signals: [{ref, ...labels}] }. take: { lead: 'jev', stance, basis, why,
- * probabilities, cost_usd } or { skipped } when Jev is not configured or failed.
- */
-export function createJevLane({ evaluate = defaultEvaluate, env = process.env, record = recordUsage } = {}) {
+export function createJevLane({ ask = directJevAsk() } = {}) {
   return async function jevLane(input) {
-    if (!env[JEV_KEY_ENV]) return { skipped: 'jev_not_configured' };
-    const state = jevState(input);
-    let result;
-    try {
-      result = await evaluate({ model: JEV_MODEL, state, questions: JEV_QUESTIONS });
-    } catch (e) {
-      const status = e?.statusCode ?? e?.status ?? null;
-      console.warn(`[numbers-people] Jev call failed for ${input.item.key}: ${status ? `${status} ` : ''}${String(e?.message ?? e).slice(0, 200)}`);
-      return { skipped: 'jev_failed' };
+    const res = await jevStage({
+      question: `What should Nick do about this ${input.item.kind} right now?`,
+      laneOne: laneOneOf(input),
+      signals: { rows: input.signals.map(({ ref, ...r }) => r) },
+      focus: { move_id: input.item.move_id ?? null, players: input.item.players ?? [] }
+    }, { ask });
+    if (res.status !== 'ok') {
+      if (res.status === 'failed') console.warn(`[numbers-people] Jev did not answer for ${input.item.key}: ${res.reason}`);
+      return { skipped: res.status === 'unavailable' ? 'jev_not_configured' : 'jev_failed', reason: res.reason };
     }
-    const a = result?.answers ?? {};
-    const stance = pick(a.stance);
-    const basis = pick(a.basis);
-    if (!['go', 'wait', 'avoid'].includes(stance) || !basis) return { skipped: 'jev_no_answer' };
-    const usage = { input_tokens: result?.usage?.inputTokens ?? 0, output_tokens: result?.usage?.outputTokens ?? 0 };
-    const cost = record(JEV_FEATURE, JEV_MODEL, usage) ?? 0;
-    const backs = prob(a.backs_claude);
-    const willing = prob(a.willing);
+    const t = res.take;
     return {
-      lead: 'jev', stance, basis, why: jevWhy({ stance, claude: input.claude, backs, willing }),
-      probabilities: { stance: prob(a.stance, stance), backs_claude: backs, willing },
-      cost_usd: cost, state_chars: state.length
+      lead: 'jev', stance: t.stance, basis: t.basis,
+      why: jevWhy({ stance: t.stance, claude: input.claude, backs: t.claude_call_right, accept: t.p_accept }),
+      probabilities: { stance: t.stance_p, backs_claude: t.claude_call_right, accept: t.p_accept },
+      cost_usd: res.cost_usd ?? 0
     };
   };
 }

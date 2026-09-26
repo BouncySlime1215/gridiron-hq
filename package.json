@@ -41,6 +41,8 @@
     "check:warroom-plans": "node scripts/validate-warroom-plans.mjs",
     "check:benchmarks": "node scripts/check-benchmarks.mjs",
     "check:names-leak": "node scripts/check-names-leak.mjs",
+    "map:architecture": "node scripts/architecture-map.mjs",
+    "check:architecture": "node scripts/architecture-map.mjs --check",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs",
     "build:manager-signals": "node --env-file-if-exists=.env scripts/build-manager-signals.mjs",

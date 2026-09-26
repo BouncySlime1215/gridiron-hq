@@ -30,7 +30,7 @@ import { whyClaims, ifNoClaims, otherOneClaims, partnerSwitchClaims, followupsFo
 import { teamOf } from './brief-claims.js';
 import { withIdentityTeams } from './partner.js';
 import { routeIntent } from '../warroom-actions/intent.js';
-import { holdToRules, coachRules } from './rules-check.js';
+import { holdToRules, coachRules, hiddenFlipsLine } from './rules-check.js';
 import { LlmBudgetError } from '../llm-budget.js';
 
 /** Models per message (COACH-CHAT model routing). All three are priced in llm-budget.js. */
@@ -208,9 +208,13 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   // COACH-V2 [5] RULES-CHECK: every move line and card against Nick's rules, in code; each drop logged with its rule.
   const rules = entry ? coachRules(leagueId) : null;
   if (rules) {
-    const held = holdToRules({ answer: result.answer, proposals, ledger: result.ledger, entry, rules });
+    const held = holdToRules({ answer: result.answer, proposals, ledger: result.ledger, entry, rules, partner: nextFocus.partner ?? null });
     result.answer = held.answer;
     proposals = held.proposals;
+    // Flip routes the plan served but the rules hide: said in one plain line, so the answer never looks empty.
+    const flipTalk = intent === 'partner' || intent === 'partner_switch' || held.drops.some(d => String(d.move_id).startsWith('flip:'));
+    const line = flipTalk ? hiddenFlipsLine(held.hidden_flips) : null;
+    if (line) result.answer = { ...result.answer, refusals: [...(result.answer.refusals ?? []), line] };
     if (held.drops.length) {
       result.rule_drops = held.drops;
       const events = held.drops.map(d => ({ t: 'rule_drop', ...d }));

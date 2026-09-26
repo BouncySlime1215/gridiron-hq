@@ -171,3 +171,29 @@ test('a closed rule source drops everything, and A.J. only ever shows as a Needs
   assert.deepEqual(checkSuggestion({ ...s2[0], kind: null }, { rules, served: s2 }).reasons, ['aj_needs_ok']);
   assert.equal(checkSuggestion({ ...s2[0], kind: 'needs_ok' }, { rules, served: s2 }).ok, true, 'an approved 83+ pick as a Needs-your-OK card');
 });
+
+test('flip routes: a line about a flip that breaks a rule on either leg is dropped, and the hidden routes are counted in one plain line', async () => {
+  const { hiddenFlips, hiddenFlipsLine } = await import('../server/services/coach/rules-check.js');
+  const flip = (player, buy, sell, giveA, getB, after) => ({ player, buy_from: buy, sell_to: sell,
+    legs: { give_a: giveA, get_b: getB, give_a_ids: [giveA], get_b_ids: [getB], nick_after: { status: 'ok', value: after } } });
+  const good = flip('603', '4', '5', '514', '604', 0.02);   // leg 1 gets a blue chip, leg 2 gets a blue chip
+  const bad = flip('607', '4', '6', '515', '601', 0.03);    // leg 1 gets an unscored player
+  const losing = flip('602', '4', '6', '516', '603', -0.01); // does not beat doing nothing
+  const e = { next_move: { status: 'unknown' }, alternatives: ok([]), flip_map: ok([good, bad, losing]) };
+  const ledger = newLedger();
+  const r = ledger.record({ tool: 'plan_read', tables: ['plan_flip'], columns: ['flip_key'],
+    rows: [good, bad, losing].map(f => ({ flip_key: `${f.player}:${f.buy_from}:${f.sell_to}` })) });
+  const claims = [0, 1, 2].map(i => ({ text: `flip ${i}`, cites: [`${r.id}#${i}.flip_key`] }));
+  const held = holdToRules({ answer: { claims, refusals: [] }, ledger: ledger.toJson(), entry: e, rules, partner: '4' });
+  const kept = held.answer.claims.map(c => c.text);
+  const keptOk = kept.every(t => t === 'flip 0') ;
+  assert.ok(keptOk, `only rule-clean flips kept (${kept})`);
+  assert.equal(held.drops.filter(d => d.where === 'claim').length, 3 - kept.length);
+  assert.ok(held.drops.some(d => d.rules.includes('unscored')));
+  assert.ok(held.drops.some(d => d.rules.includes('loses_to_nothing')));
+  assert.equal(held.hidden_flips, hiddenFlips(e, rules, servedSteps(e), '4'));
+  assert.ok(held.hidden_flips >= 2);
+  assert.equal(hiddenFlipsLine(2), '2 flip routes hidden: they break your rules.');
+  assert.equal(hiddenFlipsLine(1), '1 flip route hidden: it breaks your rules.');
+  assert.equal(hiddenFlipsLine(0), null);
+});

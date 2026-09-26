@@ -54,8 +54,9 @@ export function servedSteps(entry) {
     const legs = f?.legs ?? {};
     const after = ok(legs.nick_after) ? legs.nick_after.value : null;
     const ids = (key, lead) => (Array.isArray(legs[`${key}_ids`]) ? legs[`${key}_ids`].filter(x => x != null).map(S) : [S(legs[lead])]);
-    out.push({ move_id: `flip:${f.player}:${f.buy_from}`, step: 0, partner: S(f.buy_from), give: ids('give_a', 'give_a'), get: [S(f.player)], delta: after });
-    out.push({ move_id: `flip:${f.player}:${f.sell_to}`, step: 1, partner: S(f.sell_to), give: [S(f.player)], get: ids('get_b', 'get_b'), delta: after });
+    const key = `flip:${f.player}:${f.buy_from}:${f.sell_to}`;
+    out.push({ move_id: key, step: 0, partner: S(f.buy_from), give: ids('give_a', 'give_a'), get: [S(f.player)], delta: after });
+    out.push({ move_id: key, step: 1, partner: S(f.sell_to), give: [S(f.player)], get: ids('get_b', 'get_b'), delta: after });
   }
   return out;
 }
@@ -86,13 +87,14 @@ export function checkSuggestion(s, { rules, served }) {
   return { ok: reasons.size === 0, reasons: [...reasons] };
 }
 
-/** The move a claim is about: the move_id (and step) on a row one of its cites points into. */
+/** The move a claim is about: the move_id (and step) on a row one of its cites points into; a flip counts as both legs. */
 function moveOfClaim(claim, ledger) {
   for (const cite of claim.cites ?? []) {
     const m = /^(r\d+)#(\d+)\./.exec(cite);
     if (!m) continue;
     const q = (ledger?.queries ?? []).find(x => x.id === m[1]);
     const r = q?.rows?.[Number(m[2])];
+    if (r?.flip_key != null) return { move_id: `flip:${r.flip_key}`, step: 'both' };
     // brief-claims.js#moveClaims rows carry step (1-based) and steps; other rows name the move only (its first step).
     if (r?.move_id != null) return { move_id: S(r.move_id), step: Number.isInteger(r.step) && Number.isInteger(r.steps) ? r.step - 1 : 0 };
   }
@@ -105,11 +107,18 @@ function moveOfClaim(claim, ledger) {
  * (logged into the turn's plan as `rule_drop` events by the caller).
  * -> { answer, proposals, drops: [{ where, rule(s), move_id, give, get }] }
  */
-export function holdToRules({ answer, proposals = [], ledger, entry, rules }) {
+export function holdToRules({ answer, proposals = [], ledger, entry, rules, partner = null }) {
   const served = servedSteps(entry);
   const byMove = new Map(served.map(x => [`${x.move_id}:${x.step}`, x]));
   const drops = [];
+  const flipVerdict = moveId => {
+    const legs = served.filter(x => x.move_id === S(moveId));
+    if (!legs.length) return { ok: false, reasons: ['not_served'], step: null };
+    const vs = legs.map(st => checkSuggestion({ give: st.give, get: st.get, partner: st.partner, move_id: st.move_id }, { rules, served }));
+    return { ok: vs.every(v => v.ok), reasons: [...new Set(vs.flatMap(v => v.reasons))], step: legs[0] };
+  };
   const verdictFor = (moveId, stepIx, kind = null) => {
+    if (stepIx === 'both') return flipVerdict(moveId);
     const st = byMove.get(`${moveId}:${stepIx ?? 0}`) ?? served.find(x => x.move_id === S(moveId));
     if (!st) return { ok: false, reasons: ['not_served'], step: null };
     return { ...checkSuggestion({ give: st.give, get: st.get, partner: st.partner, move_id: st.move_id, kind, premium: st.premium ?? null }, { rules, served }), step: st };
@@ -132,8 +141,23 @@ export function holdToRules({ answer, proposals = [], ledger, entry, rules }) {
   if (answer?.claims?.length && !claims.length) {
     out.refusals = [...(answer.refusals ?? []), 'Coach dropped every line about this move: it breaks one of your trade rules.'];
   }
-  return { answer: out, proposals: kept, drops };
+  return { answer: out, proposals: kept, drops, hidden_flips: hiddenFlips(entry, rules, served, partner) };
 }
+
+/** Flip routes (with `partner`, or all) that break one of Nick's rules on either leg: how many the plan served but Coach will not show. */
+export function hiddenFlips(entry, rules, served = servedSteps(entry), partner = null) {
+  const keys = [...new Set(served.filter(x => x.move_id.startsWith('flip:')).map(x => x.move_id))];
+  let n = 0;
+  for (const key of keys) {
+    const legs = served.filter(x => x.move_id === key);
+    if (partner != null && !legs.some(l => l.partner === S(partner))) continue;
+    if (legs.some(st => !checkSuggestion({ give: st.give, get: st.get, partner: st.partner, move_id: st.move_id }, { rules, served }).ok)) n++;
+  }
+  return n;
+}
+
+/** The plain line for flip routes the rules hid, or null. */
+export const hiddenFlipsLine = n => (n > 0 ? `${n} flip route${n === 1 ? '' : 's'} hidden: ${n === 1 ? 'it breaks' : 'they break'} your rules.` : null);
 
 /** The rules for one league, from the one gate (never-give.js#ruleGate). Null when the league has no Nick team. */
 function gateRules(leagueId) {

@@ -87,12 +87,15 @@ test('B1 the snapshot is a read-only copy with the same tables and rows, and the
   const before = counts(dbPath);
   const srcMtime = fs.statSync(dbPath).mtimeMs;
   const dest = path.join(root, 'snaps');
+  const walBytes = fs.statSync(`${dbPath}-wal`).size;
   const snap = takeSnapshot({ dbPath, destDir: dest, now: NOW });
+  // Checked before the writer closes: closing the last writer checkpoints the WAL.
+  assert.equal(fs.statSync(dbPath).mtimeMs, srcMtime, 'source file not modified');
+  assert.equal(fs.statSync(`${dbPath}-wal`).size, walBytes, 'source WAL not modified');
   db.close();
   assert.equal(path.basename(snap), snapshotName(dbPath, NOW));
   assert.deepEqual(counts(snap), before);
   assert.equal(fs.statSync(snap).mode & 0o222, 0, 'no write bit on the snapshot');
-  assert.equal(fs.statSync(dbPath).mtimeMs, srcMtime, 'source file not modified');
   const v = verifySnapshot(snap, dbPath);
   assert.equal(v.ok, true);
   assert.equal(v.integrity, 'ok');

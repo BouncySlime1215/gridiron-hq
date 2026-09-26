@@ -62,16 +62,16 @@ test('prices the wire handcuff by hand: at risk, won back, drop cost, and vs the
   assert.equal(r.weeks_left, 14);
   assert.equal(r.full_strength_points, 87);
   const rb = r.chips.find(c => c.player === '901');
-  // Without 901 the lineup is 63 (24 lost); 20% of 14 weeks at 24 = 67.2 at risk.
-  assert.equal(rb.cost_per_missed_week, 24);
-  assert.equal(rb.at_risk_points, 67.2);
+  // Without 901 the lineup is 73 (14 lost); 20% of 14 weeks at 14 = 39.2 at risk.
+  assert.equal(rb.cost_per_missed_week, 14);
+  assert.equal(rb.at_risk_points, 39.2);
   assert.equal(rb.status, 'insurable');
-  // 950 plays at 14 in the missed weeks: 83 vs 63 = 20 back; the dropped 908 never started (cost 0).
-  assert.deepEqual(rb.best, { kind: 'wire_handcuff', handcuff: '950', drop: '908', recovered_per_missed_week: 20,
-    drop_cost_per_week: 0, insured_points: 56, workload: { games: 3, opportunities: 16 } });
-  // The trade: +6 a week (16 for 10 at WR) x 0.5 x 14 = 42; insurance 56 is worth more, and they do not compete.
+  // 950 plays at 14 in the missed weeks: 83 vs 73 = 10 back; the dropped 908 never started (cost 0).
+  assert.deepEqual(rb.best, { kind: 'wire_handcuff', handcuff: '950', drop: '908', recovered_per_missed_week: 10,
+    drop_cost_per_week: 0, insured_points: 28, workload: { games: 3, opportunities: 16 } });
+  // The trade: +6 a week (16 for 10 at WR) x 0.5 x 14 = 42 beats insurance's 28; they do not compete (both can be done).
   assert.deepEqual(r.trade, { status: 'ok', give: ['904'], get: ['960'], points_per_week: 6, p_complete: 0.5, expected_points: 42 });
-  assert.deepEqual(rb.vs_trade, { insured_points: 56, trade_points: 42, better: 'insure', drop_in_trade: false });
+  assert.deepEqual(rb.vs_trade, { insured_points: 28, trade_points: 42, better: 'trade', drop_in_trade: false });
 });
 
 test("Nick's rules: rostered, pinned never-get, workload failers and unpriced handcuffs are refused, never priced", () => {
@@ -100,7 +100,7 @@ test('the drop is never 160 / 80 / 277, an untouchable or a Blue chip, and never
     for (const c of priceInsurance(base(over)).chips) {
       for (const o of c.options) {
         assert.ok(!['160', '80', '277', '901', '903', '905'].includes(o.drop), `dropped ${o.drop}`);
-        assert.ok((FC.get(Number(o.drop)) ?? Infinity) <= (over.valueOf ?? (id => FC.get(Number(id))))(o.handcuff));
+        assert.ok((FC.get(Number(o.drop)) ?? Infinity) <= (Object.hasOwn(over, 'valueOf') ? over.valueOf : id => FC.get(Number(id)))(o.handcuff));
       }
     }
   }
@@ -123,7 +123,7 @@ test('when the drop is one of the trade gives, the read says they compete', () =
   const r = priceInsurance(base({ trade: { give: [908], get: [{ id: 960, position: 'WR', ros_ppg: 16 }], p_complete: 1 } }));
   const rb = r.chips.find(c => c.player === '901');
   assert.equal(rb.vs_trade.drop_in_trade, true);
-  assert.equal(rb.vs_trade.better, 'trade', 'the trade (+11 a week, p 1, 154 points) outranks 56 here');
+  assert.equal(rb.vs_trade.better, 'trade', 'the trade (+11 a week, p 1, 154 points) outranks 28 here');
   const none = priceInsurance(base({ trade: null }));
   assert.equal(none.trade.status, 'none');
   assert.equal(none.chips.find(c => c.player === '901').vs_trade.better, 'insure');
@@ -131,7 +131,7 @@ test('when the drop is one of the trade gives, the read says they compete', () =
 
 test('summary counts the chips', () => {
   const s = insuranceSummary(priceInsurance(base()));
-  assert.deepEqual(s.counts, { chips: 3, insurable: 1, no_option: 1, no_miss_rate: 1, better_than_trade: 1 });
+  assert.deepEqual(s.counts, { chips: 3, insurable: 1, no_option: 1, no_miss_rate: 1, better_than_trade: 0 });
 });
 
 test('inputs: handcuffs turned round per starter, the workload test run on that starter alone', () => {

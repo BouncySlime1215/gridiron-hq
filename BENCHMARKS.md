@@ -35,6 +35,7 @@ after every merge and **refuses a regression** on any row that has a baseline.
 | love.hit_rate | LOVE tags (love.js) | luck-free r52 re-run BUY hit rate | higher | 0.02 | unmeasured | love.js reports ungraded: the r52 re-run needs the local fit | r52 re-run (local), value passed with `--current` |
 | names.plans_text_hits | War Room text (view.js teamLabel) | team or manager names in plans.json text fields, league 4 | lower | 0 | unmeasured | ONE-PLAN.md counted 6 strings (flip_map 3, next_move 3) at 2026-09-24T14:23:43Z by hand; this scanner has not run on that file | `node scripts/check-names-leak.mjs --plans ~/gridiron-local/warroom/plans.json --report-plans` |
 | names.public_hits | public boundary (check-names-leak.mjs) | names in tracked files and outgoing handoff files | lower | 0 | 0 | a bar, not a measurement: any hit fails | `node scripts/check-names-leak.mjs --plans ~/gridiron-local/warroom/plans.json --tracked` |
+| insurance.recovery_ratio | INJURY INSURANCE handoff (injury-insurance.js, contingency.js points_without) | held-out realized / predicted handcuff points in starter-missed games, 2023-25 | target:1 | 0.25 | unmeasured | needs the local nflverse usage tables (bar B1-B4 in the PR) | `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<local copy> node scripts/rnd/injury-insurance-grade.mjs`, value passed with `--current` |
 <!-- benchmarks:end -->
 
 ## Running the gate

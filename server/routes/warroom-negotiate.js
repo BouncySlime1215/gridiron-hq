@@ -151,7 +151,8 @@ export function negotiateRouter({
       const found = findStep(v, moveId, stepIndex);
       if (!found) return res.status(409).json({ error: 'That move is not on the current plan any more; refresh the War Room.' });
       // RULES-EVERYWHERE: no thread for a move that breaks one of Nick's hard rules.
-      if (!ruleGate({ row, rows }, { leagueId: L.lg.id }).ok(found.step?.give ?? [], found.step?.get ?? [])) {
+      // AJ-PICK: a card that gives A.J. Brown opens a thread only once Nick OK'd that exact card.
+      if (!ruleGate({ row, rows }, { leagueId: L.lg.id }).ok(found.step?.give ?? [], found.step?.get ?? [], null, null, { moveId })) {
         return res.status(422).json({ ...meta(L.flag), error: "That move breaks one of Nick's hard rules, so it is not served.", dropped_by_rule: 1 });
       }
       // A thread whose sent mark was taken back elsewhere closes first; the new send gets a new thread.

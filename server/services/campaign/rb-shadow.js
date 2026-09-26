@@ -22,7 +22,8 @@ export const RB_SHADOW_ENV = 'GRIDIRON_WARROOM_RB_SHADOW';
 export function rbShadowRows(res) {
   const rows = [];
   const seen = new Set();
-  const plans = [...(res?.deck ?? []).map(c => [c?.plan, true]), ...(res?.confirm_checked ?? []).map(p => [p, false])];
+  // AJ-PICK: a card waiting on Nick's OK is shown, not served.
+  const plans = [...(res?.deck ?? []).map(c => [c?.plan, !(c?.aj && !c.aj.nick_confirmed)]), ...(res?.confirm_checked ?? []).map(p => [p, false])];
   for (const [plan, served] of plans) {
     if (!plan?.steps?.length || !plan.steps.every(st => st.title_pair)) continue;
     const id = moveId(res.league, plan);

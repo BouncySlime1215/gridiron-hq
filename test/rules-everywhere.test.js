@@ -3,7 +3,7 @@
  * (server/services/campaign/never-give.js#ruleGate). Made-up ids and values only; no real data.
  *
  * League 4, Nick's team 5 (leagues.my_team_id). Rules:
- *   never give 160 / 80 / 277 (277 only for a consistent Blue chip, which nothing measures yet);
+ *   never give 160 / 80 / 277 (277 only for a Blue chip Nick picked, AJ-PICK; none picked here);
  *   never get 290 or a player Nick traded away this season (the ledger: here he sold 105);
  *   everything Nick gets scores 83+ on the served blue-chip board (here 103 scores 70); a get the board
  *   does not score is unscored and fails closed (here 110 and 290 are off the board);
@@ -93,11 +93,11 @@ const idsIn = list => list.map(d => `${(d.i_give ?? []).map(p => p.id).join('+')
 test('ruleVerdict: each rule, and the +12% depth-only 2-for-1 exception only with both rises', () => {
   const g = NG.ruleGate(DB, { leagueId: L });
   assert.equal(g.me, ME);
-  assert.deepEqual(g.rules.sources, { fc_value: 'ok', ledger: 'ok', scores: 'ok' });
+  assert.deepEqual(g.rules.sources, { fc_value: 'ok', ledger: 'ok', scores: 'ok', aj_pick: 'ok' });
   assert.ok(g.rules.sold.has('105'), 'the ledger reader finds the sale');
   const r = t => g.check(t).reasons;
   assert.deepEqual(r({ give: [80], get: [101] }), ['never_give', 'overpay']);
-  assert.deepEqual(r({ give: [277], get: [101] }), ['never_give'], '277 stays pinned: nothing measures a consistent scorer');
+  assert.deepEqual(r({ give: [277], get: [101] }), ['never_give'], '277 stays pinned: Nick picked nobody for him here (AJ-PICK)');
   assert.deepEqual(r({ give: [107], get: [290] }), ['never_get', 'unscored']);
   assert.deepEqual(r({ give: [107], get: [105] }), ['sold_this_season', 'unscored']);
   assert.deepEqual(r({ give: [107], get: [103] }), ['below_blue_chip']);

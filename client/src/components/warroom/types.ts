@@ -56,6 +56,8 @@ export interface Step {
   send_when: Field<string>;
   reply_table: Field<Record<ReplyKind, Field<Reply>>>;
   reasoning?: Field<Reasoning>;
+  /** AJ-PICK: this step gives A.J. Brown and needs Nick's OK. */
+  requires_nick_confirm?: boolean;
 }
 
 /** A plan: one deck card. `alternatives.value` is the deck, best first; its head is `next_move`. */
@@ -70,6 +72,10 @@ export interface Move {
   delta_final: Num;
   expected: Num;
   reasoning: Field<Reasoning>;
+  /** AJ-PICK: this card gives A.J. Brown for a player Nick picked (aj_for); never the next move until he OKs it. */
+  requires_nick_confirm?: boolean;
+  nick_confirmed?: boolean;
+  aj_for?: string[];
 }
 
 export interface Stop {

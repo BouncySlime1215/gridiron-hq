@@ -12,6 +12,12 @@ export function useWarRoom(leagueId: number | null) {
   return useApi<WarRoomView>(leagueId ? `/trades/${leagueId}/war-room` : null);
 }
 
+/** AJ-PICK: the players Nick would take for A.J. Brown (aj.allow), and the A.J. cards he OK'd. */
+export interface AjState { enabled: boolean; status?: string; allow?: string[]; confirmed?: string[] }
+export function useAjState(leagueId: number | null) {
+  return useApi<AjState>(leagueId ? `/warroom/${leagueId}/aj` : null);
+}
+
 /** Negotiation mode's read: this league's open threads (NEGOTIATE-UI). */
 export function useNegotiations(leagueId: number | null) {
   return useApi<Negotiations>(leagueId ? `/warroom/${leagueId}/negotiations` : null);

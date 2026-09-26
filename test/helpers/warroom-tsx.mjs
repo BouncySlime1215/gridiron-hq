@@ -4,7 +4,8 @@
  * .mjs suffix, the stylesheet import is dropped, React and its JSX runtime point at the
  * repo's copy (the same React the test renders with), and the app's api module is a stub:
  * useApi returns globalThis.__warRoomApi[path], and api() throws unless a test set
- * globalThis.__warRoomApiCall (path, opts) to answer it. Subfolders (coach/) compile too.
+ * globalThis.__warRoomApiCall (path, opts) to answer it. Subfolders (coach/) compile too, and so do
+ * the design-system primitives (client/src/components/ui) the War Room imports (AJ-PICK).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -15,6 +16,7 @@ import ts from 'typescript';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const WARROOM_DIR = path.join(REPO, 'client', 'src', 'components', 'warroom');
+const UI_DIR = path.join(REPO, 'client', 'src', 'components', 'ui');
 
 export async function loadWarRoom() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-warroom-'));
@@ -24,7 +26,7 @@ export async function loadWarRoom() {
   const reactUrl = write('react.mjs', `import { createRequire } from 'node:module';
 const R = createRequire(${reactPath})(${reactPath});
 export default R;
-export const { useState, useEffect, useReducer, useRef, useCallback, useContext, useMemo, createContext, Component, Fragment } = R;`);
+export const { useState, useEffect, useReducer, useRef, useCallback, useContext, useMemo, createContext, Component, Fragment, forwardRef } = R;`);
   const rtPath = JSON.stringify(req.resolve('react/jsx-runtime'));
   const runtimeUrl = write('jsx-runtime.mjs', `import { createRequire } from 'node:module';
 const rt = createRequire(${rtPath})(${rtPath});
@@ -61,8 +63,9 @@ export function api(p, opts) {
       write(path.join(rel, ent.name.replace(/\.tsx?$/, '.mjs')), outputText);
     }
   };
-  compile(WARROOM_DIR, '');
-  const mod = name => import(pathToFileURL(path.join(temp, `${name}.mjs`)).href);
+  compile(WARROOM_DIR, 'warroom');
+  compile(UI_DIR, 'ui');
+  const mod = name => import(pathToFileURL(path.join(temp, 'warroom', `${name}.mjs`)).href);
   return { temp, mod, cleanup: () => fs.rmSync(temp, { recursive: true, force: true }) };
 }
 

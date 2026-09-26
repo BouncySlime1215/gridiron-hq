@@ -76,6 +76,8 @@ const PENDING = [
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.negotiation(\..*)?$/ },
   { unit: 'PLANS-EXPIRE', why: 'planned_at is stamped by the producer\'s main() (plan-age.js#stampPlannedAt), not buildPlansFile, so the contract fixture stays byte-identical; test/plans-expire.test.js validates it',
     path: /^leagues\[\]\.planned_at$/ },
+  { unit: 'AJ-PICK', why: 'A.J. Brown cards exist only when Nick picked players for him (aj.allow); the fixture league has no picks and no 277 (test/aj-pick.test.js validates the served shape)',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.(requires_nick_confirm|nick_confirmed|aj_for(\[\])?|steps\[\]\.requires_nick_confirm)$/ },
   { unit: 'NEGOTIATOR-SAFETY (flag)', why: 'the safety block is served only with GRIDIRON_NEGOTIATOR_SAFETY on; the fixture producer runs flag-off (test/campaign-negotiator-safety.test.js validates the served shape)',
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.safety(\..*)?$/ }
 ];

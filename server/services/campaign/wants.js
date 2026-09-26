@@ -20,7 +20,7 @@
  *
  * SHADOW. Off (default), the planner does not call this file and plans.json is byte-identical. On, it
  * writes `_run.inputs.wants` (menus + the tie-break it WOULD make) and nothing served moves: no order,
- * no number. GRIDIRON_PREVIEW_UNCONFIRMED does not switch it on.
+ * no number. The preview switch (preview-mode.js) does not switch it on.
  *
  * Pure: no DB, env or clock. Ids only (roster ids and planner player ids), never a name.
  */

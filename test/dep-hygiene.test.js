@@ -215,3 +215,26 @@ test('report names counts, the plan and the skips, and never a local path', () =
   assert.match(md, /fast-check.*pinned/);
   assert.doesNotMatch(md, /node_modules|\/home\/|\/Users\//);
 });
+
+// Measured on main e466da4b: `npm audit fix` exits 1 whenever an advisory is left that only --force
+// could fix (react-router needs 7.x), after it has already fixed the rest. That residual is the audit's
+// answer, not a failed install; the gates decide. A real npm error still restores.
+test('B4: npm audit fix exiting 1 on residual advisories continues to the gates; an npm error restores', () => {
+  const residual = 'fixed 3 of 5\n# npm audit report\n2 moderate severity vulnerabilities\n  npm audit fix --force';
+  for (const [stderr, expectOk] of [['', true], ['npm error code ERESOLVE\nnpm error could not resolve', false]]) {
+    const dir = sandbox();
+    const calls = [];
+    const run = (cmd, args) => {
+      calls.push([cmd, ...args].join(' '));
+      if (args[0] === 'audit') {
+        fs.writeFileSync(path.join(dir, 'package-lock.json'), 'fixed');
+        return { status: 1, stdout: residual, stderr };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const r = applyUpgrades({ cwd: dir, plan: { update: [], audit_fix: true, skip: [] }, run });
+    assert.equal(r.ok, expectOk);
+    if (expectOk) assert.equal(calls.length, 1 + GATES.length);
+    else assert.deepEqual([r.failed_gate, calls.at(-1)], ['npm audit fix', 'npm ci']);
+  }
+});

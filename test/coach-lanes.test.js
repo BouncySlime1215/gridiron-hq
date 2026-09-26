@@ -161,7 +161,7 @@ test('Jev not wired on this build: the Claude read of the stored signals stands 
   const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
   assert.equal(out.lanes.people.source, 'claude_people');
   assert.equal(out.lanes.people.jev, 'unavailable');
-  assert.match(out.lanes.people.jev_reason, /JEV-01a/);
+  assert.match(out.lanes.people.jev_reason, /Jev is not wired for Coach|Jev has no gateway key/);
   assert.equal(out.lanes.title, 'Numbers + People');
   for (const { body } of client.sent) assert.doesNotMatch(JSON.stringify(body), /SENTINEL-CHAT-LINE/, 'no chat text in any prompt');
   const logged = rows(`SELECT feature, model FROM ai_usage WHERE feature LIKE 'coach:%' ORDER BY id`).map(r => `${r.feature}|${r.model}`);

@@ -1,0 +1,388 @@
+# ENGINE-SPECS: build-ready specs for the trade engine core (2026-09-23, rev 3)
+
+- **Design:** TRADE-INSANE-RND.md. Layer 2 now follows "Layer 2 deep dive ... v2", which Nick approved and the coordinator relayed.
+- **Cites:** file:line on **origin/main `19a4eea1`** (C1) unless a PR is named.
+- **Numbers:** every number has a command id (Cn, listed at the bottom). All DB numbers come from the local copy, not production. "guess" marks a guess.
+- **Walk-forward for every projection unit:** fit 2021-22, test 2023, refit, test 2024. 2025 only as a ledgered look in HOLDOUT-LEDGER.md. Forward on 2026 weeks as they're played.
+- **Order of units:** PROJ-00, PROJ-01, PROJ-02, PROJ-03 (this is CE-01, and it also absorbs CE-02), PROJ-04, BLEND-02 (the stacker), CE-03, CE-09, CLONE-01 (CLONE-01a, CLONE-01b; folds OFFER-01, MOTIVE-01, VETO-01), RADAR-01 (folds DEADLINE-01), CHESS-01, then REP-01 in the TM-01 / Coach closer notes.
+
+## Facts that change the plan (read first)
+
+1. **The design doc's data gaps are partly wrong** (C14, C19, C20, C21):
+   - ESPN 2021 is **already archived** locally. Only **2025** is missing.
+   - Pre-2025 weather is **partial, not absent**: game_lines has wind for 382/214/316/364/380 team-games in 2021-25, and there is forecast history for 2022-25.
+   - **Play-by-play is the real gap.** nfl_play_by_play holds 160 rows locally (2026 only), and the study DB copy holds 0.
+   - **Per-player route participation is absent.** nfl_play_formations has personnel groupings, not player lists.
+   - Red-zone shares and routes x TPRR both need PROJ-00 first.
+2. **Existing producers each PROJ unit must extend** (no second producer):
+
+   | Number | Producer on main (or in PR) | Extended by |
+   |---|---|---|
+   | This week's number | `weekly-blend.js` (#164, the BLEND-01 producer) | PROJ-01, BLEND-02 |
+   | Volume/share chain | `projections.js` (already `targets = target_share x team pass attempts`, :1-17, team volume :394/:817) | PROJ-02 |
+   | Game-level expectations from lines | `gamescript.js` (:331/:389/:416) | PROJ-03-a |
+   | Per-player week draws | `projections.js:861 sampleWeekEvents` / `:981 sampleWeeks` (independent negative-binomial volume per player today, :871-877) | PROJ-03-b |
+   | Title odds and correlation | `season-sim.js` + `correlation.js:212 correlatedSampler` | PROJ-03-c |
+   | Served weekly range | `trade-engine.js:435` `weekDist`, `:481-484` | PROJ-03-c |
+   | "Wrong or unlucky" | `week-postmortem.js:44 weekPostmortem` (no app caller found by grep, C22) | PROJ-04 |
+   | Weekly prediction ledger | table `weekly_prediction_snapshots` (2,379 rows, C23) | PROJ-04 |
+   | Interval math | `conformal.js` (a utility, not a producer) | PROJ-03-c |
+
+   `nfl-drive-sim.js` is a betting-side drive simulator whose only callers are scripts and server/betting (C24). It is **not** reused, because of the fantasy-only scope (INT-159-3). The coordinator can overrule this.
+3. **RL-6-3 has landed** (#192, `0558bbcc`). Paired seeds and the paired SE already exist (season-sim.js:477-574).
+4. **P(accept) has one producer**, `acceptanceBand` (trade-acceptance.js:142). "Their price" has one, `playerValuation`/`readDeal` (counterparty-pricing.js:543/:885).
+5. **ESPN labelled trade decisions are anecdote-sized.** Counting the decider's side only, there are 37 (7 accepts, 30 declines), and 20 of them are leaguemates (C3). Veto data is thinner still:
+   - TRADE_VETO has 7 rows and TRADE_UPHOLD has 11. These are **per-voter votes**, not per-trade outcomes.
+   - They cover 13 distinct voted trades, 12 in one league and 1 in another. Exactly 1 trade collected 4 veto votes, and its accept then shows CANCELED (C27).
+   - So P(veto) is 1 event and cannot be fitted per league.
+5b. **The offer ledger already exists and is unwired.** Table `trade_outcomes` (migration 067) has 0 rows, and so does `trade_outcomes_synthetic` (C28). Its writers `recordProposedOutcome` (trade-outcomes.js:234) and `settleObservedOutcomes` (:113) have no app caller; only `recordProposalSlate` is called, at routes/trades.js:805 (C28). OFFER-01 wires these writers and builds no new offer table. GR-06's planned `offer_ledger` would be a second producer: fold it into trade_outcomes.
+5c. **The trade deadline is synced but has no reader.** Its path is `leagues.payload` → `$.settings.tradeSettings.deadlineDate` (epoch ms). Four leagues have 1796230800000 (2026-12-02 17:00 UTC) and one has 1796835600000 (2026-12-09 17:00 UTC) (C29). `git grep deadlineDate origin/main` finds 0 hits. The sibling field `vetoVotesRequired` is read at trade-tactics.js:426. league-rules.js:31 says trade settings have no central reader yet.
+6. **No as-of FantasyCalc history exists locally** (C6).
+7. **FantasyPros per-player data is local only.** It lives at `~/gridiron-local/rnd/loop/data/dp/fpecr_weekly_wp.parquet`. The row count was not measured (no parquet reader on this Mac). A repo guard from #165 blocks per-player FP rows in the repo. So **the PROJ-01 referee is R&D-only until Nick clears the licence**.
+8. **Migrations 071-073 are contested in open PRs**: 071 twice (#174, #184), 072 in #164 and #166 (the same S-03 file), 073 in #170 (C17). New numbers here are 074-077 in launch order. Re-check at PR time.
+9. **Open PRs on engine files** (C17):
+   - season-sim.js: #202
+   - contingency.js: #204
+   - counterparty-pricing.js: #203
+   - trade-engine.js: #164 #166 #170 #174 #202 #204 #205 #209 #212
+   - routes/trades.js: #170 #174 #190
+   - waiver-brain.js: #164 #166
+
+---
+
+## PROJ-00: history backfill (pbp, participation, ESPN 2025, weather), licence first
+
+| ID | plan item | goal | files (file:line on origin/main) | acceptance | deps |
+|---|---|---|---|---|---|
+| PROJ-00 | Layer 2 v2 "Gaps" | Quote the licence first: ESPN's unofficial API terms, the nflverse pbp/participation licence, and FTN charting's licence as nflverse redistributes it. Record them in docs/evidence **before any pull**. Then backfill: (1) nflverse pbp 2021-2025 into `nfl_play_by_play`; (2) per-player participation (offense players per play, route runners where published) 2021-2025 into a new table; (3) ESPN leaguedefaults/3 weekly 2025 into the local archive dir, not the repo, and log the 2025 pull in HOLDOUT-LEDGER.md; (4) fill realized weather gaps 2021-24 into `nfl_game_weather` from the existing forecast history and nflverse game fields | pbp loader: the script that fills `nfl_play_by_play` today (find it with `git grep -n "nfl_play_by_play" origin/main -- scripts server/jobs`); `server/migrations/074_nfl_play_participation_players.js` (new, additive: game_id, play_id, season, week, gsis_id, team, was_route_runner nullable); `scripts/backfill-participation.mjs` (new); ESPN pull reuses #164's `DEFAULT_ARCHIVE` path and routes/espn.js:41 URL shape; `docs/evidence/<date>/proj-00-licences.md` (new) | **RED:** (1) the loader refuses to run while the licence file is absent (test); (2) after the load, `SELECT season,count(*) FROM nfl_play_by_play` shows 2021-2025, each above the prereg floor (floor = the nflverse published count for that season, recorded before the load); (3) participation joins to player_week_snaps with >=95% of offensive snaps matched per season; (4) ESPN 2025 file present, and the ledger row exists before any 2025 grading. Not statistical | none (disjoint files); the licence decision may need Nick |
+
+Notes:
+- **Producer extended:** none; this is data only. The existing `nfl_play_by_play` and `nfl_game_weather` tables are filled, not duplicated.
+- **Consumers:** PROJ-01 (drift, script and weather spots), PROJ-02-b (routes x TPRR, red-zone share), PROJ-04 (link split).
+- **Data today:**
+  - nfl_play_by_play: 2026 only, 160 rows (C19).
+  - nfl_play_charting (FTN-style): 41,643/48,225/48,031/47,316 for 2022-25; none in 2021 (C19).
+  - nfl_play_formations: 2022-25, with no player lists (C19, C25).
+  - nfl_snaps: 25,271/25,168/25,329/25,398/25,395 for 2021-25 (C19).
+  - Weather: C20.
+  - ESPN archive: 2021-24 + 2026 (C14).
+- **Migration:** 074.
+- **Settings:** risk low, critical:true (feeds served projections, per the coordinator). A Sonnet or Opus lean builder is fine.
+- **Size:** about 1 day (guess). If the participation source is not published for every season, split into -a (pbp + weather + ESPN 2025) and -b (participation).
+- **Parallel:** disjoint from all units. It holds migration 074.
+
+---
+
+## PROJ-01: ESPN Mistake Map (residual engine)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| PROJ-01-a | Layer 2 v2 item 1 | Offline residual study: a boosted model predicts the **distribution** of ESPN's error (y − ESPN) per player-week from situation features. Plus a **blind-spot library**: each named spot (backup after injury, rookie W1-4, return from IR, QB change, wind 15+ mph, blowout script, team total moved 2.5+ since open) is tested alone with its mean ESPN error and 95% CI. "New play-caller" has no local source, so it is dropped unless PROJ-00 finds one | `scripts/rnd/espn-mistake-map.py` (new, local); `docs/evidence/<date>/proj-01-preregistration.md` (new, committed first, one row per spot with its predicted sign); reuses #164's `weekly-construction-walk-forward-lib.mjs` assembler for ESPN rows + outcomes | **PRE**, walk-forward as in the header. A spot is ON only if it was pre-registered AND has the **same sign in 2021, 2022, 2023 and 2024 separately** AND its pooled 95% CI excludes 0 after Benjamini-Hochberg across all spots. Residual model: PIT of the predicted error quantiles is uniform (KS p>0.05) on test 2023 and 2024, and the mean correction reduces MAE vs ESPN in both test years | #164 merged (assembler); PROJ-00 only for the pbp-based spots (the rest run now) |
+| PROJ-01-b | same, served | Serve "ESPN + correction" as a candidate inside weekly-blend.js: surviving blind spots plus the residual-mean model, including **line drift since ESPN posted** (open → last, used as a feature). Default-off behind the existing `SERVING_HOLDS` pattern | `server/services/weekly-blend.js` (#164; new candidate `espn_corrected`); gamescript.js:416 `linesFor` (read); drift source: `nfl_odds_archive` open/close and `nfl_nfelo_lines` open/last for history, `nfl_line_snapshots` for 2026 live (C21); `scripts/weekly-blend-tournament-lib.mjs` (#164) | **PRE** ship rule: beats ESPN alone on start/sit pair accuracy (BLEND-01's metric; baseline ESPN 0.683 for 2023-24, quoted from WORK-QUEUE.md §17, not re-measured) beyond the prereg MDE in **both** the 2023 and 2024 tests, and direction holds on 2026 forward weeks. **RED:** with the candidate off, current_week_ppg is byte-identical to the #164 head in all 6 leagues (#164's `round2/dump.mjs`); a wind-15+ fixture moves only outdoor players; drift uses only lines stamped before the ESPN value's lock time (leak test) | PROJ-01-a |
+| PROJ-01-c | same, referee | **R&D-only.** Where ESPN and FantasyPros consensus disagree by more than X, learn who was right, by situation. Aggregate coefficients only; no per-player FP in the repo | `scripts/rnd/espn-fp-referee.py` (new, local); evidence doc | **PRE:** situation-level "who was right" rate, week-clustered 90% CI vs 50%, 2023/2024 tests. Serving requires Nick's licence decision, recorded in the queue | PROJ-01-a |
+
+Notes:
+- **Producer extended:** weekly-blend.js (the BLEND-01 producer from #164). Nothing new is served outside it.
+- **Consumers:** every `current_week_ppg` reader. Start/Sit via lineup-brain.js `startSitWeekPoints`; the waiver board via routes/trades.js:679 and waiver-wire.js; the League Hub card; TradeCard; `adj_ppg` (from #164's body).
+- **Data:**
+  - ESPN archive 2021-24 (C14).
+  - Line drift: nfl_odds_archive open/close about 9.8k rows per market for 2021-24; nfelo open+last 285/284/285/272/285 games for 2021-25 (C21).
+  - Wind: C20. Injuries: 5,348/5,449/5,451/5,952/5,783 (C12). Depth: nfl_depth for 2021-26 (C19).
+- **Migration:** none (spot table and weights are committed constants).
+- **Settings:** critical:true, risk normal. Opus builder, Fable auditor.
+- **Size:** -a about 1 day, -b about 1 day, -c about half a day (all guesses).
+- **Parallel:** -a is a script, so it is disjoint. -b owns weekly-blend.js, which BLEND-02 and PROJ-04-b also touch; that is loop 1, sequential.
+
+---
+
+## PROJ-02: sharp chain (plays → pass rate → share → volume → TDs → scoring)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| PROJ-02-a | Layer 2 v2 item 2 | Inside projections.js: team plays = f(spread, total, pace); pass rate = neutral pass rate adjusted by win probability from the spread; carries = team rushes x carry share. **Team shares are normalized to 100%** per team-week. Efficiency is shrunk by sample size (the existing `shrink` / `activeKVectorFor`). League scoring stays last (scoring.js:157 `scoreSim`, unchanged). Each link is exposed on the projection object (`links: {plays, pass_rate, share, volume, eff, td}`) so it can be graded and used by PROJ-04 | projections.js:504 `buildProjections`, :394 (team pass volume k), :817 (`team_pass_att`/`team_rush_att`); gamescript.js:389 `gameScriptFor` (read, win probability); `test/proj-02-chain.test.js` (new) | **RED (hard):** for every team-week in a fixture and in the 2024 replay, targets summed over the roster equal team pass attempts x target rate within 0.5%, and carries sum to team rushes within 0.5%. **PRE per link:** each link must beat the incumbent link's MAE vs actuals (team plays vs season-average plays; pass rate vs season-neutral; targets and carries vs today's projections.js) in both the 2023 and 2024 tests. A link that fails keeps the incumbent value, and that is recorded | none (projections.js is untouched by open PRs, C17) |
+| PROJ-02-b | same | Target share = route participation x targets per route run (shrunk). TDs = red-zone share x team implied TDs (from the total) | projections.js (same function); reads PROJ-00's participation table and pbp | **PRE:** TPRR-based targets beat PROJ-02-a's target share on MAE in the 2023 and 2024 tests; the red-zone TD model beats today's TD rate on Poisson deviance in both. **RED:** a player with 0 routes gets 0 projected targets; a team's red-zone shares sum to 1 | PROJ-00, PROJ-02-a |
+
+Notes:
+- **Producer extended:** projections.js (volume x efficiency; the share x team volume split is already its design, :1-17).
+- **Consumers:** buildProjections feeds season-sim.js (`proj.get(p.id)` in the pool loop, :344), trade-engine.js `assetUniverse` (ros/week bases) and the weekly construction behind weekly-blend.js.
+- **Data:**
+  - player_week_usage 7,659/7,945/8,436/8,675/8,857 for 2021-25 (C13).
+  - player_week_snaps 7,607/7,632/7,918/8,074/8,618 (C19).
+  - game_lines 2021-25 fully scored (C11).
+  - No red-zone columns in player_week_usage (C26), so PROJ-02-b needs pbp.
+- **Migration:** none.
+- **Settings:** critical:true, risk normal.
+- **Size:** each part about 1 day (guess).
+- **Parallel:** projections.js is shared with PROJ-03-b, so the two run sequentially in the same loop.
+
+---
+
+## PROJ-03: correlated game simulator with conformal ranges (this IS CE-01; it absorbs CE-02)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| PROJ-03-a | CE-01 | A seeded game-script sampler in gamescript.js: `sampleGameScript(game, key)` returns one score path consistent with Vegas (both team totals, margin, pace, win probability by quarter). All players in that game share it. The sd comes from the spread bucket. Future weeks use ESPN look-ahead lines (C11), with a power-rating fallback (TM-12) | gamescript.js:331 `fitGameScript`, :389, :416 (extend); stats-util.js `keyedSeed` (read); `test/proj-03a-game-script.test.js`; `scripts/proj03a-calibration.mjs` | **PRE:** 80% team-points interval coverage 77-83% by \|spread\| bucket (<3, 3-7, >7); PIT uniform; CRPS no worse than "Normal(implied, pooled sd)", on the 2023 and 2024 tests. **RED:** same key gives the same path; the mean total over 20k draws equals the implied total ±0.1 | none |
+| PROJ-03-b | CE-02 | Player draws conditional on the game path: team volume from the path, then Dirichlet shares around PROJ-02's shares, efficiency draws, negative-binomial TDs from red-zone share x path TDs, and in-game injury exit risk. This replaces the per-player independent negative-binomial volume in `sampleWeekEvents` | projections.js:861 `sampleWeekEvents`, :900 `sampleWeek`, :981 `sampleWeeks` (extend; keep the signatures, add `path`); stats-util randBeta/randGamma/randNegBinomial (already imported, projections.js:29) | **RED:** within one path, drawn team targets equal team attempts x target rate (shares sum to 1); same seed and path give the same draw. **PRE:** same-team pairwise correlations (QB-WR1, RB-trailing) fall within the 90% CI of the historical values that correlation.js:43 `fitCorrelations` produces; pre-conformal 80% coverage is reported per position | PROJ-02-a, PROJ-03-a |
+| PROJ-03-c | CE-02 wiring + conformal | Wire the path-based draws into season-sim's weekly pools and **retire the copula** for sim use (correlation now emerges from shared paths; one correlation mechanism). Apply split-conformal adjustment per position x week band. Serve the weekly range from the same draws at trade-engine.js:435/:481-484, so start/sit, ranges and title odds come from one simulator | season-sim.js:336-380 (pool build + `correlatedSampler` call :377-378), :399-406 (run loop); correlation.js:212 (sim caller removed; fit stays as a grading baseline); trade-engine.js:435 `weekDist`, :481-484; conformal.js `buildConformal` (reuse); `test/proj-03c-one-simulator.test.js` | **Contract RED:** `git grep correlatedSampler server/services/season-sim.js` = 0; the floor/ceiling on the trade page equals the sim's own p10/p90 for the same player-week and seed; the RL-6-3 null tests pass (test/rl-6-3-trade-impact-paired.test.js: a roster reorder changes nothing, a player-for-himself trade gives 0, a free agent added leaves uninvolved teams unchanged to 1e-9). **PRE:** 80% ranges cover 77-83% in every position x week-band cell with n>=200 in both the 2023 and 2024 tests; start/sit win rate vs "start ESPN's higher number" is not worse; range log score beats today's `weeklyDistribution` band | PROJ-03-b; CE-03 merged first (same season-sim.js region); #202 merged |
+
+Notes:
+- **Producers extended:** gamescript.js (-a), projections.js (-b), season-sim.js and trade-engine.js's one weekly range site (-c). The plan's `services/sim/game-sampler.js` and `player-sampler.js` are **not created**: they would duplicate gamescript.js and projections.js.
+- **Consumers:**
+  - Title odds: `GET /:leagueId/simulate` (routes/model.js:450), `POST /:leagueId/trade-impact` (model.js:465, TradeCard.tsx:186), `/title-trades` (routes/trades.js:659, TradeLab.tsx:264), the sense-check (routes/trades.js:1195), `myPlayoffOdds` (trade-engine.js:1632).
+  - Ranges: Start/Sit floor/ceiling and TradeCard, via trade-engine.js:481-482.
+- **Data:** game_lines 2021-25, 570/568/570/570/570 scored team-game rows (C11). 2026 ESPN look-ahead lines for weeks 2-18. Whether late-week look-ahead lines are real markets is a **guess**; check `book_count`.
+- **Migration:** none.
+- **Settings:** all three are critical:true (CE-02 is on the fixed list), risk normal.
+- **Size:** each part about 1 day (guess).
+- **Parallel:** -a is fully disjoint and can start now. -b follows PROJ-02-a (projections.js). -c follows CE-03 (season-sim.js) and precedes CE-09-a. It also shares trade-engine.js with CHESS-01-a and RL-7-1: **do not run RL-7-1 alongside it**.
+
+---
+
+## PROJ-04: Monday Autopsy
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| PROJ-04-a | Layer 2 v2 item 6 | For every started or projected player each week, split the miss into links: game script (Vegas off), team volume, share, efficiency, TD luck, in-game exit, and news we had vs missed. Separate decision quality from outcome luck. Write one plain line ("Missed X by 11: 6 from targets, 5 TD luck"). Season rollups name the failing link and which source was right | `server/services/week-postmortem.js:44 weekPostmortem` (extend: per-player link split under its existing DECISION/PROJECTION/VARIANCE frame); reads `weekly_prediction_snapshots` (the ledger) and PROJ-02 `links`; `server/migrations/075_projection_autopsy.js` (new, additive: season, week, player_id, link, points, is_luck, source_right); `server/jobs/` weekly autopsy job; one app consumer (route + a My team card), because weekPostmortem has none today (C22) | **RED:** link parts sum exactly to (actual − projection) for every row (identity to 1e-9); a TD-only miss is classed 100% luck; a fixture reproduces the example line; the job writes one row per player-link-week. Not a ship-gated statistic | PROJ-02-a (links exist); PROJ-03-b for the script and exit links (until then those rows say "not modelled") |
+| PROJ-04-b | same | Weekly online reweighting with forgetting (online Bayesian) of BLEND-02's situation weights, fed **only** by decision-relevant error, never by luck parts. New candidate blind spots from the rollup go to the R&D queue as rows, not code | weekly-blend.js (BLEND-02 weights, now updatable); the autopsy job; WORK-QUEUE R&D intake | **PRE:** replay 2023-24 week by week. Online weights must not be worse than frozen weights on pair accuracy and range log score (non-inferiority margin in the prereg), then forward on 2026. **RED:** a luck-only week leaves the weights unchanged; the forgetting factor bounds any single week's weight change | BLEND-02, PROJ-04-a |
+
+Notes:
+- **Producer extended:** week-postmortem.js for the decomposition; weekly-blend.js for the weights. The autopsy table is the persistence for an existing producer, not a new number.
+- **Consumers:** the new My team card (via a route in routes/model.js or a new small router; to be chosen at build and kept off routes/trades.js to avoid RADAR/CHESS overlap); the R&D queue; season rollups.
+- **Data:** weekly_prediction_snapshots 2,379 rows (C23); 2026 actuals from league_roster_snapshots 753/757/800 rows for weeks 1-3 (C19b).
+- **Migration:** 076.
+- **Settings:** both critical:true, risk normal (-a low for the server part).
+- **Size:** each part about 1 day (guess).
+- **Parallel:** -a touches week-postmortem.js, which no other unit touches. -b is in the weekly-blend.js lane (loop 1).
+
+---
+
+## BLEND-02: the stacker (on top of PROJ-01 and PROJ-02)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| BLEND-02 | Layer 2 v2 item 4; WORK-QUEUE :647/:663 redefined again | Learn situation weights (by position, week band and situation) over the candidates {ESPN, ESPN+correction (PROJ-01-b), sharp chain (PROJ-02)}, plus FP only if licensed. **Source disagreement is a feature.** The output is the served point, which feeds PROJ-03's path draws as the share/volume anchor | `server/services/weekly-blend.js` (#164, extend `TOURNAMENT_DECISION` into learned weights); `scripts/weekly-blend-tournament-lib.mjs` (#164, add candidates and a disagreement feature); waiver-brain.js:163 `vegasLift`, retired onto the stack (callers lineup-brain.js:358, trade-engine.js:2942) | **PRE:** walk-forward as in the header. Ships ON only if it beats the **best single candidate** (ESPN or PROJ-01-b) on start/sit pair accuracy beyond the MDE in both the 2023 and 2024 tests, and holds direction on 2026 forward weeks. **RED:** with every non-ESPN weight at 0, the served number equals ESPN's; the disagreement feature is computed from pre-lock values only (leak test); `git grep -n vegasLift server` shows only the stack's reader | PROJ-01-b, PROJ-02-a; #166 → #164 merged |
+
+Notes:
+- **Producer extended:** weekly-blend.js, the one producer for current_week_ppg.
+- **Consumers:** as in PROJ-01, plus PROJ-03's path anchor.
+- **Data:** as in PROJ-01/02.
+- **Migration:** none (weights are committed constants until PROJ-04-b makes them updatable; if they are stored, the builder asks for a migration number then).
+- **Settings:** critical:true (on the fixed list), risk normal.
+- **Size:** about 1 day (guess).
+- **Parallel:** loop 1 (weekly-blend.js lane).
+
+---
+
+## CE-03: availability as multi-week spells (folds RL-9-2)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| CE-03 | Layer 2 title odds; CE-03 + RL-9-2 (WORK-QUEUE :817) | Replace the sim's per-week independent chance-to-play (baked into each pool as zeros by `sampleWeeks`, projections.js:989) with a per-run semi-Markov availability path. Week 1 comes from today's report (weeklyAvailability). Later weeks use fitted P(out \| out k weeks) and P(injured \| healthy) by position, keyed `keyedSeed(world,'avail',p.id)` so trade pairs stay paired. Pools are drawn with activeProbability=1 and then multiplied by the path | contingency.js:73 `availability`, :933 `weeklyAvailability`, new `availabilityTransitions()` next to :436 `fitRoleRates`; season-sim.js:342 (`activeChance`), :356-358 (pool draw), :399-406 (run loop applies the path); projections.js:981 (read, called with 1); `test/ce03-availability-spells.test.js` | **PRE** (from RL-9-2): 2023-24 decision weeks 4-14, healthy starters. Predicted P(miss both of the next 2) and P(miss all 3), with a player-clustered 90% bootstrap CI, must contain the observed rates at every position. Baseline iid 0.22%/0.01% vs observed 4.01%/2.75% (quoted from WORK-QUEUE.md:817, not re-measured). No 2025 grading; forward 2026 W4-12. **RED:** stationary weekly availability = `durability_prior` ±0.005; P(out t+1 \| out t) > P(out t+1); the RL-6-3 null tests pass | #202, #204 merged; **must merge before PROJ-03-c starts** (same season-sim.js region); RL-9-1 after this |
+
+Notes:
+- **Producers extended:** contingency.js (availability), season-sim.js (title odds).
+- **Consumers:** as in PROJ-03 (title odds).
+- **Data:** player_week_usage 2021-25 (C13); nfl_injuries (C12); nfl_availability_rates 139 rows (C18b). The fit is computed and cached like `availability()`.
+- **Migration:** none.
+- **Settings:** critical:true, since it moves served title odds; log the reason when adding it to the 07:50Z list. Risk normal.
+- **Size:** about 1 day (guess). The trade-engine.js `playerRiskProfile` :1071 / `packageRisk` :1120 half is deferred to CE-03-follow to keep trade-engine.js free.
+- **Parallel:** it runs in loop 3 first, so season-sim.js is free before PROJ-03-c.
+
+---
+
+## CE-09: one currency, the title-odds ladder
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| CE-09-a | CE-09 (paired seeds already done by RL-6-3) | Generalise `tradeImpact` into `actionImpact(lg, {myTeamId, actions})`: a roster delta (trade, claim, drop, lineup pin), with tradeImpact kept as a wrapper. `oddsLadder` returns do nothing / best claim / best trade / best trade + claim on one paired seed, each rung with its paired SE | season-sim.js:477 `TRADE_DELTA_NOISE_SE`, :483 `pairedSe`, :498 `tradeImpactSeed`, :508 `TRADE_IMPACT_RUNS`, :519-574 `tradeImpact`; waiver-wire.js:144 `waiverBoard` (read); trade-engine.js:1765 `findTrades` (read); routes/model.js:465 (+ `GET /:leagueId/odds-ladder`) | **Contract RED:** exactly one title-odds delta producer, with title-odds-trades.js:68, routes/trades.js:1195 and model.js:471 routed through it; "do nothing" gives 0 for every team; a ladder trade equals `tradeImpact` to 1e-12. **SE bar:** the median published paired SE is 1.03pp at 800 runs (C15), which gives about 0.29pp at 10k by 1/sqrt(n) (arithmetic). Acceptance: measured median SE <= 0.35pp at 10k on RL-6-3's 23-deal shortlist, with wall time recorded. 10k is 8.3x today's 1,200 runs (C16); whether that fits a request is a **guess** | PROJ-03-c merged (same file) |
+| CE-09-b | CE-09 tables + OddsLadder | Tables `sim_state` and `action_price`; a post-sync job; a shared `OddsLadder` component on My team, TradeCard and WaiverWire | `server/migrations/077_sim_state_action_price.js`; `server/jobs/` odds-ladder job; `client/src/components/OddsLadder.tsx` (new), `client/src/pages/MyTeam.tsx`, `client/src/components/TradeCard.tsx:179-190,367-369`, `client/src/components/lineup/WaiverWire.tsx` | **RED:** one sim_state row per sync plus N action_price rows; the route serves the stored row with no sim call (mock); a stale row carries its age label; 0 unwired tables; a delta inside 2 SE renders grey (TradeLab.tsx:289's rule) | CE-09-a; #174 merged |
+
+Notes:
+- **Producer extended:** season-sim.js tradeImpact → actionImpact.
+- **Consumers:** TradeLab.tsx:264-314, TradeCard.tsx:186/:367, routes/trades.js:1195, plus the new cards.
+- **Migration:** 077.
+- **Settings:** critical:true (on the fixed list). The UI part of -b goes to a Sonnet lean builder.
+- **Size:** each part about 1 day (guess).
+
+---
+
+## CLONE-01: manager clones (their price + P(accept)); folds OFFER-01, MOTIVE-01, VETO-01, RL-13-3
+
+This is too big for one build, so it is split per the coordinator: **CLONE-01a** (population accept model + motive state) and **CLONE-01b** (offer loop + Bayesian per-manager update + veto, served). CLONE-01b is itself more than one day (guess), so it builds in two PRs: b1 (offer loop wiring, which is data) and b2 (Bayesian update + served factors).
+
+| ID | plan item | goal | files (file:line on origin/main) | acceptance | deps |
+|---|---|---|---|---|---|
+| CLONE-01a | Layer 1 population; RL-13-3 (:859); MOTIVE-01 | (1) **RL-13-3:** shrink each manager's accept rate toward the pooled rate (empirical Bayes), then rescale to 0.5 = middle. (2) **Population model**, offline on Sleeper: conditional-logit waiver choice (claimed player vs that week's unrostered pool from `sh_team_weeks.players_json`), with completed trades as PU positives. Features: rank / season-to-date points proxy, recent points, position need, roster count, loss streak, bye crunch. (3) **MOTIVE-01:** a buyer/seller/desperate state per manager from own title odds, injuries, bye crunch and losing streak. Offline it is proxied from Sleeper standings (sh_team_weeks points/opponent). Live it comes from season-sim team odds. It enters as a model feature and is stored on the counterparty profile | counterparty-pricing.js:317-327 (accept-rate blend → `shrunkAcceptScore`), :241 `counterpartyLayer` (profile gains `motive: {state, title_odds, loss_streak, bye_crunch, n}`), :433 `postLossFactor` and :462 `deriveRosterNeeds` (reused as motive inputs, not recomputed); live title odds read from CE-09-b `sim_state` if merged, else `simulateSeason` (season-sim.js:284) through the existing memo; `scripts/rnd/fit-clone-population.py` (new, aggregates only); `docs/evidence/<date>/clone-01-preregistration.md` | **RED (RL-13-3):** a manager at the pool rate (0.355) with n=15 scores ~0.5, not 0.913 (quoted from WORK-QUEUE.md:859). **RED (MOTIVE):** a 0-4 team with title odds <3% reads `seller`; a team with >=2 starters out and a bye crunch reads `desperate_buyer`; no sim available gives `state:null` with a reason, never a default. **PRE:** fit Sleeper 2021-23, grade 2024, grouped by manager. Waiver-choice log loss and top-1 vs "highest as-of value available". Season-to-date PPG stands in for FantasyCalc, because no as-of FC exists (C6). MOTIVE ships as a feature only if adding it improves held-out log loss (manager-clustered 90% CI clear of 0); otherwise it is display-only | #203 merged (edits counterparty-pricing.js:364-371); SY-01 decider-side rule |
+| CLONE-01b | Layer 1 clones; **OFFER-01**; VETO-01; AI-05 / TM-01 / GR-06 | **b1, offer loop (data engine):** a one-tap "I sent this" on any suggested deal calls `recordProposedOutcome` with the deal, model P(accept) band, idea_id and a **pitch arm** (screen-fairness level, 2-for-1 vs 1-for-1, lead need; one factor varied at a time). A post-sync job calls `settleObservedOutcomes`, which auto-matches ESPN PROPOSAL/DECLINE/ACCEPT by `espn_tx_id`. The app never sends offers. **b2, clones served:** each settled reply triggers a conjugate Bayesian update (Beta-logit on the population prior from CLONE-01a) of that manager's clone. A decline bounds their price (the offered package < their reservation value), and the follow-up suggestion is the cheapest package above that bound. Feeds `playerValuation` (new `clone` source inside `PLAYER_VALUATION_CAP` :107) and the **centre** of `acceptanceBand`. **VETO-01:** P(complete) = P(accept) x (1 − P(veto)), where P(veto) comes from the existing `vetoRiskFor` (trade-tactics.js:501) on `vetoClimate` (:421) with the league's `vetoVotesRequired`. It is a capped factor in acceptanceBand, labelled `fitted:false` (n=1 veto event, C27) | trade-outcomes.js:234 `recordProposedOutcome`, :113 `settleObservedOutcomes`, :420 `outcomesFor` (extend; the one offer ledger); routes/trades.js (new `POST /:leagueId/offers/sent`, next to `/proposals` :763); `server/jobs/` post-sync settle job; `server/migrations/077_clone_fits_and_pitch_arms.js` (new, additive: table `manager_clone_fits` (league_id, roster_id, coef_json, n, k, fit_stamp) + column `trade_outcomes.pitch_json`); counterparty-pricing.js:68 `VALUATION_SOURCES`, :543, :885; trade-acceptance.js:65 `ACCEPTANCE_SOURCES`, :142 `acceptanceBand`; trade-tactics.js:421/:501 (read); client: "I sent this" button on TradeCard.tsx and the follow-up chip | **RED (b1):** a logged offer plus a synced TRADE_DECLINE with a matching tx settles to `status='declined'` with `resolved_at`; an unmatched offer stays `pending` with a reason; the settle job is idempotent; no code path sends to ESPN (grep test). **RED (b2):** one decline moves that manager's P(accept) for an equal-or-worse package down and leaves others unchanged; `zero:['clone']` reproduces today's band byte-for-byte; n=0 equals CLONE-01a's population model; `vetoVotesRequired` null gives an inert veto factor with a reason. **PRE clone test:** Arm 1 (primary): Sleeper 2024 waiver choices, managers with >=10 prior claims. Arm 2: ESPN 2026 forward decisions plus every settled OFFER-01 reply (37 decider-side historical, 20 of them leaguemates, C3), reported with n and CI and never a gate alone. Ships only if Arm 1 CI clears the baseline and Arm 2 is not worse in direction; else default-off. **Pitch experiment:** accept rate by arm, logged only; no claim until the prereg n is reached (state the MDE at 20 offers/arm as a guess). **Scorecard:** accepted trades' title-odds delta at +2/+5 weeks via rec_ledger (#174) | CLONE-01a; #174 (scorecard); #170 if Arm 2 wants as-of FC |
+
+Notes:
+- **Producers extended:**
+  - counterparty-pricing.js: their price, receptiveness, and motive on the profile.
+  - trade-acceptance.js `acceptanceBand`: P(accept), and P(complete) with veto.
+  - trade-outcomes.js: the offer ledger.
+  - trade-tactics.js `vetoRiskFor`: veto risk, read only.
+  - No clone service, no offer_ledger table and no veto model file are added.
+- **Consumers:**
+  - trade-engine.js:1922 (`managerFactor`), :1951, :2158 (`vetoClimate`), :2238 (`d.acceptance`).
+  - `/find` (routes/trades.js:732, TradeLab.tsx:427), `/evaluate` (:857), `/offer(-many)` (:829/:840), `/brain/managers` (:232, TradeBrain.tsx:49), `/market/:playerId` (:1026), the new `/offers/sent`, the TradeCard follow-up chip.
+- **Data:**
+  - ESPN TRADE_* raw counts (C4). Decider-side decisions: 37 (C3). Canceled proposals are not declines.
+  - Veto votes: 7, uphold votes: 11, over 13 voted trades (C27).
+  - ESPN waivers 55, FA adds 89 (C18).
+  - Sleeper: 7,952 trades (no declines), 352,916 FA adds, 198,324 + 156,211 waivers (C7); 21,484 manager-seasons with claims, mean 9.2 (C9); 385,022 team-weeks (C10).
+  - trade_outcomes: 0 rows today (C28).
+  - The Sleeper id mapping effort is a **guess**.
+- **Migration:** 078 (CLONE-01b).
+- **Settings:** CLONE-01a critical:false, risk normal (offline fit + a display-scale fix; motive is display-only until it passes). CLONE-01b critical:true (AI-05 acceptance is on the fixed list), risk normal. The b1 UI button goes to a Sonnet lean builder.
+- **Size:** CLONE-01a about 1 day; b1 about 1 day; b2 about 1 day (all guesses).
+- **Parallel:** counterparty-pricing.js, trade-acceptance.js and trade-outcomes.js are only touched in loop 3. CLONE-01b adds a route in routes/trades.js (near :763), so don't run it alongside RADAR-01a or CHESS-01-a.
+
+---
+
+## RADAR-01: mispricing radar (folds DEADLINE-01)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| RADAR-01-a | Layer 3; **DEADLINE-01** | gap = clone price (`playerValuation`) − real value (the finder's asset value). Extend `newsOpportunities` to rank by the gap and flag "real value moved, clone price hasn't". **DEADLINE-01:** add `trade_deadline` (epoch ms, and the last scoring period before it) to `leagueRules` read from `payload.settings.tradeSettings.deadlineDate` (C29). Rank radar moves by weeks left before the deadline, and add a warning when <=2 scoring periods remain | news-lag-trader.js:113 (extend); league-rules.js:66 `leagueRules` (extend: the one league-settings reader; its :31 comment lists trade settings as unread); counterparty-pricing.js:950 `valuationMap` (read; this gives it the first app caller, as asked at :940); routes/trades.js:626 `/news-edge`; `test/radar-gap.test.js`, `test/league-rules-deadline.test.js` | **RED:** a starter-to-Out fixture puts the handcuff first with gap > 0; no clone fit gives `gap:null` with a reason; gap = value − price exactly (no local re-pricing); a payload without `deadlineDate` gives `trade_deadline:null` with a reason, never a default; a fixture two scoring periods before the deadline carries the warning, and one after the deadline returns no trade moves | CLONE-01b |
+| RADAR-01-b | Layer 3 grading | A daily scan writes flags to rec_ledger (#174) and grades them at +1/+2/+5 weeks | `server/jobs/` radar job; rec-ledger helper (#174); TradeLab.tsx:181 | **PRE radar test:** the share of flags that close toward real value by +2w, league-clustered 90% CI vs 50%, MDE stated. Forward only. The deadline caps the window: flags after it are not graded | RADAR-01-a; #174 |
+
+Notes:
+- **Producers extended:** news-lag-trader.js for opportunities; league-rules.js for the deadline. CHESS-01-a reads the same `trade_deadline` to cap its horizon, and trade-tactics.js:426 can later move its `vetoVotesRequired` read here (a follow-up, not this unit).
+- **Consumers:** routes/trades.js:626 → TradeLab.tsx:181; the rec_ledger grader; CHESS-01-a (deadline).
+- **Data:** deadline present in all 5 leagues (C29).
+- **Migration:** none if #174 lands (no second ledger).
+- **Settings:** -a critical:false (default-off; the deadline is a settings read), -b critical:false until switched on.
+- **Size:** about half a day to 1 day for -a with the deadline (guess), about half a day for -b.
+- **Parallel:** not alongside CHESS-01-a or CLONE-01b (routes/trades.js).
+
+---
+
+## CHESS-01: title-odds chess
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| CHESS-01-a | Layer 4; TM-05 / GT-01 / CE-07 | Extend `findTradeSequences` (2-step greedy today) into budgeted MCTS over trade → claim → flip, up to 3 steps. The leaf score is `actionImpact`, with ties decided by paired SE. A step expands only if the clone's P(accept) passes a threshold (P(complete), veto included). Rival claims come from the population waiver model. The horizon stops at `leagueRules(lg).trade_deadline` (DEADLINE-01, added in RADAR-01-a), and REP-01's lopsidedness budget prices each step | trade-engine.js:2288 (extend), :1765 (read); routes/trades.js:816; TradeLab.tsx:611; `test/chess-sequences.test.js` | **RED:** a 3-step fixture with odds rising at every step and every clone seeing a gain beats the best single trade by more than 2 paired SE; deterministic under one seed; the node budget is respected; no trade step lands after the deadline | CE-09-a, CLONE-01b, PROJ-03-c, RADAR-01-a (deadline) merged |
+| CHESS-01-b | Chess test | Sleeper 2021-24 as-of replay: search vs single best-value trade, scored by title odds on the same seeds | `scripts/rnd/chess-replay.mjs`; prereg doc | **PRE:** league-clustered 90% CI of the title-odds gain clear of 0, with the stratified league-week sample fixed in the prereg; aggregates only. A fail keeps -a default-off | CHESS-01-a; Sleeper id mapping |
+
+Notes:
+- **Producer extended:** trade-engine.js `findTradeSequences`. The score is still produced by season-sim.js.
+- **Consumers:** routes/trades.js:816 → TradeLab.tsx:611.
+- **Data:** sh_team_weeks 385,022 and sh_team_seasons 27,586 rows (C10).
+- **Settings:** -a critical:true, -b critical:false.
+- **Size:** -a about 1 day. -b is more than 1 day (guess); split it into -b1 (mapping + harness) and -b2 (run + grade) if needed.
+
+---
+
+## TM-01 / Coach closer notes (folds REP-01)
+
+| ID | plan item | goal | files | acceptance | deps |
+|---|---|---|---|---|---|
+| REP-01 | Coach; TM-01 their-eyes / TM-04 pitch ladder | A reputation budget. Every logged offer (OFFER-01, trade_outcomes) adds to a per-counterparty and league-wide **lopsidedness ledger**: how far the offer sat from fair on the counterparty's screen, decayed over weeks. It lowers that manager's clone P(accept) for the next offer, and TM-01 ranking spends lopsidedness only where the title-odds gain per unit of reputation is highest. The Coach reads the same number when drafting ("you have sent him 3 lopsided offers in 2 weeks") | counterparty-pricing.js:1034 `selfRead` (extend: "HOW NICK LOOKS", which already carries `to_each_manager`, `known_shopping` and `veto_votes_against`; add `lopsidedness` per manager + league); trade-outcomes.js:420 `outcomesFor` (read); trade-acceptance.js:142 (new capped `reputation` factor); trade-engine.js:2160 (the existing selfRead consumer, which passes it to TM-01 ranking) | **RED:** three logged lopsided offers to one manager lower his P(accept) for a fourth identical offer and leave other managers unchanged; the factor decays to 0 after the prereg half-life; with no logged offers the factor is inert with a reason. **PRE (forward only):** among OFFER-01 offers, accept rate vs prior lopsidedness (logistic, manager-clustered CI). Default-off until n reaches the prereg floor (guess: 40 settled offers) | CLONE-01b (b1 data + b2 band) |
+
+Notes:
+- **Producer extended:** counterparty-pricing.js `selfRead` for how Nick looks (the standing Coach layer). acceptanceBand is the only place it moves P(accept). No new "reputation" service.
+- **Consumers:** trade-engine.js:2160 → `tacticsForDeal` (trade-tactics.js:649) and TM-01 ranking; the Coach through the trade tools that already read tactics (coach/tools.js; check the exact line at build).
+- **Data:** trade_outcomes 0 rows today (C28), so REP-01 learns only from OFFER-01 logging. Historical proposals by Nick (C3/C4) can seed the ledger. They are not labelled as lopsided until priced as-of, and that as-of pricing is a **guess** at effort.
+- **Also noted, out of scope:** trade-engine.js:2160 wraps `selfRead` in a bare `catch { self = null; }`, and the trade-tactics.js:411-419 comment names a leaguemate (the no-names rule). Flag both to R5.
+- **Migration:** none (it reads trade_outcomes; the decay constants are committed).
+- **Settings:** critical:true (it moves served P(accept)), risk normal.
+- **Size:** about half a day (guess).
+- **Parallel:** loop 3 only (counterparty-pricing.js, trade-acceptance.js).
+
+---
+
+## Launch order for 3 loops (projection units first)
+
+The rule: one editor per file at a time. Wait for the named open PRs before starting.
+
+| Loop | Sequence | Lane / files | Why |
+|---|---|---|---|
+| **Loop 1** | PROJ-00 → PROJ-01-a → PROJ-01-b → PROJ-01-c → BLEND-02 → PROJ-04-b → CHESS-01-a → CHESS-01-b | data, then the weekly-blend.js lane | PROJ-00 has no deps. PROJ-01-a can start on 2021-24 ESPN while pbp spots wait for PROJ-00. PROJ-01-b, BLEND-02 and PROJ-04-b all edit weekly-blend.js, so they run in order. CHESS goes last because it needs CE-09-a, CLONE-01b, PROJ-03-c and RADAR-01-a (deadline). PROJ-01-b and BLEND-02 also wait for #166 → #164 |
+| **Loop 2** | PROJ-03-a → PROJ-02-a → PROJ-03-b → PROJ-02-b → PROJ-03-c → CE-09-a → CE-09-b → RADAR-01-b | gamescript.js → projections.js → season-sim.js / trade-engine.js:435-484 → client ladder → radar job | PROJ-03-a starts now (disjoint). projections.js is edited only in this loop. PROJ-02-b waits for PROJ-00. **PROJ-03-c waits for CE-03 to merge** (loop 3). CE-09-a then follows on season-sim.js. RADAR-01-b (a job plus TradeLab.tsx:181) waits for RADAR-01-a (loop 3) and #174 |
+| **Loop 3** | CE-03 → PROJ-04-a → CLONE-01a → CLONE-01b (b1 offer loop, then b2 clones + veto) → RADAR-01-a → REP-01 | contingency.js / season-sim.js → week-postmortem.js → counterparty-pricing.js / trade-acceptance.js / trade-outcomes.js / league-rules.js / news-lag-trader.js | CE-03 is a Layer 2 sim unit and must clear season-sim.js before PROJ-03-c. It waits for #202 and #204. PROJ-04-a needs PROJ-02-a's links (loop 2, early). CLONE-01a waits for #203. OFFER-01 (b1) comes early in the lane because every offer Nick sends from then on is clone data, so each day it waits loses labels |
+
+Hard gates across loops:
+- **season-sim.js:** CE-03 (loop 3), then PROJ-03-c (loop 2), then CE-09-a (loop 2).
+- **trade-engine.js:** PROJ-03-c (:435-484, loop 2) before CHESS-01-a (:2288, loop 1). RL-7-1 (:390-403) is held until PROJ-03-c lands. REP-01 only reads through :2160.
+- **routes/trades.js:** CLONE-01b (`/offers/sent` near :763), RADAR-01-a (:626) and CHESS-01-a (:816), one at a time. They are sequenced: loop 3 does b then RADAR-01-a, and CHESS starts only after both.
+- **Migrations:** 074 PROJ-00, 075 ENGINE-00a, 076 PROJ-04-a, 077 CE-09-b, 078 CLONE-01b (renumbered 9/23 5:10 PM for ENGINE-00a). Re-check the highest number on main at PR time.
+
+---
+
+## Commands (every number above)
+
+- C1 `git fetch origin; git log -1 origin/main` → `19a4eea1` (2026-09-23 14:21 -0400).
+- C3 `sqlite3 -readonly ~/gridiron-local/data.sqlite`: TRADE_ACCEPT/DECLINE joined to a TRADE_PROPOSAL (same league, `tx_id=related_tx_id`, items non-empty), `decider != proposer`, DISTINCT (type, league, key, decider). Result: ACCEPT 7 (4 deciders, 2 leagues, 3 by Nick), DECLINE 30 (11 deciders, 3 leagues, 14 by Nick). Nick = `leagues.my_team_id`.
+- C4 `SELECT type,status,count(*) FROM league_transactions_raw WHERE type LIKE 'TRADE%' GROUP BY 1,2` → ACCEPT 17 blank / 1 CANCELED / 9 EXECUTED / 2 PENDING; DECLINE 58; PROPOSAL 93 CANCELED / 75 PENDING; UPHOLD 11; VETO 7 (all 2026, 5 leagues).
+- C5 C3's set split at `proposed_at >= '2026-09-03'` → ACCEPT 5/2, DECLINE 19/11.
+- C6 `SELECT format_key,count(*),min(fetched_at),max(fetched_at) FROM dynasty_values GROUP BY 1` → 213 + 212 rows, 09-03 → 09-19, latest-only.
+- C7 `sqlite3 -readonly data/derived/sleeper_history.sqlite "SELECT type,status,count(*) FROM sh_transactions GROUP BY 1,2"` → trade 7,952 / 3 failed; free_agent 352,916; waiver 198,324 / 156,211 failed; commissioner 3,303.
+- C8 joined to sh_leagues → leagues 469/483/489/490/470 (2021-25).
+- C9 per (league, roster) completed-waiver counts via `json_each(roster_ids_json)` → 21,484 groups, mean 9.2, max 74.
+- C10 `SELECT count(*) FROM sh_team_weeks` → 385,022; sh_team_seasons → 27,586.
+- C11 `SELECT season,count(*),sum(team_score IS NOT NULL) FROM game_lines GROUP BY 1` → 2021-25: 570/568/570/570/570, all scored (nflverse); 2026: 544 rows, 64 scored, weeks 2-18 source espn.
+- C12 `SELECT season,count(*) FROM nfl_injuries GROUP BY 1` → 5,348/5,449/5,451/5,952/5,783/455.
+- C13 `SELECT season,count(*) FROM player_week_usage GROUP BY 1` → 7,659/7,945/8,436/8,675/8,857/1,052 (sum 42,624, matching the design doc).
+- C14 `ls ~/gridiron-local/rnd/loop/data/espn_proj_hist/` → leaguedefaults3 for 2021, 2022, 2023, 2024, 2026 (+K/DST 2021-24); no 2025.
+- C15 `git show origin/main:docs/tdd/2026-09-23-trade-impact-paired-seeds.tdd.md | sed -n 140,160p` → median paired SE 1.03pp at 800 runs; seed sd 0.81pp; n=23.
+- C16 `git grep -n "export const SENSE_CHECK_SIM_RUNS" origin/main` → trade-verify.js:135 = 1200.
+- C17 `gh pr view <n> --json files` over the open PRs, filtered to engine paths → fact 9; `gh pr view 164/203 --json body,files`.
+- C18 non-trade types in league_transactions_raw → WAIVER EXECUTED 55 (21 teams), FREEAGENT 89 (25 teams). C18b `SELECT count(*) FROM nfl_availability_rates` → 139.
+- C19 `SELECT season,count(*) ... GROUP BY 1` per table:
+  - nfl_play_by_play: 2026:160
+  - nfl_play_charting: 2022-26 = 41,643/48,225/48,031/47,316/5,174
+  - nfl_play_formations: 2022-25 = 50,150/46,168/45,919/45,184
+  - nfl_depth: 2021-26 = 28,731/28,959/28,927/28,794/55,829/8,913
+  - nfl_snaps: 2021-26 = 25,271/25,168/25,329/25,398/25,395/2,994 (sum 129,555, matching the design doc)
+  - player_week_snaps: 2021-26 = 7,607/7,632/7,918/8,074/8,618/1,041
+  - Study DB `feature-store-study.sqlite` nfl_play_by_play: 0 rows.
+- C19b `SELECT scoring_period_id,count(*) FROM league_roster_snapshots GROUP BY 1` → 753/757/800 (5 leagues).
+- C20 `SELECT season,sum(wind IS NOT NULL) FROM game_lines WHERE season>=2021 GROUP BY 1` → 382/214/316/364/380/20. nfl_game_weather_forecast_history 2022-26: 852/855/855/855/48. nfl_game_weather: 2025:193, 2026:42.
+- C21 `SELECT phase,market,count(*) FROM nfl_odds_archive WHERE season BETWEEN 2021 AND 2024 GROUP BY 1,2` → open and close about 9,830-9,836 each for h2h/spreads/totals. nfelo open+last non-null 2021-25: 285/284/285/272/285. nfl_line_snapshots: 55,421 rows, 2026-08-05 → 2026-09-22. game_lines `open_spread` non-null: 2021 544, 2022-25 0.
+- C22 `git grep -n weekPostmortem origin/main -- server client/src` (excluding its own file) → no callers.
+- C23 `SELECT count(*) FROM weekly_prediction_snapshots` → 2,379 (it has prediction, lower_80, upper_80, actual).
+- C24 `git grep -n nfl-drive-sim origin/main -- server scripts` → scripts/calibrate-home-field-rate.mjs, scripts/opener-clv-measurement.mjs, scripts/model-lab, server/betting/nfl/forecast.
+- C25 `PRAGMA table_info(nfl_play_formations)` → game_id, play_id, season, possession, offense_formation, offense_personnel, defense_personnel, defenders_in_box, ... (no player list).
+- C26 `PRAGMA table_info(player_week_usage)` → no red-zone columns.
+- C27 `SELECT type,status,execution_type,count(*),count(DISTINCT league_id) FROM league_transactions_raw WHERE type IN ('TRADE_VETO','TRADE_UPHOLD') GROUP BY 1,2,3` → UPHOLD 11 rows in 2 leagues, VETO 7 rows in 1 league. The per-`related_tx_id` tally joined to the linked PROPOSAL/ACCEPT rows gives 13 distinct voted trades (12 in one league). One trade has 4 veto votes and TRADE_ACCEPT CANCELED; the rest carry 0-2 votes each.
+- C28 `SELECT count(*) FROM trade_outcomes` → 0; `trade_outcomes_synthetic` → 0. `git grep -nE "recordProposedOutcome|settleObservedOutcomes|recordProposalSlate" origin/main -- server client/src` (excluding trade-outcomes.js) → only routes/trades.js:790/:805 (recordProposalSlate).
+- C29 `SELECT id, json_extract(payload,'$.settings.tradeSettings') FROM leagues` → deadlineDate 1796230800000 for 4 leagues and 1796835600000 for 1; vetoVotesRequired 3/6/2/5/4. `date -u -r 1796230800` → 2026-12-02 17:00 UTC, `-r 1796835600` → 2026-12-09 17:00 UTC. `git grep -n deadlineDate origin/main -- server client/src` → 0 hits; `tradeSettings` → trade-tactics.js:426 and the league-rules.js:31 comment.
+
+---
+
+## JEV-01: Jev anchors the loop
+
+- **Design:** TRADE-INSANE-RND.md "JEV ANCHORS THE LOOP" + Build rule. Cites here are on **origin/main `3c13f508`** (C30), not C1.
+- **Honest prior (r17, LOOP-LOG:4327-4331, RL-17-2 WORK-QUEUE:912):** a frozen, draft-fed Jev persona ranked 2026 trade proposers at AUC 0.47/0.44; activity count 0.78/0.91 (as-of 0.921). So the data sets Jev's weight per question type. Nothing below assumes Jev wins.
+
+Facts found (read first):
+1. **What Jev is:** `typesafe-ai/jev` on the Vercel AI Gateway, called through `experimental_evaluate` from `ai@7.0.105` (jev.ts:14/:26). It returns **typed answers only** (boolean / choice / score, each with probabilities) plus `usage.inputTokens`. It returns no prose, so "the argument" must come from a writer model (claude.js `callClaude` :205). The AI writes the words; Jev and the stats make the numbers.
+2. **Every call site is an off-server script** (C31): build-manager-archetypes.mjs:166-173 (`--jev`, paid-run gated :124-130), news-line/jev_{league_chat,presser_signals,transactions,coach_decisions,garbage_time,luck_plays,narrative,yt_triage}.mts, live-market/jev_live_plays.mts:227, luck/jev_luck.mts, model-lab/jev_research_auditor.mts. **The server never calls Jev.** It only reads stored outputs: `manager_archetype_jev` (manager-archetypes.js:86, writer `storeJevAnswers` :1425), `jev_chat_signals` (bluff-detector.js:131, coach/people/variables.js:310), and the persona block (counterparty-pricing.js:201-266, :342, :429; routes/trades.js:329 strips the raw values).
+3. **Key:** `AI_GATEWAY_API_KEY` (present in the main checkout's .env.local, value not read). Scripts need `GRIDIRON_ALLOW_PAID_RUN` + `JEV_MAX_USD` (per-script caps $1-$8, e.g. jev_live_plays.mts:46).
+4. **Balance:** no repo code reads it. The installed `@ai-sdk/gateway@4.0.85` has `gateway.getCredits()` → `{balance, totalUsed}` (node_modules dist/index.js:730-798; C32). jev_presser_signals.mts:136/:245 notes the $5 free credits. Zero-retention needs a paid plan (jev_league_chat.mts:222).
+5. **Cost:** scripts price tokens locally at $0.042/M input. The app ledger is `ai_usage` (migration 057; `recordUsage` claude.js:90). llm-budget.js `PRICING` (:37-41) lists Claude models only and refuses unlisted ones. `reserveBudget` (:319) enforces the daily caps (`DEFAULT_DAILY_BUDGETS_USD` :43, `MAX_DAILY_BUDGET_USD` 100 :47). Nick's no-cap rule means Jev must **not** go through reserveBudget.
+6. **Graders exist:** P(accept) producer `acceptanceBand` (trade-acceptance.js:142, sources :65); outcomes `trade_outcomes` (0 rows, writers trade-outcomes.js:113/:234, wired by CLONE-01b); plays-Sunday producer `weeklyAvailability` (contingency.js:934, ESPN merge `espn=true`); points outcomes via rec_ledger (#174, open); person-variable grader precedent `gradeVariables` (coach/people/grading.js:183, 70/30 split, Spearman floor).
+7. **Migration clash:** ENGINE-00a is building 075 (engine_events + engine_state, workflow wf_3613214e), and PROJ-00 has 074. This doc's launch table gives **075 to PROJ-04-a**, so PROJ-04-a/CE-09-b/CLONE-01b shift to 076/077/078. JEV-01 adds **no migration**.
+
+| ID | plan item | goal | files (file:line on origin/main 3c13f508) | acceptance | deps |
+|---|---|---|---|---|---|
+| JEV-01a | JEV ANCHORS; ENGINE loop DECIDE stage | **Jev gateway as an engine stage.** (1) One client, `server/services/jev/gateway.js` (new); nothing else imports `ai`'s `experimental_evaluate`. (2) Question registry `jev/questions.js` (new), one typed schema + version per type: `plays_sunday` (boolean), `role_change` (choice down/same/up + p), `p_accept` (boolean, per offer), `pitch_framing` (choice over the OFFER-01 pitch arms), `startsit_tiebreak` (choice A/B, only when the sim margin is under 1 paired SE), `sim_contradiction` (boolean + choice of which link). (3) State builder `jev/state.js` (new): reads **only** `/api/engine/state` as-of snapshots (sim quantiles, tells card + clone, chess candidates, news, reason chains) and pseudonymises people with the `jevStateFor` pattern (manager-archetypes.js:1254/:1260). (4) Runs as a stage in the **ENGINE-00 daemon**, never in the web server or scheduler.js. (5) Every call appends an `engine_events` row `type='jev_call'`: prompt hash, question type + version, model id(s), input tokens, cost, latency, `ai_usage` row id, ok/error. Every answer becomes an `engine_state` row, producer `'jev'`, field `jev.<qtype>.<model>` (raw, never served), with a reason_chain that names the state rows it read. (6) Cost goes to `ai_usage` via `recordUsage` (claude.js:90) with feature `jev:<qtype>`; add `typesafe-ai/jev` to `PRICING` (llm-budget.js:37); **skip `reserveBudget`**. (7) Spend: `getCredits()` at daemon start and hourly, stored as `engine_state` field `jev.balance`. Daily spend is **read from ai_usage** (one producer). **Runaway alert** (no cap): calls/hour > 5x the trailing-7-day hourly median, or the same prompt hash sent >3x in 10 min, or balance projected to hit 0 within 24h, raises an `engine_events` `jev_runaway` row + status line. Repeat hashes within the as-of window are served from state (a dedupe, not a cap). (8) **Cross-check:** each question goes to K>=2 arms: Jev with >=2 prompt phrasings, plus one non-Jev model (**Nick picks**, see below). Disagreement over 0.25 is itself stored as a field | `server/services/jev/{gateway,questions,state,stage}.js` (new); ENGINE-00a daemon stage registry + one-writer registry (extend; file from the ENGINE-00a PR); llm-budget.js:37 (PRICING row); claude.js:90 (read); manager-archetypes.js:1254 (pseudonym pattern, read); `test/jev-01a-*.test.js` | **RED:** (1) `git grep -n "experimental_evaluate" server` returns only jev/gateway.js; (2) one-writer registry: `jev.*` fields have producer `'jev'` only, and a write under another producer throws; (3) the as-of test: a state snapshot built at t contains no event with ts > t (fixture with one future event); (4) a mocked call writes exactly 1 jev_call event + 1 ai_usage row with the cost = tokens x price, and a mocked 5xx writes ok=0 with no state row; (5) the runaway fixture (60 calls in 1 min vs a median of 2/h) raises jev_runaway and **does not block** the 61st call; (6) with `AI_GATEWAY_API_KEY` absent the stage writes `jev.status='no_key'` with a reason, never a default probability; (7) no real name appears in any logged state payload (grep the fixture output against the roster names); (8) tests never hit the network (the gateway is injected; CI has no key). Not a statistical gate | **ENGINE-00a merged** (events, state, registry, as-of reader, /api/engine/state, daemon); RL-17-2 persona demotion landed or folded in (the old persona fields stay display-only) |
+| JEV-01b | ALWAYS LEARNING; JEV "action → result → learn" | **Grader + calibration + learned weights, in shadow.** (1) Nightly and per settled outcome, grade every `jev.*` answer against the truth: `p_accept` ↔ trade_outcomes settled status; `plays_sunday` ↔ active that week (nfl_snaps / player_week_usage snaps > 0); `role_change` ↔ the share change in player_week_usage vs the prior 3 weeks (prereg threshold); `startsit_tiebreak` ↔ realised points (rec_ledger #174); `pitch_framing` ↔ accept rate by pitch arm (OFFER-01 `pitch_json`); `sim_contradiction` ↔ whether the flagged player-week lands in the PROJ-04 autopsy's top-decile miss. (2) Per question type x arm: an isotonic calibration map (Platt below n=200). (3) Per question type: a learned stack over {each calibrated Jev arm, the incumbent} by online logistic stacking on logits, weights >= 0, refit nightly, with a weekly forgetting factor. (4) Everything is written as `engine_state` producer `'jev_grader'` (fields `jev_cal.<qtype>.<arm>`, `jev_weight.<qtype>`, `jev_score.<qtype>` with n, log loss, Brier and CI). **Pre-registered incumbents** (a prereg doc committed before the first graded week): P(accept) = activity count + past proposing (r17 A_pre) via today's acceptanceBand centre; plays Sunday = ESPN designation through weeklyAvailability; role change = "no change"; start/sit = "start ESPN's higher number" (0.683 baseline, quoted); pitch and contradiction have no incumbent (logged only). **Forward-only on 2026**, from the first week after merge. Each graded week gets a HOLDOUT-LEDGER row; 2025 is never opened | `server/services/jev/{grader,calibrate,stack}.js` (new); `scripts/jev-grade-report.mjs` (new); `docs/evidence/<date>/jev-01-preregistration.md` (new, committed first); reads trade-outcomes.js:420 `outcomesFor`, contingency.js:934, rec-ledger.js (#174); `test/jev-01b-*.test.js` | **RED:** (1) a perfectly calibrated arm gets an identity isotonic map to 1e-9; (2) an arm that always says 0.9 on a 30%-true fixture gets mapped to ~0.3; (3) an arm worse than the incumbent on log loss over n>=prereg floor ends with weight <= 0.05 and `jev_score` says "incumbent leads"; (4) no grade uses an outcome stamped before the answer's as_of, and no answer is graded before its outcome settles (leak test); (5) the stack with Jev's weight at 0 reproduces the incumbent exactly. **PRE:** per question type, Jev-stack vs incumbent log loss, with a manager-clustered (P(accept)) or player-week-clustered (plays Sunday) 90% CI. The prereg n floor per type: P(accept) is **undecidable this season** at ~20 decided offers a week (r17 power); plays Sunday decides in ~2 weeks (a guess: hundreds of questionable player-weeks a week) | JEV-01a; CLONE-01b b1 (settled offers); #174 (rec_ledger); PROJ-04-a for the contradiction grade (until then it is logged "ungraded") |
+| JEV-01c | JEV "blend is what the pages show"; ACT one voice | **Serve the blend inside the existing producers and say who's winning.** (1) acceptanceBand gets source `jev` in `ACCEPTANCE_SOURCES` (trade-acceptance.js:65). Its movement is the learned `jev_weight.p_accept` x (calibrated Jev − incumbent centre), `fitted:true` only once JEV-01b's CI clears; `zero:['jev']` is the ablation. (2) weeklyAvailability (contingency.js:934) takes the same blended term for `plays_sunday`, and `designation_source` gains `'jev_blend'`. (3) Start/sit uses the tiebreak only inside lineup-brain.js's existing coin-flip band (:626). (4) **Status line**, in /api/engine/state health: per question type "Jev weight 0.62, leads incumbent by 0.04 log loss (n=410)", or "Jev trails; serving ESPN", plus today's Jev spend, balance and any runaway alert. (5) Coach and TradeCard show the argument: a claude.js writer turns the stored reason_chain + Jev probabilities into 1-2 sentences and never invents a number (coach/verify.js number check) | trade-acceptance.js:65/:142; contingency.js:934; lineup-brain.js:626 (read band); coach/tools.js + coach/catalog.js:274 (repoint `manager_archetype_jev` rows to the live `jev.*` fields); counterparty-pricing.js:201-266 (persona block becomes a reader of `jev.*`, one producer); client status chip (ENGINE-00a surface); `test/jev-01c-*.test.js` | **RED:** (1) `zero:['jev']` gives acceptanceBand byte-identical to pre-JEV-01c; (2) with `jev_weight`=0 weeklyAvailability equals today's for all players in the fixture week; (3) a weight flip in the fixture from 0.7 to 0.1 changes the status text to "Jev trails" in the same request; (4) no page computes its own blend: `git grep -n "jev_weight" client/src server/routes` shows only the /api/engine/state reader; (5) every Coach number in a Jev argument traces to a state row (verify.js passes). **PRE:** inherits JEV-01b; a type is served above weight 0 only when its CI clears | JEV-01b; CLONE-01b + REP-01 order on trade-acceptance.js; CE-03 merged (contingency.js); #184 merged (lineup-brain.js); #170 merged (coach/catalog.js) |
+
+Notes:
+- **Producers extended:** ENGINE-00a's engine_events/engine_state (the new producers `'jev'` and `'jev_grader'`, raw fields only); acceptanceBand (P(accept)); weeklyAvailability (plays Sunday); ai_usage (cost). No Jev side store: new Jev answers stop going to new `jev_*` sqlite tables, and the existing script tables (jev_chat_signals, jev_play_labels, jev_transaction_signals) stay as R&D inputs until ENGINE-00a's adapters backfill them as events.
+- **Consumers:** TradeCard/TradeLab P(accept) band, Start/Sit, the League Hub injury card, Coach (tools.js), and the /api/engine/state status line.
+- **Data today:** 0 settled offers (C28); `manager_archetype_jev` holds the 45 frozen persona rows (LOOP-LOG:4419); 2026 plays-Sunday outcomes come weekly from nfl_snaps (2,994 rows 2026, C19).
+- **Migration:** none (engine_events/engine_state from 075). Renumber this doc's PROJ-04-a/CE-09-b/CLONE-01b to 076/077/078 (fact 7).
+- **Settings:** all three critical:true, risk normal. Builders and tests make **no paid calls** (the gateway is mocked). The first live daemon run needs Nick's go.
+- **Size:** 01a ~1.5 days, 01b ~1.5 days, 01c ~1 day (guesses).
+- **Parallel / open PRs (C33):** llm-budget.js, claude.js and trade-acceptance.js are in no open PR (#136/#41 touch only test/trade-acceptance.test.js). contingency.js: #80. lineup-brain.js: #184 #60 #43. counterparty-pricing.js: #214 #136 #100 #41. coach/catalog.js: #170. scheduler.js is in 8 PRs, which is one more reason the stage lives in the daemon.
+- **Launch slot:** JEV-01a (new files only) joins **loop 1 right after PROJ-00** (disjoint from weekly-blend.js), once ENGINE-00a merges. JEV-01b follows in loop 1, before PROJ-01-b, so shadow grading starts at the earliest week. JEV-01c goes in **loop 3 after CLONE-01b and before REP-01** (same trade-acceptance.js lane), and after CE-03 for contingency.js.
+- **Needs Nick:** (a) which non-Jev model(s) cross-check (a Claude model via claude.js, or other gateway models), and whether league state may go to them under standard retention (zero-retention needs a paid gateway plan); (b) a standing `GRIDIRON_ALLOW_PAID_RUN` for the daemon, since no cap means the alert is the only brake; (c) Jev's launch weight: 0 (shadow until it earns weight, as r17 suggests) or a prior he picks.
+- C30 `git fetch origin main; git log -1 origin/main` → `3c13f508` (2026-09-23 15:45 -0400). C31 `git grep -nli jev origin/main`, then `git grep -n "experimental_evaluate\|typesafe-ai/jev" origin/main -- server` → 0 server hits. C32 `grep -n getCredits node_modules/@ai-sdk/gateway/dist/index.js` (main checkout, read-only) → :730, :3771; schema `{balance,total_used}` :794-795. C33 `gh pr diff <n> --name-only` over all open PRs.
+
+**Coordinator rulings on JEV-01 open questions (9/23 5:10 PM ET, under Nick's "no Jev limits" + "decide, don't ask"):**
+1. Cross-check / writer model = Claude via the existing claude.js path (Anthropic already approved for Trade Brain; league data already goes there). No new vendor.
+2. Paid calls in the daemon: YES for Jev (no cap, log + runaway alert). Anthropic calls stay under the in-app daily cap.
+3. Starting weight: Jev runs graded from day one; its weight per question type is EARNED by the grader (start at the shadow/0 weight until n reaches the pre-registered minimum, then the learned weight). Nick can override with a prior.

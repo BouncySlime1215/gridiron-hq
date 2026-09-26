@@ -1,0 +1,11 @@
+---
+name: gridiron-state-1259-2026-09-22
+description: "17:36Z-17:40Z twenty-first batch: #116 new head 93870a92 with GitHub's 'dirty' disputed as stale, both gates on 28b801b8, evidence cites by subject then sha, #85 rebase started; Wiring map's guard caught its own reversed pin → NEW gate-fix head ae84ac6d supersedes c3527d4a, lesson on comment-right-assert-wrong; annotations grant form fixed; Auditor asked to rule on the reversed pin and a proposed cite-by-subject rule"
+metadata:
+  type: project
+  modified: 2026-09-22T17:41:00.000Z
+---
+- **Opportunity #116 new head 93870a92** (docs-only on 28b801b8; run 35760376177 in progress). **Conflict disputed by git:** merge-base = f620a120 = main tip, is-ancestor true; GitHub's `dirty` is STALE after force-push + retarget. Both gates on 28b801b8 under write-tree guard a0a6ed3d: `check` 0 with 3537/3496/0/41; `wiring` 1 with main's three only. The evidence file cited an unreachable RED sha b885db2b after two rebases → **now cites by SUBJECT then sha.** #85 rebase started (merge-base 654ff933, zero conflicting files).
+- **Wiring map:** guard run 1 caught **1 failing test of its own** — `test/wiring-map.test.js` pinned the unrecognised-receiver→app fallthrough; assertion reversed with reason; 90/90. **NEW HEAD ae84ac6de53a54e0a2af0c9f19470d67ff988cee supersedes c3527d4a**; re-running, not pushing on red. **LESSON** [[gridiron-comment-right-assert-wrong-lesson]]: a test can hold the correct reasoning in its comment and the wrong claim in its assert. **Annotations grant form (corrects [[gridiron-state-1258-2026-09-22]]):** bare path in `accepted_orphan_modules` (NOT `expected_orphans`) + prose in `_PERMANENT_ORPHAN_REASONS` with a RESULT-based retirement condition; Fantasy plan adds it itself after the fix merges. Mechanic confirmed: the `pull_request` event builds merge(head, base).
+- **Coordinator relays 17:38Z:** Evidence Auditor told the new head + #116 re-read; Fantasy plan given the exact grant form; Trade Brain polls ae84ac6d; **Auditor asked to rule** on Wiring map's reversed pin and on a proposed fleet rule — **"evidence files cite RED/GREEN by commit subject first, sha second; Evidence Auditor checks sha reachability on the reviewed head."**
+Prev [[gridiron-state-1258-2026-09-22]]. Next [[gridiron-state-1260-2026-09-22]].

@@ -1,0 +1,38 @@
+{
+  "file": "server/services/manager-archetypes.js",
+  "test": "test/manager-archetypes-history-state.test.js",
+  "mutants": [
+    {
+      "id": "M1-unit-drop-unreadable-guard",
+      "kind": "unit",
+      "find": "      if (!present) { out.unreadableSlots++; continue; }",
+      "replace": "      if (false) { out.unreadableSlots++; continue; }",
+      "expect": "DIED",
+      "why": "Removes the whole fix: every roster falls through to the unowned-slot branch again, which is the incumbent defect."
+    },
+    {
+      "id": "M2-callsite-force-present",
+      "kind": "call-site",
+      "find": "  return { byRoster: state.byRoster, present: state.present, reason: state.reason };",
+      "replace": "  return { byRoster: state.byRoster, present: true, reason: state.reason };",
+      "expect": "DIED",
+      "why": "Pins the injected value directly. The caller's predicate is hardcoded true, so outcomeRows() reads an unreadable layer as readable even though its own branch is intact."
+    },
+    {
+      "id": "M3-surface-force-present",
+      "kind": "unit",
+      "find": "    league_history_state: historyState.present ? 'present' : 'table_absent',",
+      "replace": "    league_history_state: 'present',",
+      "expect": "DIED",
+      "why": "The reporting half: the build claims the identity layer is fine while it is absent."
+    },
+    {
+      "id": "CONTROL-surviving-source-label",
+      "kind": "control-surviving",
+      "find": "    source: LEAGUE_HISTORY_SOURCE,",
+      "replace": "    source: 'deliberately-wrong-source-label',",
+      "expect": "SURVIVED",
+      "why": "Designed to survive. These tests pin the state, the reason text and the two counters; they deliberately do NOT pin the provenance label. If this dies, the tests reach further than claimed and every SURVIVED verdict here is suspect."
+    }
+  ]
+}

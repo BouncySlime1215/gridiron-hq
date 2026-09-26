@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>War Room Mock</title>
+<style>
+:root{
+  --bg:#ffffff; --surface:#f8fafc; --line:#e2e8f0; --ink:#0f172a; --muted:#64748b; --subtle:#94a3b8;
+  --accent:#059669; --accent-tint:#ecfdf5; --warn:#b45309; --warn-tint:#fffbeb; --danger:#b91c1c; --danger-tint:#fef2f2;
+  --info:#0369a1; --panel:#0c1613; --shadow:0 1px 2px rgb(15 23 42/.05); --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b1110; --surface:#121a18; --line:#23302c; --ink:#e7eeeb; --muted:#9aaba5; --subtle:#6b7c76;
+    --accent:#34d399; --accent-tint:#0f2a21; --warn:#f5b454; --warn-tint:#2a1f0c; --danger:#f87171; --danger-tint:#2b1212;
+    --info:#7cc4f0; --panel:#050908; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b1110; --surface:#121a18; --line:#23302c; --ink:#e7eeeb; --muted:#9aaba5; --subtle:#6b7c76;
+  --accent:#34d399; --accent-tint:#0f2a21; --warn:#f5b454; --warn-tint:#2a1f0c; --danger:#f87171; --danger-tint:#2b1212;
+  --info:#7cc4f0; --panel:#050908; --shadow:none;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;letter-spacing:-.012em;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mockbar{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;background:var(--panel);color:#cfe3dc;font-size:12px}
+.mockbar b{color:#fff}
+.mockbar button{background:#18241f;border:1px solid #2c3d37;color:#e7eeeb;border-radius:6px;padding:4px 10px;cursor:pointer}
+.mockbar button[aria-pressed="true"]{background:#047857;border-color:#047857}
+.mockbar .sp{flex:1}
+.stage{padding:16px}
+.frame{margin:0 auto;max-width:1100px;transition:max-width .2s}
+body.phone .frame{max-width:375px;border:1px solid var(--line);border-radius:18px;padding:0 0 76px;overflow:hidden;position:relative}
+body.phone .inner{padding:12px}
+.inner{padding:0}
+.eyebrow{font-size:11px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+h1{margin:4px 0 2px;font-size:26px;font-weight:900;letter-spacing:-.02em}
+body.phone h1{font-size:21px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:12px 0 14px;overflow-x:auto}
+.tabs span{padding:8px 14px;font-size:13px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tabs span.on{color:var(--accent);border-color:var(--accent)}
+.banner{border:1px dashed var(--subtle);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--muted);margin-bottom:12px}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+.surface{background:var(--surface)}
+.grid{display:grid;grid-template-columns:minmax(0,8fr) minmax(0,4fr);gap:14px;align-items:start}
+.col{display:grid;gap:14px;min-width:0}
+body.phone .grid{grid-template-columns:1fr}
+.full{margin-top:14px}
+.strip{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:10px 14px;font-size:13px;margin-bottom:14px}
+.strip .sep{color:var(--subtle)}
+.chipbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-weight:700;cursor:pointer;font-size:12.5px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:0}
+.dot.grey{background:var(--subtle)} .dot.amber{background:var(--warn)} .dot.red{background:var(--danger)} .dot.green{background:var(--accent)}
+.big{font-size:22px;font-weight:900;letter-spacing:-.02em;margin:2px 0 8px}
+body.phone .big{font-size:19px}
+.label{font-size:10.5px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.msg{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px;margin:8px 0 12px}
+.msg p{margin:6px 0 0;font-size:15px;line-height:1.55;user-select:all}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#04140e}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.ml{margin-left:auto}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:4px 0 10px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}
+.tile .v{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:2px}
+body.phone .tile .v{font-size:16px}
+.tile .s{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.35}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.tag{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;white-space:nowrap}
+.src{background:var(--surface);color:var(--muted);border:1px solid var(--line)}
+.guess{background:var(--warn-tint);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+.prev{background:transparent;color:var(--muted);border:1px dashed var(--subtle)}
+.ink{color:var(--ink)} .grey{color:var(--muted)} .amber{color:var(--warn)} .red{color:var(--danger)}
+.why{font-size:13.5px;line-height:1.5;margin:4px 0 0}
+details{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+summary{cursor:pointer;font-weight:800;font-size:13px;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸ ";color:var(--muted)}
+details[open] summary::before{content:"▾ "}
+.chain{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:6px}
+.chain li{display:grid;grid-template-columns:52px 1fr;gap:8px;font-size:13px;line-height:1.4}
+.chain .d{font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:900;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.4}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+body.phone table.stack thead{display:none}
+body.phone table.stack tr{display:block;border-bottom:1px solid var(--line);padding:8px 0}
+body.phone table.stack td{display:block;border:0;padding:2px 0}
+body.phone table.stack td[data-h]::before{content:attr(data-h) ": ";font-weight:800;color:var(--muted);font-size:11px}
+.h2{font-size:16px;font-weight:900;margin:0 0 2px}
+.sub{font-size:12.5px;color:var(--muted);margin:0 0 10px}
+.stops{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.stops li{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:start;border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+.stops .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:900;background:var(--surface);border:1px solid var(--line)}
+.stops li.next .n{background:var(--ink);color:var(--bg)}
+.pill{font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.pill.next{border-color:var(--ink);color:var(--ink)}
+.dest{border-left:3px solid var(--ink);padding-left:10px;margin-bottom:10px;font-size:13px}
+.preview-box{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px;margin-top:10px;font-size:13.5px;line-height:1.5}
+.checks{list-style:none;padding:0;margin:0;display:grid;gap:7px}
+.checks li{display:grid;grid-template-columns:28px 1fr;gap:6px;font-size:13px;line-height:1.35}
+.checks .id{font-weight:900;color:var(--muted);font-size:11.5px;padding-top:1px}
+.state-unknown{color:var(--muted);font-size:13px;border:1px dashed var(--line);border-radius:8px;padding:10px}
+.state-failed{color:var(--danger);font-size:13px;border:1px solid color-mix(in srgb,var(--danger) 40%,transparent);background:var(--danger-tint);border-radius:8px;padding:10px}
+.skel{height:12px;border-radius:6px;background:var(--line);margin:8px 0;animation:p 1.2s ease-in-out infinite}
+@keyframes p{50%{opacity:.45}}
+.only-broken{display:none} body.broken .only-broken{display:block} body.broken .only-ok{display:none}
+.bottombar{display:none}
+body.phone .bottombar{display:flex;gap:8px;position:absolute;left:0;right:0;bottom:0;padding:10px 12px;background:var(--bg);border-top:1px solid var(--line)}
+body.phone .bottombar .btn{flex:1;padding:11px}
+body.phone .hide-phone{display:none}
+body.phone .card{padding:13px}
+body.phone .tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+svg text{fill:var(--muted);font-size:10px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
+.toast.on{opacity:1}
+@media (max-width:760px){.grid{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="mockbar" role="toolbar" aria-label="Mock controls">
+  <span><b>MOCK</b> · fake numbers · team ids only · War Room inside Trade Brain</span>
+  <span class="sp"></span>
+  <button id="bTheme" aria-pressed="false">Dark</button>
+  <button id="bPhone" aria-pressed="false">Phone 375</button>
+  <button id="bBroken" aria-pressed="false">Show broken states</button>
+</div>
+
+<div class="stage"><div class="frame"><div class="inner">
+  <div class="eyebrow">Trade Brain · League 2</div>
+  <h1>War Room</h1>
+  <div class="tabs" role="tablist"><span class="on">War Room</span><span>Who trades with you</span><span>Sendable proposals</span></div>
+
+  <div class="banner">Preview (unconfirmed forward): these plans come from a study run, not the live engine. Numbers marked <span class="tag guess">guess</span> have not passed their check yet.</div>
+
+  <!-- 0 TOP STRIP -->
+  <div class="card strip surface" aria-label="Where we are going">
+    <span>Goal: <button class="chipbtn" title="Change the goal">Win the title</button></span>
+    <span>Mode: <button class="chipbtn" id="modeBtn" title="Change risk mode">Balanced ▾</button></span>
+    <span class="only-ok"><b>11.8%</b> title odds now <span class="sep">→</span> plan <b>13.4%</b> by wk 7</span>
+    <span class="only-broken red">Title odds hidden: failed a check</span>
+    <span class="ml"><span class="dot grey"></span>Brain: not proven yet</span>
+    <span><span class="dot amber"></span>Numbers: 1 warning</span>
+  </div>
+
+  <div class="grid">
+    <div class="col">
+      <!-- 1 NEXT MOVE -->
+      <section class="card" aria-label="Next move">
+        <div class="row"><span class="label">Next move · step 1 of 2</span><span class="ml tags"><span class="tag src">Planner, 212 paths</span><span class="tag prev">Preview, unconfirmed</span></span></div>
+        <div class="big">Send this to Team 7 tonight</div>
+        <div class="only-ok">
+          <div class="msg">
+            <div class="row"><span class="label">Message</span><span class="tag src">Written by Coach, facts checked</span><button class="btn ml copy" data-copy="m1">⧉ Copy</button></div>
+            <p id="m1">Hey, you're thin at WR with the week-7 bye coming. I'd do M. Oduya + T. Kline for C. Ruiz. Oduya has seen 9+ targets three weeks straight. Open to a small tweak if you want one.</p>
+          </div>
+          <div class="tiles">
+            <div class="tile"><div class="label">Chance he says yes</div><div class="v amber">38%</div><div class="s">range 28-48%</div><div class="tags"><span class="tag guess">guess</span><span class="tag src">Trade model</span></div></div>
+            <div class="tile"><div class="label">Title odds</div><div class="v ink">11.8 → 13.6%</div><div class="s">↑ 1.8 ± 0.6 pts this step</div><div class="tags"><span class="tag src">Season sim, 1,200 runs</span></div></div>
+            <div class="tile"><div class="label">Walk away if</div><div class="v" style="font-size:15px;line-height:1.3">he wants J. Pike</div><div class="s">max give: Oduya + Kline + a 3rd</div><div class="tags"><span class="tag guess">guess</span></div></div>
+          </div>
+          <p class="why"><b>Why:</b> he needs a WR for week 7, and on his screen this deal looks fair to him (+6%). Whole plan: ↑ 4.1 pts if both steps land; 29% both land. Beats the finder's best single offer (↑ 0.9 expected).</p>
+          <details>
+            <summary>Why, step by step</summary>
+            <ul class="chain">
+              <li><span class="d ink">+1.1</span><span>C. Ruiz fills your RB2 for 12 weeks <span class="tag src">Season sim</span></span></li>
+              <li><span class="d ink">+0.7</span><span>Ruiz is the chip Team 2 wants for D. Harlow (step 2) <span class="tag src">Planner</span></span></li>
+              <li><span class="d grey">0.0</span><span>Losing Oduya: your WR3, inside the noise <span class="tag src">Season sim</span></span></li>
+              <li><span class="d amber">38%</span><span>He answered 4 of his last 5 offers; starts 2 WRs below replacement in wk 7 <span class="tag guess">guess</span> <span class="tag src">Trade model</span></span></li>
+              <li><span class="d ink">+6%</span><span>How the deal looks on his screen (fair window −12% to +18%) <span class="tag src">FantasyCalc market value</span></span></li>
+            </ul>
+          </details>
+          <div class="row hide-phone" style="margin-top:12px"><button class="btn primary copy" data-copy="m1">⧉ Copy message</button><button class="btn" id="sentBtn">I sent it</button><span class="grey" style="font-size:12px">You send it yourself. The app never sends.</span></div>
+        </div>
+        <div class="only-broken">
+          <div class="msg"><div class="row"><span class="label">The deal</span><button class="btn ml">⧉ Copy the deal</button></div><p>Offer Team 7: M. Oduya + T. Kline for C. Ruiz.</p></div>
+          <div class="state-unknown">Message not written yet: Coach's playbook is not live.</div>
+          <div class="tiles" style="margin-top:10px">
+            <div class="tile"><div class="label">Chance he says yes</div><div class="v amber">38%</div><div class="s">fell back to activity only</div><div class="tags"><span class="tag guess">guess</span></div></div>
+            <div class="tile"><div class="label">Title odds</div><div class="state-failed" style="padding:6px;margin-top:4px">Hidden: odds summed to 3.4, should be 4. Trust Tuesday's Title tab.</div></div>
+            <div class="tile"><div class="label">Walk away if</div><div class="state-unknown" style="padding:6px;margin-top:4px">Not computed yet</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 1b REPLY TABLE -->
+      <section class="card" aria-label="If he says">
+        <div class="h2">If he says…</div>
+        <p class="sub">Every answer already has a next move. Tap the one that happened.</p>
+        <table class="stack">
+          <thead><tr><th>He</th><th>You do</th><th>Title odds after</th><th></th></tr></thead>
+          <tbody>
+            <tr><td data-h="He"><b>Accepts</b></td><td data-h="You do">Step 2: send C. Ruiz + T. Kline to Team 2 for D. Harlow. Message ready.</td><td class="num" data-h="Odds">15.9% <span class="tag src">Season sim</span></td><td><button class="btn" disabled title="Turns on with the engine queue">He accepted</button></td></tr>
+            <tr><td data-h="He"><b>Declines</b></td><td data-h="You do">Same shape with Team 9: E. Park for M. Oduya + T. Kline. Chance 31%.</td><td class="num" data-h="Odds">13.3% <span class="tag src">Season sim</span></td><td><button class="btn" disabled>He declined</button></td></tr>
+            <tr><td data-h="He"><b>Counters</b></td><td data-h="You do">OK if he adds a 3rd or asks for B. Lowe. Counter once with "Oduya + a 3rd". Walk away if he asks for J. Pike.</td><td class="num grey" data-h="Odds"><span class="only-ok">12.9-13.6%</span><span class="only-broken">Not planned yet</span></td><td><button class="btn" disabled>He countered</button></td></tr>
+            <tr><td data-h="He"><b>No reply 24 h</b></td><td data-h="You do">One nudge: "Still around? Happy to tweak it." After 48 h, switch to Team 9.</td><td class="num grey" data-h="Odds">no change</td><td><button class="btn" disabled>No reply yet</button></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 3 ITINERARY -->
+      <section class="card" aria-label="Itinerary">
+        <div class="row"><div><div class="h2">The route</div><p class="sub">Destination first, then every stop in order. Nothing gets dropped silently.</p></div><button class="btn ml" id="addStop">+ Add a stop</button></div>
+        <div class="dest"><b>Destination:</b> win the title · arrive by week 7 · untouchable: J. Pike</div>
+        <ol class="stops">
+          <li class="next"><span class="n">1</span><span><b>Get C. Ruiz (RB)</b> from Team 7<br><span class="grey" style="font-size:12.5px">chance 38% <span class="tag guess">guess</span> · odds after 13.6%</span></span><span class="pill next">next</span></li>
+          <li><span class="n">2</span><span><b>Flip Ruiz → Team 2 for D. Harlow (WR)</b><br><span class="grey" style="font-size:12.5px">chance 44% <span class="tag guess">guess</span> · odds after 15.9%</span></span><span class="pill">waiting</span></li>
+          <li><span class="n">3</span><span><b>Cover the week-9 TE bye</b> <span class="tag src">added by you</span><br><span class="grey" style="font-size:12.5px">waiver claim, R. Voss or similar</span></span><span class="pill">later</span></li>
+        </ol>
+        <div class="preview-box" id="stopPreview" hidden>
+          <div class="label">Coach: trade-off before adding "get a backup QB"</div>
+          <p style="margin:6px 0">Adding this stop costs <b>0.4 title pts</b> and 1 extra step. It gains <b>0.2</b> (bye cover in week 10). <b>Net −0.2: not worth it</b>, because your QB's bye is already covered by the week-10 matchup. <span class="tag src">Season sim, same dice</span></p>
+          <div class="row"><button class="btn">Add it anyway</button><button class="btn primary" id="closePrev">Don't</button></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="col">
+      <!-- 2 DESTINATION -->
+      <section class="card" aria-label="Destination">
+        <div class="h2">Are we on time?</div>
+        <div class="only-ok">
+          <svg viewBox="0 0 300 130" width="100%" role="img" aria-label="Title odds, planned vs actual, by week">
+            <line x1="30" y1="110" x2="290" y2="110" stroke="var(--line)"/>
+            <line x1="262" y1="10" x2="262" y2="110" stroke="var(--danger)" stroke-dasharray="2 3"/>
+            <text x="258" y="20" text-anchor="end">deadline wk 11</text>
+            <polyline points="30,78 76,70 122,56 168,44 214,40" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>
+            <polyline points="30,78 76,74" fill="none" stroke="var(--ink)" stroke-width="2.5"/>
+            <circle cx="76" cy="74" r="4" fill="var(--ink)"/>
+            <text x="30" y="124">wk 3</text><text x="76" y="124">4</text><text x="122" y="124">5</text><text x="168" y="124">6</text><text x="214" y="124">7</text>
+            <text x="220" y="38">plan 13.4%</text><text x="84" y="90">now 11.8%</text>
+          </svg>
+          <p style="font-size:13px;margin:6px 0">Ground lost: <b>↓ 1.1 pts</b> since Tue (Team 7 declined the first ask).<br>Cheapest way back: send step 1 to Team 9 at the same time (<b>↑ 0.9</b>, first yes wins).</p>
+          <div class="tags"><span class="tag src">Season sim, 1,200 runs</span><span class="tag prev">Preview, unconfirmed</span></div>
+        </div>
+        <div class="only-broken"><div class="state-unknown">Not computed yet: the planned path and "ground lost" need the campaign planner (not live).</div></div>
+      </section>
+
+      <!-- 6 BRAIN CHECK -->
+      <section class="card" aria-label="Is the brain working?">
+        <div class="h2"><span class="dot grey"></span>Is the brain working?</div>
+        <p class="sub">Not proven yet. Until E1 passes, every "chance he says yes" is a guess, and All-in mode's test signals stay off.</p>
+        <ul class="checks">
+          <li><span class="id">E1</span><span>Does 40% mean 40%? <span class="grey">· running on 2021-24 trades</span></span></li>
+          <li><span class="id">E2</span><span>Are our offers priced right? <span class="grey">· 0 offers logged</span></span></li>
+          <li><span class="id">E3</span><span>Does 20% title odds mean 20%? <span class="grey">· running</span></span></li>
+          <li><span class="id">E4</span><span>Does the plan beat simple moves? <span class="grey">· not run</span></span></li>
+          <li><span class="id">E5</span><span>Did each step really help? <span class="grey">· 0 steps done</span></span></li>
+          <li><span class="id">E6</span><span>Following vs ignoring the brain <span class="grey">· from week 8</span></span></li>
+          <li><span class="id">E7</span><span>Luck vs decisions <span class="grey">· every Monday</span></span></li>
+        </ul>
+        <details><summary>Number check (1 warning)</summary><p style="font-size:13px;margin:8px 0 0">ESPN sync is 3 h old. Affects: title odds on this page. Trust meanwhile: this page's numbers, labelled stale if it passes 6 h. <span class="tag src">Number check</span></p></details>
+      </section>
+
+      <!-- 4 TARGETS + SPEED -->
+      <section class="card" aria-label="Targets">
+        <div class="h2">Who we go get</div>
+        <p class="sub">Approved: D. Harlow. Or pick another.</p>
+        <table class="stack">
+          <thead><tr><th>Player</th><th>If landed</th><th>Reachable</th><th></th></tr></thead>
+          <tbody>
+            <tr><td data-h="Player"><b>D. Harlow</b> WR · Team 2</td><td class="num" data-h="If landed">↑ 4.1</td><td class="num amber" data-h="Reachable">29%</td><td><span class="pill next">approved</span></td></tr>
+            <tr><td data-h="Player"><b>K. Bell</b> RB · Team 5</td><td class="num" data-h="If landed">↑ 3.2</td><td class="num amber" data-h="Reachable"><span class="only-ok">41%</span><span class="only-broken grey">not computed yet</span></td><td><button class="btn" disabled>Go get him</button></td></tr>
+            <tr><td data-h="Player"><b>R. Voss</b> TE · Team 8</td><td class="num" data-h="If landed">↑ 1.9</td><td class="num amber" data-h="Reachable">55%</td><td><button class="btn" disabled>Go get him</button></td></tr>
+          </tbody>
+        </table>
+        <div class="tags"><span class="tag src">Season sim</span><span class="tag guess">reachable = guess</span></div>
+        <div style="margin-top:12px"><span class="label">Arrive by</span>
+          <svg viewBox="0 0 300 92" width="100%" role="img" aria-label="Speed curve: net title-odds gain by arrival week">
+            <line x1="20" y1="70" x2="290" y2="70" stroke="var(--line)"/>
+            <rect x="40" y="34" width="40" height="36" rx="3" fill="var(--muted)" opacity=".55"/>
+            <rect x="120" y="22" width="40" height="48" rx="3" fill="var(--ink)"/>
+            <rect x="200" y="42" width="40" height="28" rx="3" fill="var(--muted)" opacity=".55"/>
+            <text x="60" y="30" text-anchor="middle">↑3.6</text><text x="140" y="18" text-anchor="middle">↑4.1</text><text x="220" y="38" text-anchor="middle">↑2.8</text>
+            <text x="60" y="84" text-anchor="middle">wk 5 · overpay 1.3</text><text x="140" y="84" text-anchor="middle">wk 7 (picked)</text><text x="220" y="84" text-anchor="middle">wk 9 · late</text>
+          </svg>
+          <div class="tags"><span class="tag src">Planner</span><span class="tag prev">Preview, unconfirmed</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 5 FLIP MAP -->
+  <section class="card full" aria-label="Flip map">
+    <div class="h2">Flip map: buy low from one, sell high to another</div>
+    <p class="sub">The biggest gaps between what one manager thinks a player is worth and what another does. Both legs look fair on each manager's own screen.</p>
+    <div class="only-ok">
+    <table class="stack">
+      <thead><tr><th>Player</th><th>Buy from</th><th>Sell to</th><th>Gap (title pts)</th><th>His price vs theirs</th><th>Both say yes</th></tr></thead>
+      <tbody>
+        <tr><td data-h="Player"><b>K. Bell</b> RB</td><td data-h="Buy from">Team 5</td><td data-h="Sell to">Team 8</td><td class="num ink" data-h="Gap">2.4 ± 0.7</td><td class="num" data-h="Prices">41 vs 58</td><td class="num amber" data-h="Both yes">14%</td></tr>
+        <tr><td data-h="Player"><b>C. Ruiz</b> RB</td><td data-h="Buy from">Team 7</td><td data-h="Sell to">Team 2</td><td class="num ink" data-h="Gap">2.0 ± 0.6</td><td class="num" data-h="Prices">36 vs 49</td><td class="num amber" data-h="Both yes">17%</td></tr>
+        <tr><td data-h="Player"><b>A. Brandt</b> WR</td><td data-h="Buy from">Team 3</td><td data-h="Sell to">Team 9</td><td class="num ink" data-h="Gap">1.6 ± 0.7</td><td class="num" data-h="Prices">30 vs 39</td><td class="num amber" data-h="Both yes">22%</td></tr>
+        <tr><td data-h="Player"><b>L. Moreno</b> TE</td><td data-h="Buy from">Team 10</td><td data-h="Sell to">Team 6</td><td class="num grey" data-h="Gap">0.9 ± 0.6 · noise</td><td class="num" data-h="Prices">18 vs 25</td><td class="num grey" data-h="Both yes">no fair leg</td></tr>
+        <tr><td data-h="Player"><b>G. Iverson</b> WR</td><td data-h="Buy from">Team 1</td><td data-h="Sell to">Team 5</td><td class="num grey" data-h="Gap">0.8 ± 0.7 · noise</td><td class="num" data-h="Prices">27 vs 31</td><td class="num amber" data-h="Both yes">25%</td></tr>
+      </tbody>
+    </table>
+    <div class="tags"><span class="tag src">Season sim (gap)</span><span class="tag src">His price (from his moves)</span><span class="tag guess">prices + yes = guess</span><span class="tag prev">Preview, unconfirmed</span><button class="btn ml" style="padding:3px 10px;font-size:12px">Show all 41</button></div>
+    </div>
+    <div class="only-broken"><div class="skel" style="width:70%"></div><div class="skel" style="width:90%"></div><div class="skel" style="width:60%"></div><p class="grey" style="font-size:12px">Loading state: the flip map is being scanned (tonight's run takes about a minute per league).</p></div>
+  </section>
+
+  <p class="grey" style="font-size:12px;margin:16px 0 4px">Mock only. Colour rule: nothing is green until its brain check passes. Amber = guess. Red = risk or failed. Grey = no change, noise, or not computed yet.</p>
+</div>
+<div class="bottombar"><button class="btn primary copy" data-copy="m1">⧉ Copy message</button><button class="btn" id="sentBtn2">I sent it</button></div>
+</div></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+  var root=document.documentElement, body=document.body;
+  function toggle(btn, fn){ btn.addEventListener('click', function(){ var on=btn.getAttribute('aria-pressed')!=='true'; btn.setAttribute('aria-pressed', on); fn(on); }); }
+  var darkPref=false; try{ darkPref=window.matchMedia('(prefers-color-scheme: dark)').matches; }catch(e){}
+  var bTheme=document.getElementById('bTheme');
+  bTheme.setAttribute('aria-pressed', darkPref); if(darkPref) root.setAttribute('data-theme','dark');
+  toggle(bTheme, function(on){ root.setAttribute('data-theme', on?'dark':'light'); });
+  toggle(document.getElementById('bPhone'), function(on){ body.classList.toggle('phone', on); });
+  toggle(document.getElementById('bBroken'), function(on){ body.classList.toggle('broken', on); });
+  var t=document.getElementById('toast');
+  function toast(s){ t.textContent=s; t.classList.add('on'); setTimeout(function(){ t.classList.remove('on'); },1800); }
+  document.querySelectorAll('.copy').forEach(function(b){ b.addEventListener('click', function(){
+    var txt=document.getElementById(b.dataset.copy).textContent;
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ toast('Copied. Paste it to Team 7.'); }, function(){ toast('Copy blocked here. Select the text instead.'); }); }
+    else toast('Copy blocked here. Select the text instead.');
+  }); });
+  ['sentBtn','sentBtn2'].forEach(function(id){ var b=document.getElementById(id); if(b) b.addEventListener('click', function(){ toast('Logged: sent to Team 7 at '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+'. Undo for 10 min.'); }); });
+  document.getElementById('addStop').addEventListener('click', function(){ document.getElementById('stopPreview').hidden=false; });
+  document.getElementById('closePrev').addEventListener('click', function(){ document.getElementById('stopPreview').hidden=true; });
+  document.getElementById('modeBtn').addEventListener('click', function(){ toast('Safe · Balanced · Fuck it, let’s go: shows each mode’s plan on the same dice before you switch.'); });
+})();
+</script>
+</body>
+</html>

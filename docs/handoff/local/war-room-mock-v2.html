@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>War Room v2</title>
+<!-- War Room v2 mock: one dashboard, no page scroll, Coach drives the UI with typed actions.
+     Fake data, team ids only. Self-contained (no external scripts). See WAR-ROOM-UI.md "v2". -->
+<style>
+:root{
+  --bg:#ffffff; --surface:#f6f8fa; --line:#e2e8f0; --ink:#0f172a; --muted:#64748b; --subtle:#94a3b8;
+  --accent:#059669; --accent-tint:#ecfdf5; --warn:#b45309; --warn-tint:#fffbeb; --danger:#b91c1c; --danger-tint:#fef2f2;
+  --info:#0369a1; --info-tint:#eff6ff; --page:#eef2f5; --shadow:0 1px 2px rgb(15 23 42/.06); --hi:#fde68a;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111917; --surface:#18221f; --line:#26332f; --ink:#e7eeeb; --muted:#9aaba5; --subtle:#6b7c76;
+    --accent:#34d399; --accent-tint:#0f2a21; --warn:#f5b454; --warn-tint:#2a1f0c; --danger:#f87171; --danger-tint:#2b1212;
+    --info:#7cc4f0; --info-tint:#0c1f2b; --page:#0a100e; --shadow:none; --hi:#5b4a12;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111917; --surface:#18221f; --line:#26332f; --ink:#e7eeeb; --muted:#9aaba5; --subtle:#6b7c76;
+  --accent:#34d399; --accent-tint:#0f2a21; --warn:#f5b454; --warn-tint:#2a1f0c; --danger:#f87171; --danger-tint:#2b1212;
+  --info:#7cc4f0; --info-tint:#0c1f2b; --page:#0a100e; --shadow:none; --hi:#5b4a12;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--page);color:var(--ink);
+  font:13px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;letter-spacing:-.01em;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+b{font-weight:800}
+.grey{color:var(--muted)} .amber{color:var(--warn)} .red{color:var(--danger)} .ink{color:var(--ink)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---------- desktop grid: exactly one viewport ---------- */
+.app{height:100vh;height:100dvh;display:grid;gap:8px;padding:8px;
+  grid-template-columns:repeat(4,minmax(0,1fr)) minmax(290px,340px);
+  grid-template-rows:auto minmax(0,1fr) minmax(0,1fr) minmax(0,.95fr) 104px}
+.deck{display:contents}
+.dots{display:none}
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:0;min-height:0;
+  display:flex;flex-direction:column;overflow:hidden;position:relative;transition:outline-color .3s}
+.panel.big{border-color:color-mix(in srgb,var(--ink) 35%,var(--line))}
+.panel.flash{outline:3px solid var(--hi);outline-offset:-1px}
+.ph{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line);min-height:32px}
+.ph h2{margin:0;font-size:10.5px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ph .sp{flex:1}
+.pb{flex:1;min-height:0;overflow:auto;padding:8px 10px;scrollbar-width:thin}
+.xp{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--muted)}
+.xp:hover{color:var(--ink)}
+.pg{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap}
+.pg button{border:0;background:none;padding:0 5px;font-size:14px;font-weight:900;color:var(--ink);line-height:1}
+.pg button[disabled]{color:var(--subtle);cursor:default}
+
+/* ---------- top strip ---------- */
+.top{grid-area:top;display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--bg);border:1px solid var(--line);border-radius:10px;min-width:0}
+.brand{font-weight:900;font-size:14px;white-space:nowrap}
+.brand small{display:block;font-size:9.5px;letter-spacing:.14em;color:var(--accent);text-transform:uppercase;font-weight:900}
+.leagues{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;min-width:0;flex:0 1 auto}
+.lg{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:3px 8px;text-align:left;white-space:nowrap;line-height:1.2}
+.lg .n{font-weight:800;font-size:12px}
+.lg .w{display:block;font-size:10.5px;color:var(--muted)}
+.lg.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.lg.on .w{color:inherit;opacity:.75}
+.lg .rk{display:inline-block;min-width:15px;height:15px;border-radius:50%;background:var(--warn);color:#fff;font-size:10px;font-weight:900;text-align:center;line-height:15px;margin-right:3px}
+.lg .rk.low{background:var(--subtle)}
+.facts{display:flex;align-items:center;gap:12px;min-width:0;flex:1;overflow:hidden;white-space:nowrap}
+.fact .l{display:block;font-size:9.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.fact .v{font-weight:800;font-size:12.5px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-weight:800;font-size:12px;white-space:nowrap}
+.chip.allin{background:var(--danger-tint);color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.chip.safe{background:var(--info-tint);color:var(--info)}
+.mock{font-size:10px;color:var(--muted);border:1px dashed var(--subtle);border-radius:6px;padding:2px 6px;white-space:nowrap}
+
+/* ---------- shared bits ---------- */
+.tag{font-size:9.5px;font-weight:800;border-radius:999px;padding:1px 6px;white-space:nowrap;display:inline-block;vertical-align:1px}
+.src{background:var(--surface);color:var(--muted);border:1px solid var(--line)}
+.guess{background:var(--warn-tint);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+.prev{color:var(--muted);border:1px dashed var(--subtle)}
+.you{background:var(--info-tint);color:var(--info)}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:5px 10px;font-weight:800;font-size:12px;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#04140e}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn.primary{color:#04140e}}
+.btn.big{padding:9px 16px;font-size:14px}
+.btn.sm{padding:2px 7px;font-size:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:0}
+.dot.grey{background:var(--subtle)} .dot.amber{background:var(--warn)} .dot.red{background:var(--danger)} .dot.green{background:var(--accent)}
+.pill{font-size:10px;font-weight:800;border-radius:999px;padding:1px 7px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.pill.next{border-color:var(--ink);color:var(--ink)}
+.pill.run{border-color:var(--info);color:var(--info)}
+.pill.warn{border-color:var(--warn);color:var(--warn)}
+.filt{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;background:var(--info-tint);color:var(--info);border-radius:999px;padding:1px 4px 1px 8px}
+.filt button{border:0;background:none;color:inherit;font-weight:900;padding:0 4px}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{text-align:left;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:900;padding:3px 5px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td{padding:5px;border-bottom:1px solid var(--line);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list{list-style:none;margin:0;padding:0}
+.list li{padding:5px 0;border-bottom:1px solid var(--line)}
+.list li:last-child{border-bottom:0}
+.sub2{font-size:11.5px;color:var(--muted)}
+.empty{color:var(--muted);font-size:12px;border:1px dashed var(--line);border-radius:8px;padding:10px;text-align:center}
+
+/* ---------- next move deck ---------- */
+.mv-top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.mv-count{font-size:11px;font-weight:900;color:var(--muted)}
+.linkbtn{border:0;background:none;color:var(--info);font-weight:800;font-size:11.5px;padding:0}
+.movecard{touch-action:pan-y;transition:transform .22s ease,opacity .22s ease;will-change:transform}
+.movecard.out-left{transform:translateX(-110%) rotate(-3deg);opacity:0}
+.movecard.out-right{transform:translateX(110%) rotate(3deg);opacity:0}
+.movecard.in{animation:cardin .2s ease}
+@keyframes cardin{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+.who{font-size:20px;font-weight:900;letter-spacing:-.02em;margin:0 0 2px;line-height:1.15}
+.gg{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-size:12.5px;margin:4px 0 6px}
+.gg .k{font-size:9.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding-top:2px}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:4px 0 6px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:5px 8px;min-width:0}
+.tile .l{font-size:9.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .s{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msg{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 8px;margin:4px 0}
+.msg p{margin:3px 0 0;font-size:12.5px;line-height:1.45;user-select:all}
+.nosend{font-size:10.5px;color:var(--muted);margin-top:3px}
+.acts{display:flex;gap:8px;align-items:center;margin:6px 0}
+.acts .btn.big{flex:1}
+.reasons{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;margin:2px 0 4px;transition:opacity .6s}
+.reasons.fade{opacity:0;pointer-events:none}
+.reasons button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700}
+.chosen{border:1px solid var(--accent);background:var(--accent-tint);border-radius:8px;padding:6px 8px;font-size:12px;margin:4px 0}
+.rt td{white-space:nowrap}
+.rt tr{cursor:pointer}
+.rt tr.sel td{white-space:normal;background:var(--surface)}
+.rt td:first-child{width:78px;font-weight:800}
+.why{margin:4px 0 0;padding:0;list-style:none;font-size:12px}
+.why li{display:grid;grid-template-columns:42px 1fr;gap:6px;padding:2px 0}
+.why .d{font-weight:900;text-align:right}
+.hl{background:var(--hi);border-radius:4px}
+.cap{font-size:9.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+/* ---------- other panels ---------- */
+.stops li{display:grid;grid-template-columns:22px 1fr auto;gap:6px;align-items:center}
+.stops .n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:900;background:var(--surface);border:1px solid var(--line)}
+.stops li.next .n{background:var(--ink);color:var(--bg)}
+.stops .lab{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flip .top1{display:flex;gap:6px;align-items:baseline;justify-content:space-between}
+.echk{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}
+.echk div{display:flex;gap:5px;align-items:center;font-size:11.5px;white-space:nowrap;overflow:hidden}
+.echk .id{font-weight:900;color:var(--muted);width:20px}
+.big .echk{grid-template-columns:1fr}
+.health{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);font-size:11.5px}
+.tray{display:flex;gap:8px;height:100%;align-items:stretch}
+.tc{flex:1 1 0;min-width:0;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--surface);position:relative;overflow:hidden}
+.tc .t{font-weight:800;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:16px}
+.tc .x{position:absolute;top:2px;right:4px;border:0;background:none;color:var(--muted);font-weight:900}
+.tc.newc{animation:pop .5s ease}
+@keyframes pop{0%{transform:scale(.9);opacity:0}100%{transform:none;opacity:1}}
+.panel[data-p="tray"] .pb{padding:6px 8px}
+svg text{fill:var(--muted);font-size:9px}
+
+/* ---------- coach dock ---------- */
+.coach{grid-area:coach;background:var(--bg);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.ch{padding:8px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.ch .t{font-weight:900;font-size:14px}
+.ch .s{font-size:10.5px;color:var(--muted)}
+.ch .tog{display:none}
+.chat{flex:1;min-height:0;overflow:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.m{max-width:92%;padding:6px 9px;border-radius:10px;font-size:12.5px;line-height:1.4}
+.m.u{align-self:flex-end;background:var(--ink);color:var(--bg);border-bottom-right-radius:3px}
+.m.c{align-self:flex-start;background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:3px}
+.m .foot{display:block;margin-top:5px;padding-top:4px;border-top:1px dashed var(--line);font-size:11px;color:var(--muted)}
+.m .act{display:inline-block;font-family:ui-monospace,Menlo,monospace;font-size:10px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-bottom:3px}
+.pending{margin:0 10px;border:1.5px solid var(--warn);background:var(--warn-tint);border-radius:10px;padding:8px 10px;font-size:12px}
+.pending h3{margin:0 0 4px;font-size:12.5px}
+.pending ul{margin:2px 0 6px;padding-left:16px}
+.pending li{margin:1px 0}
+.pending .row{display:flex;gap:6px}
+.pending .row .btn{flex:1}
+.try{padding:6px 10px 0;display:flex;flex-direction:column;gap:3px}
+.try .g{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
+.try .g span{font-size:9.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);width:100%}
+.try button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:2px 8px;font-size:11px}
+.ask{display:flex;gap:6px;padding:8px 10px}
+.ask input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 9px}
+.log{border-top:1px solid var(--line);padding:5px 10px 8px;max-height:132px;overflow:auto}
+.log .lh{display:flex;justify-content:space-between;font-size:9.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.log ol{list-style:none;margin:0;padding:0;font-size:11px}
+.log li{display:grid;grid-template-columns:44px auto 1fr;gap:5px;padding:1px 0;color:var(--muted)}
+.log li code{font-size:10px;color:var(--ink);font-family:ui-monospace,Menlo,monospace}
+.log li .w{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 12px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:80;max-width:90vw}
+.toast.on{opacity:1}
+.hint{font-size:10.5px;color:var(--muted)}
+
+/* ---------- phone: one-screen swipe deck, Coach as bottom sheet ---------- */
+@media (max-width:699px){
+  .app{grid-template-columns:minmax(0,1fr) !important;grid-template-rows:auto minmax(0,1fr) auto !important;
+    grid-template-areas:"top" "deck" "dots" !important;padding:6px 6px 60px;gap:6px}
+  .top{flex-wrap:wrap;gap:6px}
+  .brand{font-size:13px}
+  .leagues{order:3;width:100%;flex:1 1 100%}
+  .facts{order:4;flex:1 1 100%;gap:10px;overflow-x:auto;scrollbar-width:none}
+  .mock{display:none}
+  .deck{display:flex;grid-area:deck;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;gap:8px;position:relative;min-height:0;scrollbar-width:none}
+  .deck::-webkit-scrollbar{display:none}
+  .deck>.panel{flex:0 0 100%;scroll-snap-align:start;grid-area:auto !important}
+  .xp{display:none}
+  .dots{display:flex;grid-area:dots;gap:4px;justify-content:center;overflow-x:auto;scrollbar-width:none}
+  .dots button{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:2px 8px;font-size:10.5px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .dots button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .coach{position:fixed;left:0;right:0;bottom:0;height:54px;z-index:40;border-radius:14px 14px 0 0;box-shadow:0 -6px 20px rgb(0 0 0/.15);transition:height .22s ease}
+  .coach.open{height:76dvh}
+  .ch{cursor:pointer;min-height:53px}
+  .ch .tog{display:inline-block;margin-left:auto;border:0;background:none;font-size:16px;font-weight:900}
+  .coach:not(.open) .chat,.coach:not(.open) .try,.coach:not(.open) .log,.coach:not(.open) .ask,.coach:not(.open) .pending{display:none}
+  .coach:not(.open) .ch .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62vw}
+  .tray{flex-direction:column}
+  .who{font-size:18px}
+  .tile .v{font-size:15px}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top" id="top" aria-label="Where we are going"></header>
+
+  <main class="deck" id="deck" aria-label="War Room panels">
+    <section class="panel" data-p="next" aria-label="Next move"></section>
+    <section class="panel" data-p="stops" aria-label="Stops"></section>
+    <section class="panel" data-p="flip" aria-label="Flip map"></section>
+    <section class="panel" data-p="targets" aria-label="Suggested targets"></section>
+    <section class="panel" data-p="catch" aria-label="Catch-up and speed"></section>
+    <section class="panel" data-p="brain" aria-label="Brain check"></section>
+    <section class="panel" data-p="tray" aria-label="Your cards"></section>
+  </main>
+  <nav class="dots" id="dots" aria-label="Panels"></nav>
+
+  <aside class="coach" id="coach" aria-label="Coach">
+    <div class="ch" id="coachHead">
+      <div><div class="t">Coach</div><div class="s" id="coachSub">Changes this screen for you. Never sends an offer.</div></div>
+      <button class="tog" id="coachTog" aria-label="Open or close Coach">&#9650;</button>
+    </div>
+    <div class="chat" id="chat" aria-live="polite"></div>
+    <div id="pending"></div>
+    <div class="try" id="try">
+      <div class="g"><span>Change the view</span>
+        <button data-say="show flip map league 3">show flip map league 3</button>
+        <button data-say="only RBs">only RBs</button>
+        <button data-say="pin K. Bell">pin K. Bell</button>
+        <button data-say="add a card with my bye weeks">add a card with my bye weeks</button>
+        <button data-say="make flip map bigger">make flip map bigger</button>
+      </div>
+      <div class="g"><span>Change the plan (you confirm)</span>
+        <button data-say="go fuck-it mode until week 6">go fuck-it mode until week 6</button>
+        <button data-say="get me a TE">get me a TE</button>
+        <button data-say="skip this">skip this</button>
+        <button data-say="chart my title odds">chart my title odds</button>
+        <button data-say="undo">undo</button>
+      </div>
+    </div>
+    <form class="ask" id="ask" autocomplete="off">
+      <input id="askIn" placeholder="Ask Coach to change the screen..." aria-label="Ask Coach">
+      <button class="btn primary" type="submit">Ask</button>
+    </form>
+    <div class="log">
+      <div class="lh"><span>Action log</span><span id="logN">0</span></div>
+      <ol id="log"></ol>
+    </div>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= fake engine data (team ids only) ================= */
+var POS = {"C. Ruiz":"RB","M. Oduya":"WR","T. Kline":"TE","D. Harlow":"WR","K. Bell":"RB","R. Voss":"TE","A. Brandt":"WR",
+  "L. Moreno":"TE","G. Iverson":"WR","E. Park":"RB","B. Lowe":"WR","J. Pike":"RB","S. Achebe":"RB","N. Whitfield":"WR",
+  "P. Dorsey":"QB","H. Castillo":"WR","O. Lindqvist":"TE","V. Mensah":"RB","W. Tran":"WR","Q. Adair":"RB","F. Novak":"QB",
+  "Y. Banks":"TE","I. Rourke":"WR","Z. Keane":"RB","C. Duval":"QB","M. Okafor":"TE"};
+
+function mv(partner, give, get, p, before, after, walk, reason, extra){
+  var o = {partner:partner, give:give, get:get, p:p, before:before, after:after, walk:walk, reason:reason,
+    band:(p-10)+"-"+(p+10)+"%", when:"this week",
+    msg:"Hey, would you do "+give.join(" + ")+" for "+get.join(" + ")+"? "+reason+" Open to a small tweak if you want one.",
+    replies:{accept:"Lock it in. Then the next stop on the route opens.",
+      decline:"Deck moves to the next card. Tap why he said no so the brain learns.",
+      counter:"OK if he adds a late pick. Counter once. Walk away if "+walk+".",
+      silence:"No reply in 24 h: one nudge. After 48 h, move on."},
+    why:[[ "+"+(after-before).toFixed(1), get[0]+" fills a starting spot", "Season sim"],[p+"%", "he answered most of his recent offers", "Trade model"]]};
+  if(extra) for(var k in extra) o[k]=extra[k];
+  return o;
+}
+
+var LEAGUES = {
+  1:{name:"League 1", need:3, needText:"Flip gap closes Thu", goal:"Make the playoffs", unit:"playoff odds", by:9, now:54.0, plan:55.2, eta:9,
+     risk:"safe", health:{c:"grey",t:"Number check not built yet. Treat numbers as unchecked."}, seed:11, nflips:7, ntargets:6,
+     ground:"Behind plan by 1.2 pts (Team 6 went quiet).",
+     moves:[
+       mv("Team 4",["G. Iverson"],["S. Achebe"],44,54.0,56.1,"he asks for P. Dorsey","You're down two RBs with byes in week 9, and Iverson starts every week.",{when:"before Thu"}),
+       mv("Team 6",["G. Iverson"],["V. Mensah"],36,54.0,55.6,"he asks for P. Dorsey","Mensah gets you through the week-9 bye."),
+       mv("Team 9",["Y. Banks"],["Q. Adair"],41,54.0,55.2,"he wants a 3rd too","Banks fixes your TE hole."),
+       mv("Team 2",["I. Rourke","Y. Banks"],["Z. Keane"],29,54.0,56.9,"he asks for P. Dorsey","Two starters for one gives you depth."),
+       mv("Team 10",["I. Rourke"],["E. Park"],47,54.0,54.9,"he wants Iverson","Small upgrade, easy yes.")],
+     alt:mv("Team 9",["G. Iverson","Y. Banks"],["Z. Keane"],24,54.0,58.3,"he asks for P. Dorsey","Big swing: Keane is a weekly top-10 RB."),
+     stops:[{l:"Get S. Achebe (RB) from Team 4",p:44,after:56.1,st:"next"},{l:"Cover the week-9 RB bye",note:"waiver claim, Q. Adair or similar",st:"later",by:"you"}],
+     catchup:[["Send the Team 6 offer at the same time",0.8,1],["Claim Q. Adair off waivers",0.3,0],["Start I. Rourke over W. Tran in wk 5",0.2,0],["Ask Team 2 about Z. Keane",0.6,2],["Sell P. Dorsey high",0.4,1]],
+     speed:[[6,1.4,"overpay 0.9"],[7,1.9,""],[9,2.3,"picked"],[11,1.1,"late"]],
+     byes:[0,1,0,0,2,1,0,0,1,0], path:{plan:[50,51.5,53,55.2,56.5,57.8,59],act:[50,51.9,54.0]}},
+  2:{name:"League 2", need:1, needText:"Offer ready: send tonight", goal:"Win the title", unit:"title odds", by:7, now:11.8, plan:13.4, eta:8,
+     risk:"balanced", health:{c:"amber",t:"1 warning: ESPN sync is 3 h old. Affects title odds here."}, seed:22, nflips:11, ntargets:7,
+     ground:"Behind plan by 1.6 pts since Tue (Team 7 declined the first ask).",
+     flipHead:[{n:"K. Bell",a:5,b:8,gap:2.4,pa:41,pb:58,yes:14},{n:"C. Ruiz",a:7,b:2,gap:2.0,pa:36,pb:49,yes:17}],
+     targetHead:[{n:"D. Harlow",owner:2,gain:4.1,reach:29,fit:"fits",why:"WR1 for your playoff weeks"}],
+     moves:[
+       mv("Team 7",["M. Oduya","T. Kline"],["C. Ruiz"],38,11.8,13.6,"he asks for J. Pike","",{
+         when:"tonight, before Thu kickoff", band:"28-48%",
+         msg:"Hey, you're thin at WR with the week-7 bye coming. I'd do M. Oduya + T. Kline for C. Ruiz. Oduya has seen 9+ targets three weeks straight. Open to a small tweak if you want one.",
+         replies:{accept:"Step 2: send C. Ruiz + T. Kline to Team 2 for D. Harlow. Message ready. Odds after 15.9%.",
+           decline:"Same shape with Team 9: E. Park for M. Oduya + T. Kline. Chance 31%. Odds after 13.3%.",
+           counter:"OK if he adds a 3rd or asks for B. Lowe. Counter once with \"Oduya + a 3rd\". Walk away if he asks for J. Pike.",
+           silence:"One nudge: \"Still around? Happy to tweak it.\" After 48 h, switch to Team 9."},
+         why:[["+1.1","C. Ruiz fills your RB2 for 12 weeks","Season sim"],["+0.7","Ruiz is the chip Team 2 wants for D. Harlow (step 2)","Planner"],["0.0","Losing Oduya: your WR3, inside the noise","Season sim"],["38%","He answered 4 of his last 5 offers","Trade model"]]}),
+       mv("Team 9",["M. Oduya","T. Kline"],["E. Park"],31,11.8,13.3,"he asks for J. Pike","Park gives you a steady RB2."),
+       mv("Team 5",["B. Lowe"],["K. Bell"],26,11.8,13.9,"he asks for C. Duval","Bell is priced low on his screen right now."),
+       mv("Team 2",["M. Oduya","B. Lowe"],["D. Harlow"],19,11.8,15.1,"he asks for J. Pike","Straight to the target, but a long shot."),
+       mv("Team 8",["T. Kline"],["R. Voss"],52,11.8,12.4,"he wants a 3rd","Voss covers your week-9 TE bye.")],
+     alt:mv("Team 3",["M. Oduya","E. Park"],["A. Brandt"],27,11.8,14.9,"he asks for C. Ruiz","Brandt is a boom WR; this is the swing-big move."),
+     stops:[{l:"Get C. Ruiz (RB) from Team 7",p:38,after:13.6,st:"next"},{l:"Flip Ruiz to Team 2 for D. Harlow (WR)",p:44,after:15.9,st:"waiting"},{l:"Cover the week-9 TE bye",note:"waiver claim, R. Voss or similar",st:"later",by:"you"}],
+     catchup:[["Send step 1 to Team 9 at the same time",0.9,1],["Claim R. Voss off waivers now",0.3,0],["Ask Team 5 about K. Bell",0.7,1],["Start E. Park over B. Lowe in wk 5",0.2,0],["Sell J. Pike before his bye",0.5,1]],
+     speed:[[5,3.6,"overpay 1.3"],[6,3.9,""],[7,4.1,"picked"],[9,2.8,"late"]],
+     byes:[0,0,1,2,0,1,0,0,1,0], path:{plan:[10.2,11.0,12.1,13.4,14.6,15.5,16.0],act:[10.2,10.7,11.8]}},
+  3:{name:"League 3", need:2, needText:"Team 4 replied: answer due", goal:"Win the title", unit:"title odds", by:8, now:17.5, plan:16.9, eta:7,
+     risk:"all_in", health:{c:"amber",t:"1 warning: roster sync 7 h old. Flip prices labelled stale."}, seed:33, nflips:9, ntargets:6,
+     ground:"Ahead of plan by 0.6 pts.",
+     moves:[
+       mv("Team 4",["W. Tran","Q. Adair"],["N. Whitfield"],46,17.5,19.2,"he asks for F. Novak","You asked, he countered with Adair added. Say yes.",{when:"today (he is waiting)",
+         msg:"Deal. W. Tran + Q. Adair for N. Whitfield works for me. Accept on your side and I'll confirm."}),
+       mv("Team 1",["W. Tran"],["H. Castillo"],33,17.5,18.4,"he wants Adair too","Castillo has the easier schedule."),
+       mv("Team 6",["Q. Adair"],["O. Lindqvist"],40,17.5,18.1,"he asks for F. Novak","Lindqvist is a TE upgrade."),
+       mv("Team 7",["W. Tran","M. Okafor"],["J. Pike"],22,17.5,19.8,"he asks for F. Novak","Pike is the RB1 you are missing."),
+       mv("Team 10",["M. Okafor"],["Y. Banks"],55,17.5,17.9,"he wants a pick","Tiny gain, near-sure yes.")],
+     alt:mv("Team 7",["W. Tran","M. Okafor"],["J. Pike"],22,17.5,19.8,"he asks for F. Novak","Pike is the RB1 you are missing."),
+     stops:[{l:"Get N. Whitfield (WR) from Team 4",p:46,after:19.2,st:"next"},{l:"Get a TE upgrade",p:40,after:18.1,st:"waiting"},{l:"Sell F. Novak before his bye",st:"later",by:"coach"}],
+     catchup:[["Nothing needed: ahead of plan",0,0],["Bank the lead: sell F. Novak high",0.4,1],["Claim V. Mensah as bye cover",0.2,0]],
+     speed:[[6,2.9,"picked"],[7,3.1,""],[8,2.7,""],[10,1.2,"late"]],
+     byes:[1,0,0,1,1,0,2,0,0,0], path:{plan:[14.0,15.1,16.0,16.9,18.0,19.0,19.6],act:[14.0,15.6,17.5]}},
+  4:{name:"League 4", need:4, needText:"On plan, nothing due", goal:"Make the playoffs", unit:"playoff odds", by:10, now:71.3, plan:71.0, eta:10,
+     risk:"balanced", health:{c:"grey",t:"Number check not built yet. Treat numbers as unchecked."}, seed:44, nflips:6, ntargets:5,
+     ground:"On plan (+0.3).",
+     moves:[
+       mv("Team 8",["H. Castillo"],["V. Mensah"],49,71.3,72.0,"he asks for C. Duval","Optional: covers your week-10 RB bye.",{when:"no rush (by wk 9)"}),
+       mv("Team 3",["O. Lindqvist"],["W. Tran"],37,71.3,71.9,"he wants a pick","Small WR upgrade."),
+       mv("Team 5",["H. Castillo","O. Lindqvist"],["S. Achebe"],28,71.3,72.8,"he asks for C. Duval","Two-for-one for a better RB."),
+       mv("Team 1",["Z. Keane"],["I. Rourke"],35,71.3,71.6,"he wants a 3rd","Sideways; only if he asks."),
+       mv("Team 9",["O. Lindqvist"],["M. Okafor"],58,71.3,71.5,"he wants a pick","Near-sure yes, tiny gain.")],
+     alt:mv("Team 5",["H. Castillo","O. Lindqvist"],["S. Achebe"],28,71.3,72.8,"he asks for C. Duval","Two-for-one for a better RB."),
+     stops:[{l:"Get V. Mensah (RB) from Team 8",p:49,after:72.0,st:"next"}],
+     catchup:[["Nothing needed: on plan",0,0],["Claim Q. Adair as bye cover",0.2,0]],
+     speed:[[8,0.6,""],[9,0.7,"picked"],[10,0.7,""],[12,0.2,"late"]],
+     byes:[0,0,0,1,0,0,1,0,0,0], path:{plan:[66,67.5,69,71.0,72,73,74],act:[66,68.2,71.3]}}
+};
+var CHECKS = [["E1","Does 40% mean 40%? (chance he says yes)","running","2021-24 trades"],["E2","Are our offers priced right?","nodata","0 offers logged"],
+  ["E3","Does 20% title odds mean 20%?","running","2021-24 seasons"],["E4","Does the plan beat simple moves?","notrun","not run yet"],
+  ["E5","Did each step really help?","nodata","0 steps done"],["E6","Following vs ignoring the brain","notrun","from week 8"],["E7","Luck vs decisions","notrun","every Monday"]];
+var STAT = {running:["run","running"],nodata:["","not enough data"],notrun:["","not run"],passing:["next","passing"],failing:["warn","failing"]};
+var MODES = {safe:"Safe", balanced:"Balanced", all_in:"Fuck it, let's go"};
+var PANEL_NAMES = {next:"Next move", stops:"Stops", flip:"Flip map", targets:"Targets", "catch":"Catch-up", brain:"Brain check", tray:"Your cards"};
+var PANELS = ["next","stops","flip","targets","catch","brain","tray"];
+var SWAPPABLE = ["stops","flip","targets","catch","brain"];
+
+/* deterministic generator for flip rows and targets */
+function rng(seed){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0; var t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function shuffle(a,r){ a=a.slice(); for(var i=a.length-1;i>0;i--){ var j=Math.floor(r()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+Object.keys(LEAGUES).forEach(function(k){
+  var L=LEAGUES[k], r=rng(L.seed), used={};
+  (L.flipHead||[]).concat(L.targetHead||[]).forEach(function(x){ used[x.n]=1; });
+  L.moves[0].give.forEach(function(n){ used[n]=1; });
+  var names=shuffle(Object.keys(POS),r).filter(function(n){ return !used[n]; });
+  L.flips=(L.flipHead||[]).map(function(f){ return {n:f.n,pos:POS[f.n],a:f.a,b:f.b,gap:f.gap,se:0.7,pa:f.pa,pb:f.pb,yes:f.yes}; });
+  var i=0;
+  while(L.flips.length<L.nflips){
+    var n=names[i++], a=1+Math.floor(r()*10), b; do{ b=1+Math.floor(r()*10); }while(b===a);
+    var gap=Math.max(0.4, 2.5-L.flips.length*0.2-r()*0.12), pa=Math.round(18+r()*24);
+    var noise=gap<1.0, yes=(noise && r()<0.4)?null:Math.round(12+r()*16);
+    L.flips.push({n:n,pos:POS[n],a:a,b:b,gap:+gap.toFixed(1),se:+(0.6+r()*0.1).toFixed(1),pa:pa,pb:Math.round(pa+gap*6),yes:yes,noise:noise});
+  }
+  L.targets=(L.targetHead||[]).map(function(t){ return {n:t.n,pos:POS[t.n],owner:t.owner,gain:t.gain,reach:t.reach,fit:t.fit,why:t.why}; });
+  var WHY=["fills your weak spot for the playoff weeks","his team is rebuilding, price is soft","covers two bye weeks","priced low on his screen","upside pick; boom weeks"];
+  while(L.targets.length<L.ntargets){
+    var tn=names[i++], j=L.targets.length;
+    L.targets.push({n:tn,pos:POS[tn],owner:1+Math.floor(r()*10),gain:+Math.max(0.6,3.8-j*0.45-r()*0.2).toFixed(1),reach:Math.round(20+r()*40),
+      fit:(j%3===2)?"needs fuck-it mode":"fits",why:WHY[j%WHY.length]});
+  }
+});
+
+/* ================= UI state (what Coach's typed actions change) ================= */
+var S = {league:2, bigPanel:null, swap:null, filter:null, sort:null, pins:[], cards:[], plan:{}, explain:false, soft:{}, page:{}, reply:{}, deck:{}, skips:{}, chosen:{}};
+var hist = [];          // undo stack (Coach actions + deck skips)
+var logRows = [];       // action log
+var pending = null;     // plan-changing preview waiting for Nick's confirm
+var lastReasonRow = null, reasonTimer = null, newCardId = null, flashP = null;
+var cardSeq = 0;
+
+function L(){ return LEAGUES[S.league]; }
+function planOf(k){ return S.plan[k] || {risk:LEAGUES[k].risk, until:null, extra:[], removed:[], approved:null, alt:false}; }
+function ensurePlan(k){ if(!S.plan[k]) S.plan[k]=planOf(k); return S.plan[k]; }
+function movesOf(k){ var p=planOf(k), m=LEAGUES[k].moves; return p.alt ? [LEAGUES[k].alt].concat(m.filter(function(x){ return x.partner!==LEAGUES[k].alt.partner || x.get[0]!==LEAGUES[k].alt.get[0]; })).slice(0,5) : m; }
+function deckIdx(){ return S.deck[S.league]||0; }
+function curMove(){ var ms=movesOf(S.league); return ms[Math.min(deckIdx(),ms.length-1)]; }
+function stopsOf(k){
+  var p=planOf(k), base=LEAGUES[k].stops.filter(function(s,i){ return p.removed.indexOf(i)<0; });
+  if(p.extra.length){ base=base.slice(0,1).concat(p.extra, base.slice(1)); }
+  return base;
+}
+function stopsLeft(){ return stopsOf(S.league).filter(function(s){ return s.st!=="done"; }).length; }
+function esc(s){ return String(s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]; }); }
+function snap(){ hist.push(JSON.stringify(S)); if(hist.length>40) hist.shift(); }
+function isPhone(){ return window.matchMedia("(max-width: 699px)").matches; }
+function tstamp(){ return new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}); }
+
+/* ================= layout ================= */
+function rows(){
+  if(S.bigPanel && S.bigPanel!=="next"){
+    var P=S.bigPanel, rest=SWAPPABLE.filter(function(p){ return p!==P; });
+    return ["top top top top","next next "+P+" "+P,"next next "+P+" "+P, rest.join(" "),"tray tray tray tray"];
+  }
+  return ["top top top top","next next stops flip","next next stops flip","targets targets catch brain","tray tray tray tray"];
+}
+function areaOf(p){ if(S.swap){ if(p===S.swap) return "next"; if(p==="next") return S.swap; } return p; }
+function isBig(p){ if(isPhone()) return true; var a=areaOf(p); return a==="next" || (S.bigPanel && a===S.bigPanel); }
+
+/* ================= small renderers ================= */
+function pager(id,total,size){
+  var pages=Math.max(1,Math.ceil(total/size)), pg=Math.min(S.page[id]||0,pages-1); S.page[id]=pg;
+  var a=pg*size, b=Math.min(total,a+size);
+  var html= total>size ? '<span class="pg"><button data-act="pg" data-p="'+id+'" data-d="-1" '+(pg===0?"disabled":"")+' aria-label="Previous page">&lsaquo;</button>'+(total?(a+1)+"-"+b:0)+' of '+total+'<button data-act="pg" data-p="'+id+'" data-d="1" '+(pg>=pages-1?"disabled":"")+' aria-label="Next page">&rsaquo;</button></span>' : (total?'<span class="pg">'+total+'</span>':"");
+  return {a:a,b:b,html:html};
+}
+function head(p,title,extra){
+  var btn="";
+  if(p!=="next" && (!isBig(p) || S.swap===p)) btn='<button class="xp" data-act="expand" data-p="'+p+'">'+(S.swap===p?"Back (Esc)":"Expand")+'</button>';
+  if(p==="next" && S.swap) btn='<button class="xp" data-act="restore">Expand</button>';
+  return '<div class="ph"><h2>'+title+'</h2><span class="sp"></span>'+(extra||"")+btn+'</div>';
+}
+function filterChip(){ return S.filter ? '<span class="filt">Only '+S.filter+'s<button data-act="clearfilter" aria-label="Clear filter">&times;</button></span>' : ""; }
+function pct(x){ return (Math.round(x*10)/10).toFixed(1)+"%"; }
+function spark(vals,w,h,opt){
+  opt=opt||{}; var max=opt.max!=null?opt.max:Math.max.apply(null,vals), min=opt.min!=null?opt.min:Math.min.apply(null,vals), n=opt.n||vals.length;
+  var sx=function(i){ return 3+i*(w-6)/Math.max(1,n-1); }, sy=function(v){ return h-3-(v-min)/Math.max(0.001,max-min)*(h-6); };
+  return vals.map(function(v,i){ return sx(i).toFixed(1)+","+sy(v).toFixed(1); }).join(" ");
+}
+
+/* ================= panels ================= */
+function renderTop(){
+  var Lg=L(), p=planOf(S.league), ranked=Object.keys(LEAGUES).map(function(k){ return LEAGUES[k]; }).sort(function(a,b){ return a.need-b.need; });
+  var behind=Lg.now-Lg.plan, etaTxt="wk "+Lg.eta+(Lg.eta>Lg.by?" ("+(Lg.eta-Lg.by)+" late)":Lg.eta<Lg.by?" ("+(Lg.by-Lg.eta)+" early)":" (on time)");
+  var mode=MODES[p.risk]+(p.until?" until wk "+p.until:"");
+  var isDark=document.documentElement.getAttribute("data-theme")==="dark";
+  document.getElementById("top").innerHTML=
+    '<div class="brand"><small>Gridiron HQ</small>War Room</div>'+
+    '<div class="leagues" role="tablist" aria-label="Leagues, most urgent first">'+ranked.map(function(x,i){
+      var k=Object.keys(LEAGUES).filter(function(q){ return LEAGUES[q]===x; })[0];
+      return '<button class="lg'+(+k===S.league?" on":"")+'" data-act="league" data-l="'+k+'" role="tab" aria-selected="'+(+k===S.league)+'"><span class="n"><span class="rk'+(i>1?" low":"")+'">'+(i+1)+'</span>'+x.name+'</span><span class="w">'+esc(x.needText)+'</span></button>';
+    }).join("")+'</div>'+
+    '<div class="facts">'+
+      '<div class="fact"><span class="l">Destination</span><span class="v">'+esc(Lg.goal)+' by wk '+Lg.by+'</span></div>'+
+      '<div class="fact"><span class="l">ETA vs plan</span><span class="v '+(Lg.eta>Lg.by?"amber":"")+'">'+etaTxt+'</span></div>'+
+      '<div class="fact"><span class="l">'+Lg.unit+'</span><span class="v num">'+pct(Lg.now)+' <span class="grey">plan '+pct(Lg.plan)+'</span> <span class="'+(behind<0?"amber":"grey")+'">'+(behind<0?"&darr;":"&uarr;")+Math.abs(behind).toFixed(1)+'</span></span></div>'+
+      '<div class="fact"><span class="l">Risk mode</span><button class="chip '+(p.risk==="all_in"?"allin":p.risk==="safe"?"safe":"")+'" data-act="risk">'+esc(mode)+'</button></div>'+
+    '</div>'+
+    '<span class="mock">MOCK · fake data</span>'+
+    '<button class="chip" data-act="theme" aria-label="Switch light or dark">'+(isDark?"Light":"Dark")+'</button>';
+}
+
+function renderNext(el){
+  var big=isBig("next"), ms=movesOf(S.league), idx=Math.min(deckIdx(),ms.length), m=ms[Math.min(idx,ms.length-1)], k=S.league;
+  var chosen=S.chosen[k], skips=S.skips[k]||[];
+  var counter='<span class="mv-count">'+Math.min(idx+1,ms.length)+' of '+ms.length+'</span>'+(skips.length?' <button class="linkbtn" data-act="back">&larr; back</button>':"");
+  var tags='<span class="tag src">Planner</span> <span class="tag prev">Preview</span>';
+  var h=head("next","Next move · "+L().name,counter);
+  if(idx>=ms.length){
+    el.innerHTML=h+'<div class="pb"><div class="empty">That was all 5 moves for '+L().name+'.<br><button class="btn" data-act="back" style="margin-top:6px">&larr; Back to the last one</button> <button class="btn" data-act="deckreset">Start over</button><br><span class="hint">Or ask Coach for a different target.</span></div></div>';
+    return;
+  }
+  var text=S.soft[k]&&idx===0 ? S.soft[k] : m.msg;
+  var delta=m.after-m.before;
+  var gg='<div class="gg"><span class="k">You give</span><span>'+m.give.map(function(n){ return "<b>"+esc(n)+"</b> "+POS[n]; }).join(" + ")+'</span><span class="k">You get</span><span>'+m.get.map(function(n){ return "<b>"+esc(n)+"</b> "+POS[n]; }).join(" + ")+'</span></div>';
+  if(!big){
+    el.innerHTML=h+'<div class="pb"><div class="movecard" id="movecard"><div class="who" style="font-size:15px">Send to '+m.partner+'</div>'+gg+
+      '<div class="sub2"><span class="amber">'+m.p+'% yes</span> · '+(delta>=0?"&uarr;":"&darr;")+Math.abs(delta).toFixed(1)+' pts · walk away if '+esc(m.walk)+'</div>'+
+      '<div class="acts"><button class="btn primary" data-act="copy">Copy</button><button class="btn" data-act="skip">Next &rarr;</button></div></div></div>';
+    return;
+  }
+  var reply=S.reply[k]||null, RK=[["accept","Accepts"],["decline","Declines"],["counter","Counters"],["silence","No reply 24 h"]];
+  var rt='<table class="rt" aria-label="If he says"><tbody>'+RK.map(function(r){
+    return '<tr data-act="reply" data-r="'+r[0]+'" class="'+(reply===r[0]?"sel":"")+'"><td>'+r[1]+'</td><td>'+esc(m.replies[r[0]])+'</td></tr>'; }).join("")+'</tbody></table>';
+  var decl= reply==="decline" ? '<div class="reasons" id="declWhy"><span class="grey">Why did he say no? One tap:</span>'+["Too much for him","Wants a WR back","Not selling "+m.get[0],"No reason"].map(function(x){ return '<button data-act="declreason" data-v="'+esc(x)+'">'+esc(x)+'</button>'; }).join("")+'</div>' : "";
+  var why = S.explain ? '<ul class="why hl">'+m.why.map(function(w){ return '<li><span class="d">'+esc(w[0])+'</span><span>'+esc(w[1])+' <span class="tag src">'+esc(w[2])+'</span></span></li>'; }).join("")+'</ul>' : "";
+  var body=
+    '<div class="movecard'+(S._cardIn?" in":"")+'" id="movecard">'+
+    '<div class="mv-top">'+tags+'<span class="sp" style="flex:1"></span><span class="hint">send '+esc(m.when)+'</span></div>'+
+    '<div class="who">Send this to '+m.partner+'</div>'+gg+
+    '<div class="tiles">'+
+      '<div class="tile"><div class="l">Chance he says yes</div><div class="v amber">'+m.p+'%</div><div class="s">range '+esc(m.band)+' · <span class="tag guess">guess</span></div></div>'+
+      '<div class="tile"><div class="l">'+esc(L().unit)+'</div><div class="v">'+pct(m.before)+' &rarr; '+pct(m.after)+'</div><div class="s">'+(delta>=0?"&uarr; ":"&darr; ")+Math.abs(delta).toFixed(1)+' pts if he says yes</div></div>'+
+      '<div class="tile"><div class="l">Walk away if</div><div class="v" style="font-size:13px;white-space:normal;line-height:1.2">'+esc(m.walk)+'</div></div>'+
+    '</div>'+why+
+    (chosen===idx ? '<div class="chosen"><b>You picked this one.</b> Copy the message and send it yourself in ESPN. Then tap his answer below.</div>' : "")+
+    '<div class="msg"><div style="display:flex;align-items:center;gap:6px"><span class="cap">Message</span><span class="tag src">Written by Coach</span><span style="flex:1"></span><button class="btn primary sm" data-act="copy">Copy</button></div>'+
+      '<p id="msgText">'+esc(text)+'</p><div class="nosend">Coach never sends offers. Sending stays your tap in ESPN.</div></div>'+
+    '<div class="acts"><button class="btn big" data-act="skip" title="Left arrow or swipe left">Next &rarr;</button><button class="btn big primary" data-act="doit" title="Swipe right">Do it</button></div>'+
+    '<div class="reasons fade" id="skipWhy"></div>'+
+    '<div class="cap" style="margin-top:4px">If he says... (tap what happened)</div>'+rt+decl+
+    '</div>';
+  el.innerHTML=h+'<div class="pb">'+body+'</div>';
+  S._cardIn=false;
+}
+
+function renderStops(el){
+  var big=isBig("stops"), st=stopsOf(S.league), pg=pager("stops",st.length,big?7:4);
+  el.innerHTML=head("stops","Stops · "+stopsLeft()+" left",pg.html)+'<div class="pb">'+
+    '<div class="sub2" style="margin-bottom:4px"><b class="ink">Destination:</b> '+esc(L().goal)+' by wk '+L().by+'</div>'+
+    '<ol class="list stops">'+st.slice(pg.a,pg.b).map(function(s,i){
+      var n=pg.a+i+1;
+      return '<li class="'+(s.st==="next"?"next":"")+'"><span class="n">'+n+'</span><span class="lab"><b>'+esc(s.l)+'</b>'+(s.by?' <span class="tag you">added by '+s.by+'</span>':"")+'<br><span class="sub2">'+(s.p!=null?"chance "+s.p+"% · after "+pct(s.after):esc(s.note||""))+'</span></span><span class="pill '+(s.st==="next"?"next":"")+'">'+s.st+'</span></li>';
+    }).join("")+'</ol>'+
+    '<button class="btn sm" data-act="say" data-v="get me a " style="margin-top:6px">+ Add a stop</button></div>';
+}
+
+function flipRows(){
+  var f=L().flips.slice();
+  if(S.filter) f=f.filter(function(x){ return x.pos===S.filter; });
+  if(S.sort==="yes") f.sort(function(a,b){ return (b.yes||0)-(a.yes||0); });
+  return f;
+}
+function renderFlip(el){
+  var big=isBig("flip"), f=flipRows(), pg=pager("flip",f.length,big?9:5), sl=f.slice(pg.a,pg.b), body;
+  if(!f.length) body='<div class="empty">No '+S.filter+'s in this league\'s flip map. <button class="linkbtn" data-act="clearfilter">Show all</button></div>';
+  else if(big) body='<table><thead><tr><th style="width:26%">Player</th><th>Buy from</th><th>Sell to</th><th>Gap</th><th>Prices</th><th>Both yes</th><th style="width:44px"></th></tr></thead><tbody>'+sl.map(function(x){
+      return '<tr><td><b>'+esc(x.n)+'</b> '+x.pos+'</td><td>Team '+x.a+'</td><td>Team '+x.b+'</td><td class="num '+(x.noise?"grey":"")+'">'+x.gap+(x.noise?" noise":" &plusmn; "+x.se)+'</td><td class="num">'+x.pa+' vs '+x.pb+'</td><td class="num '+(x.yes==null?"grey":"amber")+'">'+(x.yes==null?"no fair leg":x.yes+"%")+'</td><td><button class="btn sm" data-act="pin" data-v="'+esc(x.n)+'">Pin</button></td></tr>'; }).join("")+'</tbody></table>';
+  else body='<ul class="list flip">'+sl.map(function(x){
+      return '<li><div class="top1"><span><b>'+esc(x.n)+'</b> '+x.pos+'</span><span class="num '+(x.noise?"grey":"")+'">gap '+x.gap+'</span></div><div class="sub2">Buy T'+x.a+' &rarr; sell T'+x.b+' · '+(x.yes==null?"no fair leg":"both yes "+x.yes+"%")+'</div></li>'; }).join("")+'</ul>';
+  el.innerHTML=head("flip","Flip map · "+L().name,filterChip()+pg.html)+'<div class="pb">'+(big?'<div class="sub2" style="margin-bottom:4px">Buy low from one manager, sell high to another. Gap is in title pts. <span class="tag guess">prices + yes = guess</span></div>':"")+body+'</div>';
+}
+
+function targetRows(){ var t=L().targets.slice(); if(S.filter) t=t.filter(function(x){ return x.pos===S.filter; }); if(S.sort==="yes") t.sort(function(a,b){ return b.reach-a.reach; }); return t; }
+function renderTargets(el){
+  var big=isBig("targets"), p=planOf(S.league), appr=p.approved||L().targets[0].n, t=targetRows(), pg=pager("targets",t.length,big?8:3), sl=t.slice(pg.a,pg.b);
+  var body= !t.length ? '<div class="empty">No '+S.filter+' targets. <button class="linkbtn" data-act="clearfilter">Show all</button></div>' :
+    '<table><thead><tr><th style="width:34%">Player</th><th>If landed</th><th>Reachable</th>'+(big?'<th style="width:30%">Why</th>':"")+'<th style="width:82px"></th></tr></thead><tbody>'+sl.map(function(x){
+      return '<tr><td><b>'+esc(x.n)+'</b> '+x.pos+' · T'+x.owner+'</td><td class="num">&uarr; '+x.gain+'</td><td class="num amber">'+x.reach+'%</td>'+(big?'<td>'+esc(x.why)+(x.fit!=="fits"?' <span class="tag guess">'+x.fit+'</span>':"")+'</td>':"")+
+        '<td>'+(x.n===appr?'<span class="pill next">approved</span>':'<button class="btn sm" data-act="approve" data-v="'+esc(x.n)+'">Approve</button>')+'</td></tr>'; }).join("")+'</tbody></table>';
+  el.innerHTML=head("targets","Suggested targets",filterChip()+pg.html)+'<div class="pb">'+body+
+    '<div style="margin-top:5px;display:flex;gap:6px;align-items:center"><button class="btn sm" data-act="say" data-v="get me a ">Choose my own</button><span class="hint">Approve = the planner re-routes (preview).</span></div></div>';
+}
+
+function renderCatch(el){
+  var big=isBig("catch"), Lg=L(), c=Lg.catchup, pg=pager("catch",c.length,big?5:2), sp=Lg.speed;
+  var W=big?300:200, H=big?90:54, max=Math.max.apply(null,sp.map(function(x){ return x[1]; }))*1.15;
+  var sx=function(i){ return 14+i*(W-28)/(sp.length-1); }, sy=function(v){ return H-14-(v/max)*(H-24); };
+  var svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" role="img" aria-label="Speed curve: net gain by arrival week">'+
+    '<line x1="8" y1="'+(H-14)+'" x2="'+(W-6)+'" y2="'+(H-14)+'" stroke="var(--line)"/>'+
+    '<polyline points="'+sp.map(function(x,i){ return sx(i)+","+sy(x[1]); }).join(" ")+'" fill="none" stroke="var(--muted)" stroke-width="1.5"/>'+
+    sp.map(function(x,i){ var pk=x[2]==="picked"; return '<circle cx="'+sx(i)+'" cy="'+sy(x[1])+'" r="'+(pk?4:2.5)+'" fill="'+(pk?"var(--ink)":"var(--muted)")+'"/><text x="'+sx(i)+'" y="'+(H-3)+'" text-anchor="middle">wk '+x[0]+'</text><text x="'+sx(i)+'" y="'+(sy(x[1])-6)+'" text-anchor="middle">'+(pk?"&#9733; ":"")+"+"+x[1]+'</text>'; }).join("")+'</svg>';
+  el.innerHTML=head("catch","Catch-up · speed",pg.html)+'<div class="pb">'+
+    '<div class="sub2">'+esc(Lg.ground)+'</div>'+
+    '<ol class="list">'+c.slice(pg.a,pg.b).map(function(x){ return '<li><b>'+esc(x[0])+'</b> <span class="grey num">'+(x[1]?"+"+x[1]+(x[2]?", "+x[2]+" step"+(x[2]>1?"s":""):", no trade"):"")+'</span></li>'; }).join("")+'</ol>'+
+    '<div class="sub2" style="margin-top:2px">Arrive by (net gain):</div>'+svg+'</div>';
+}
+
+function renderBrain(el){
+  var big=isBig("brain"), h=L().health;
+  el.innerHTML=head("brain",'<span class="dot grey"></span>Brain check')+'<div class="pb">'+
+    '<div class="echk">'+CHECKS.map(function(c){ var s=STAT[c[2]]; return '<div title="'+esc(c[1])+'"><span class="id">'+c[0]+'</span>'+(big?'<span style="flex:1;overflow:hidden;text-overflow:ellipsis">'+esc(c[1])+'</span>':"")+'<span class="pill '+s[0]+'">'+s[1]+'</span>'+(big?'<span class="hint">'+esc(c[3])+'</span>':"")+'</div>'; }).join("")+'</div>'+
+    (big?'<p class="sub2" style="margin:6px 0 0">Not proven yet. Until E1 passes, every "chance he says yes" is a guess, and fuck-it mode\'s test signals stay off.</p>':"")+
+    '<div class="health"><span class="dot '+h.c+'"></span><b>Numbers:</b> '+esc(h.t)+'</div></div>';
+}
+
+function pinInfo(n){
+  var Lg=L(), f=Lg.flips.filter(function(x){ return x.n===n; })[0], t=Lg.targets.filter(function(x){ return x.n===n; })[0];
+  if(movesOf(S.league).some(function(m){ return m.give.indexOf(n)>=0; })) return "On your roster · in an offer you'd send";
+  if(f) return "Flip: buy T"+f.a+", sell T"+f.b+" · gap "+f.gap;
+  if(t) return "Target on T"+t.owner+" · &uarr; "+t.gain+" if landed";
+  return "Not in this league's plans";
+}
+function renderTray(el){
+  var items=S.pins.map(function(n){ return {type:"pin",n:n}; }).concat(S.cards), big=isBig("tray");
+  var pg=pager("tray",items.length,isPhone()?4:(big?4:3));
+  var body= !items.length ? '<div class="empty">Nothing pinned. Ask Coach: "pin K. Bell" or "add a card with my bye weeks".</div>' :
+    '<div class="tray">'+items.slice(pg.a,pg.b).map(function(it){
+      if(it.type==="pin") return '<div class="tc'+(newCardId==="pin:"+it.n?" newc":"")+'"><button class="x" data-act="unpin" data-v="'+esc(it.n)+'" aria-label="Unpin">&times;</button><div class="t">&#128204; '+esc(it.n)+' <span class="grey">'+POS[it.n]+'</span></div><div class="sub2">'+pinInfo(it.n)+'</div></div>';
+      return '<div class="tc'+(newCardId===it.id?" newc":"")+'"><button class="x" data-act="uncard" data-v="'+it.id+'" aria-label="Remove card">&times;</button>'+plugBody(it)+'</div>';
+    }).join("")+'</div>';
+  el.innerHTML=head("tray","Your cards · pins + Coach cards",pg.html)+'<div class="pb">'+body+'</div>';
+}
+function plugBody(c){
+  var Lg=LEAGUES[c.league];
+  if(c.kind==="bye"){
+    var b=Lg.byes, worst=b.map(function(v,i){ return [v,i+5]; }).filter(function(x){ return x[0]>0; }).sort(function(a,b){ return b[0]-a[0]; }).slice(0,2);
+    var bars=b.map(function(v,i){ return '<rect x="'+(i*11+1)+'" y="'+(24-v*10)+'" width="8" height="'+(v*10+1)+'" rx="1" fill="'+(v>1?"var(--danger)":v?"var(--warn)":"var(--line)")+'"/>'; }).join("");
+    return '<div class="t">Bye-week holes · '+Lg.name+'</div><div style="display:flex;gap:8px;align-items:center"><svg viewBox="0 0 110 26" width="110" height="26" aria-label="Starters short by week">'+bars+'</svg><span class="sub2">'+worst.map(function(x){ return "wk "+x[1]+": "+x[0]+" short"; }).join(" · ")+'</span></div><div class="hint">engine field <code>roster.bye_holes</code> · wk 5-14</div>';
+  }
+  var pl=Lg.path.plan, ac=Lg.path.act, all=pl.concat(ac), mx=Math.max.apply(null,all), mn=Math.min.apply(null,all);
+  return '<div class="t">'+Lg.unit.replace(/^./,function(c){ return c.toUpperCase(); })+' by week · '+Lg.name+'</div><div style="display:flex;gap:8px;align-items:center"><svg viewBox="0 0 120 30" width="120" height="30" aria-label="Planned vs actual by week">'+
+    '<polyline points="'+spark(pl,120,30,{max:mx,min:mn})+'" fill="none" stroke="var(--muted)" stroke-dasharray="3 2" stroke-width="1.5"/>'+
+    '<polyline points="'+spark(ac,120,30,{max:mx,min:mn,n:pl.length})+'" fill="none" stroke="var(--ink)" stroke-width="2"/></svg>'+
+    '<span class="sub2">now '+pct(Lg.now)+'<br>plan '+pct(Lg.plan)+'</span></div><div class="hint">engine field <code>title.odds_by_week</code> · dashed = plan</div>';
+}
+
+function renderDots(){
+  var d=document.getElementById("dots");
+  d.innerHTML=PANELS.map(function(p,i){ return '<button data-act="goto" data-p="'+p+'" class="'+(i===(S._deckPos||0)?"on":"")+'">'+PANEL_NAMES[p]+'</button>'; }).join("");
+}
+
+function render(){
+  var app=document.getElementById("app");
+  app.style.gridTemplateAreas=rows().map(function(r,i){ return '"'+r+' coach"'; }).join(" ");
+  renderTop();
+  PANELS.forEach(function(p){
+    var el=document.querySelector('.panel[data-p="'+p+'"]');
+    el.style.gridArea=areaOf(p);
+    el.classList.toggle("big", !isPhone() && isBig(p));
+    el.classList.toggle("flash", flashP===p);
+    ({next:renderNext,stops:renderStops,flip:renderFlip,targets:renderTargets,"catch":renderCatch,brain:renderBrain,tray:renderTray})[p](el);
+  });
+  renderDots();
+  renderPending();
+  document.getElementById("coachSub").textContent = lastCoachLine || "Changes this screen for you. Never sends an offer.";
+  if(flashP){ var fp=flashP; setTimeout(function(){ var e=document.querySelector('.panel[data-p="'+fp+'"]'); if(e) e.classList.remove("flash"); },1200); flashP=null; }
+  newCardId=null;
+  bindSwipe();
+}
+
+/* ================= Coach: typed actions only ================= */
+var chat=document.getElementById("chat"), lastCoachLine="";
+function footer(){
+  var m=curMove(), Lg=L();
+  var nm = deckIdx()>=movesOf(S.league).length ? "pick one from the deck" : "send "+m.partner+" "+m.give.join(" + ")+" for "+m.get.join(" + ");
+  return "Destination: "+Lg.goal.toLowerCase()+" by wk "+Lg.by+" ("+Lg.name+") / Stops left: "+stopsLeft()+" / Next move: "+nm;
+}
+function say(who,text,action){
+  var d=document.createElement("div"); d.className="m "+(who==="u"?"u":"c");
+  if(who==="u") d.textContent=text;
+  else { d.innerHTML=(action?'<span class="act">'+esc(action)+'</span><br>':"")+esc(text)+'<span class="foot">'+esc(footer())+'</span>'; lastCoachLine="Coach: "+text; }
+  chat.appendChild(d); chat.scrollTop=chat.scrollHeight;
+}
+function log(action,what){
+  logRows.unshift([tstamp(),action,what]);
+  document.getElementById("logN").textContent=logRows.length;
+  document.getElementById("log").innerHTML=logRows.slice(0,30).map(function(r){ return '<li><span>'+esc(r[0])+'</span><code>'+esc(r[1])+'</code><span class="w" title="'+esc(r[2])+'">'+esc(r[2])+'</span></li>'; }).join("");
+}
+
+var PANEL_RX=[["flip",/flip/],["stops",/\bstops?\b|route|itinerary/],["targets",/target/],["catch",/catch|speed|on time|behind/],["brain",/brain|check|health/],["tray",/cards?\b|pins?\b|tray/],["next",/next move|offer|deal/]];
+function panelFrom(t){ for(var i=0;i<PANEL_RX.length;i++) if(PANEL_RX[i][1].test(t)) return PANEL_RX[i][0]; return null; }
+var POS_RX=[["TE",/\b(te|tes|tight ?ends?)\b/],["RB",/\b(rb|rbs|running ?backs?)\b/],["WR",/\b(wr|wrs|receivers?|wideouts?)\b/],["QB",/\b(qb|qbs|quarterbacks?)\b/]];
+function posFrom(t){ for(var i=0;i<POS_RX.length;i++) if(POS_RX[i][1].test(t)) return POS_RX[i][0]; return null; }
+function findPlayer(q){
+  q=q.toLowerCase().replace(/[^a-z .]/g,"").trim(); if(!q) return null;
+  var names=Object.keys(POS), exact=names.filter(function(n){ return n.toLowerCase()===q; })[0]; if(exact) return exact;
+  var last=q.split(/[ .]+/).filter(Boolean).pop();
+  return names.filter(function(n){ return n.toLowerCase().split(" ").pop()===last; })[0] || null;
+}
+
+function parse(raw){
+  var t=raw.toLowerCase().trim(), m;
+  if(/^undo\b|take (that|it) back|revert/.test(t)) return {type:"undo"};
+  if(/\bsend\b/.test(t) && !/\bsend (me|to)\b.*\b(card|panel)\b/.test(t)) return {type:"refuse_send"};
+  if(/^(next(?! move)|skip( this| it)?|another( one)?|show me another|nah|pass)\b/.test(t)) return {type:"deck_next"};
+  if(/fuck.?it|all.?in|swing big|yolo/.test(t)){ m=t.match(/week (\d+)|wk ?(\d+)/); return {type:"set_risk_mode", to:"all_in", until:m?+(m[1]||m[2]):null}; }
+  if(/safe mode|play it safe|go safe/.test(t)) return {type:"set_risk_mode", to:"safe", until:null};
+  if(/balanced mode|go balanced/.test(t)) return {type:"set_risk_mode", to:"balanced", until:null};
+  if(/\b(get|find|add) me an? /.test(t) && posFrom(t)) return {type:"add_stop", pos:posFrom(t), forget:/forget|instead|drop|skip the/.test(t)};
+  if((m=t.match(/^(?:un)?pin\s+(.+)/))){ return {type:/^unpin/.test(t)?"unpin":"pin_card", q:m[1]}; }
+  if(/bye/.test(t)) return {type:"plug_in", kind:"bye"};
+  if(/(title|playoff)? ?odds/.test(t) && /(chart|card|graph|plot|by week|track)/.test(t)) return {type:"plug_in", kind:"odds"};
+  if(/reset (the )?layout|default layout|put (it|everything) back/.test(t)) return {type:"reset_layout"};
+  if(/bigger|larger|more room|blow up/.test(t) && panelFrom(t)) return {type:"arrange_layout", p:panelFrom(t)};
+  if(/(only|just) /.test(t) && posFrom(t)) return {type:"filter", pos:posFrom(t)};
+  if(/all positions|clear (the )?filter|show everyone|no filter/.test(t)) return {type:"filter", pos:null};
+  if(/sort by (chance|yes|p\(yes\)|likely)/.test(t)) return {type:"sort", by:"yes"};
+  if(/sort by (gap|gain|value)/.test(t)) return {type:"sort", by:null};
+  if(/softer|nicer|friendlier|less pushy/.test(t)) return {type:"draft_message"};
+  if(/\bwhy\b|explain/.test(t)) return {type:"explain"};
+  m=t.match(/league (\d)/);
+  var p=panelFrom(t);
+  if(p || m) return {type:"focus_panel", p:p||"next", league:m?+m[1]:null};
+  return {type:"unknown"};
+}
+
+function run(raw){
+  if(!raw.trim()) return;
+  say("u",raw);
+  var a=parse(raw);
+  if(pending && a.type!=="undo"){ log("preview dropped","You asked something else; plan unchanged"); pending=null; }
+  apply(a,raw);
+}
+
+function apply(a,raw){
+  var Lg, p;
+  switch(a.type){
+    case "undo":
+      if(pending){ pending=null; say("c","Dropped the preview. Nothing changed.","cancel"); log("cancel","Preview dropped, plan unchanged"); break; }
+      if(!hist.length){ say("c","Nothing to undo yet.","undo"); break; }
+      S=JSON.parse(hist.pop()); log("undo","Reverted the last change"); say("c","Undone. The screen is back to how it was.","undo"); break;
+    case "refuse_send":
+      say("c","I can't send offers, and I never will. Tap Copy on the message, then send it yourself in ESPN.","refused: send");
+      log("refused","Send request refused (sending stays your tap)"); flashP="next"; break;
+    case "deck_next":
+      skip(null,true); return;
+    case "focus_panel":
+      snap();
+      if(a.league && LEAGUES[a.league]) S.league=a.league;
+      if(a.league && !LEAGUES[a.league]){ hist.pop(); say("c","There is no League "+a.league+". You have Leagues 1-4.","refused"); break; }
+      S.swap = (a.p==="next"||a.p==="tray") ? null : a.p;
+      if(a.p==="tray") S.bigPanel=null;
+      flashP=a.p; S._goto=a.p;
+      log("focus_panel",(a.league?"League "+a.league+", ":"")+PANEL_NAMES[a.p]+(S.swap?" in the big slot":""));
+      say("c","Showing "+L().name+"'s "+PANEL_NAMES[a.p].toLowerCase()+(S.swap?" in the big slot. Esc puts it back.":"."),"focus_panel");
+      break;
+    case "filter":
+      snap(); S.filter=a.pos; S.page.flip=0; S.page.targets=0; flashP="flip";
+      log("filter",a.pos?"Only "+a.pos+"s in flip map + targets":"Filter cleared");
+      say("c",a.pos?"Flip map and targets now show only "+a.pos+"s ("+flipRows().length+" flips, "+targetRows().length+" targets).":"Showing every position again.","filter");
+      break;
+    case "sort":
+      snap(); S.sort=a.by; log("sort",a.by?"Flip map + targets by chance of yes":"Back to engine order");
+      say("c",a.by?"Sorted by chance he says yes.":"Back to the engine's order (biggest gap first).","sort"); flashP="flip"; break;
+    case "pin_card":
+      var n=findPlayer(a.q);
+      if(!n){ say("c","I couldn't find \""+a.q+"\". Try a last name, like \"pin Bell\".","refused"); break; }
+      if(S.pins.indexOf(n)>=0){ say("c",n+" is already pinned.","pin_card"); break; }
+      snap(); S.pins.push(n); newCardId="pin:"+n; flashP="tray"; S.page.tray=99;
+      log("pin_card","Pinned "+n); say("c","Pinned "+n+" to Your cards. It stays on screen when you switch panels.","pin_card"); break;
+    case "unpin":
+      var un=findPlayer(a.q); if(!un||S.pins.indexOf(un)<0){ say("c","That player isn't pinned.","refused"); break; }
+      snap(); S.pins=S.pins.filter(function(x){ return x!==un; }); log("unpin","Unpinned "+un); say("c","Unpinned "+un+".","unpin"); break;
+    case "plug_in":
+      snap(); var id="c"+(++cardSeq);
+      S.cards.push({type:"plug",id:id,kind:a.kind,league:S.league}); newCardId=id; flashP="tray"; S.page.tray=99;
+      var fld=a.kind==="bye"?"roster.bye_holes":"title.odds_by_week";
+      log("plug_in","New card from engine field "+fld+" ("+(a.kind==="bye"?"bar sparkline":"line sparkline")+")");
+      say("c","Added a card from the engine field "+fld+". I picked the field and the chart. The numbers come from the engine, not me.","plug_in"); break;
+    case "arrange_layout":
+      if(a.p==="next"||a.p==="tray"){ say("c",a.p==="next"?"Next move is already the biggest panel.":"Your cards stay in the bottom row. Try \"make flip map bigger\".","arrange_layout"); break; }
+      snap(); S.bigPanel=a.p; S.swap=null; flashP=a.p;
+      log("arrange_layout",PANEL_NAMES[a.p]+" doubled; next move keeps its size");
+      say("c","Made the "+PANEL_NAMES[a.p].toLowerCase()+" bigger. Say \"reset layout\" or \"undo\" to put it back.","arrange_layout"); break;
+    case "reset_layout":
+      snap(); S.bigPanel=null; S.swap=null; log("reset_layout","Default grid"); say("c","Layout reset to the default grid.","reset_layout"); break;
+    case "draft_message":
+      snap(); var m0=curMove(); S.soft[S.league]="No pressure at all, just floating an idea: "+m0.give.join(" + ")+" for "+m0.get.join(" + ")+"? Happy to hear what would work for you.";
+      S.deck[S.league]=0; log("draft_message","Softer message for "+m0.partner); say("c","Rewrote the message softer. Same deal, same numbers. You still copy and send it.","draft_message"); flashP="next"; break;
+    case "explain":
+      snap(); S.explain=true; S.swap=null; flashP="next"; log("explain","Reason chain highlighted on next move");
+      say("c","Highlighted the reasons on the next move card. Biggest one: "+curMove().why[0][1]+".","explain"); break;
+    case "set_risk_mode":
+      Lg=L(); p=planOf(S.league);
+      var fromM=MODES[p.risk], toM=MODES[a.to], ups={all_in:1.3,safe:-0.6,balanced:0.2}[a.to];
+      var missFrom=18, missTo={all_in:29,safe:12,balanced:18}[a.to];
+      pending={kind:"risk", a:a, title:"Switch "+Lg.name+" to "+toM+(a.until?" until wk "+a.until:"")+"?",
+        lines:["Mode: "+fromM+" &rarr; <b>"+toM+"</b>"+(a.until?" (back to "+fromM+" after wk "+a.until+")":""),
+          esc(Lg.unit)+": <b>"+pct(Lg.now)+" &rarr; "+pct(Lg.now+ups)+"</b> expected ("+(ups>=0?"+":"")+ups+")",
+          "Chance you miss the playoffs: "+missFrom+"% &rarr; <b>"+missTo+"%</b>",
+          a.to==="all_in" ? "Next move changes: <b>"+Lg.alt.partner+", "+Lg.alt.give.join(" + ")+" for "+Lg.alt.get.join(" + ")+"</b>" : "Next move: stays the same",
+          a.to==="all_in" ? '<span class="red">E1 has not passed: part of the upside is a guess.</span>' : "Same dice as your current plan"],
+        verdict: a.to==="all_in" ? "Close call: more title upside, more downside." : "Lower variance, slightly lower ceiling."};
+      log("set_risk_mode","Preview shown; waiting for your confirm");
+      say("c","Here's the trade-off first. Nothing changes until you tap Confirm.","set_risk_mode (preview)"); break;
+    case "add_stop":
+      Lg=L(); p=planOf(S.league);
+      var tgt=Lg.targets.filter(function(x){ return x.pos===a.pos; })[0];
+      if(!tgt){ var nm=Object.keys(POS).filter(function(n){ return POS[n]===a.pos; })[0]; tgt={n:nm,pos:a.pos,owner:8,gain:1.1,reach:45}; }
+      var gain=+(tgt.gain*0.3).toFixed(1), cost=0.4, removeIdx=-1;
+      if(a.forget){ removeIdx=Lg.stops.findIndex(function(s,i){ return i>0 && /WR/.test(s.l); }); }
+      var refund = removeIdx>=0 ? 0.3 : 0, net=+(gain-cost+refund).toFixed(1);
+      pending={kind:"stop", a:a, tgt:tgt, removeIdx:removeIdx, title:"Add a stop: get "+tgt.n+" ("+a.pos+")?",
+        lines:["Adds stop 2: <b>Get "+esc(tgt.n)+" ("+a.pos+") from Team "+tgt.owner+"</b> (chance "+tgt.reach+"%)",
+          "Costs <b>"+cost+" pts</b> and 1 extra step",
+          "Gains <b>"+gain+" pts</b> (covers your "+a.pos+" hole in the playoff weeks)",
+          removeIdx>=0 ? "Drops stop: "+esc(Lg.stops[removeIdx].l)+" (+"+refund+" back)" : "Keeps every current stop",
+          "Next move: stays the same"],
+        verdict:"Net "+(net>=0?"+":"")+net+": "+(net>0.2?"worth it":net<-0.1?"not worth it":"close call")+"."};
+      log("add_stop","Preview shown; waiting for your confirm");
+      say("c","Here's what adding that stop costs and gains. Nothing changes until you tap Confirm.","add_stop (preview)"); break;
+    default:
+      say("c","I don't have that action, so I didn't change anything. I can: show a panel, filter, pin, add a card, resize, change the plan (with a preview), skip a move, or undo.","refused: unknown action");
+      log("refused","Unknown ask: \""+raw.slice(0,40)+"\"");
+  }
+  render(); afterRender();
+}
+
+function renderPending(){
+  var el=document.getElementById("pending");
+  if(!pending){ el.innerHTML=""; return; }
+  el.innerHTML='<div class="pending" role="dialog" aria-label="Trade-off preview"><h3>'+esc(pending.title)+'</h3><ul>'+pending.lines.map(function(x){ return "<li>"+x+"</li>"; }).join("")+'</ul><div style="font-weight:800;margin-bottom:6px">'+esc(pending.verdict)+'</div><div class="row"><button class="btn" data-act="cancel">Cancel</button><button class="btn primary" data-act="confirm">Confirm</button></div></div>';
+}
+function confirmPending(){
+  if(!pending) return; var pd=pending; pending=null; snap();
+  var p=ensurePlan(S.league);
+  if(pd.kind==="risk"){
+    p.risk=pd.a.to; p.until=pd.a.until; p.alt=(pd.a.to==="all_in" && LEAGUES[S.league].risk!=="all_in");
+    S.deck[S.league]=0; S.skips[S.league]=[]; delete S.chosen[S.league]; S._cardIn=true; flashP="next";
+    log("set_risk_mode","Confirmed by you: "+MODES[pd.a.to]+(pd.a.until?" until wk "+pd.a.until:""));
+    say("c","Done: "+MODES[pd.a.to]+(pd.a.until?" until week "+pd.a.until:"")+". The next move changed. Say \"undo\" to go back.","set_risk_mode");
+  } else {
+    p.extra.push({l:"Get "+pd.tgt.n+" ("+pd.tgt.pos+") from Team "+pd.tgt.owner,p:pd.tgt.reach,after:L().now+pd.tgt.gain*0.3,st:"waiting",by:"coach"});
+    if(pd.removeIdx>=0) p.removed.push(pd.removeIdx);
+    flashP="stops"; log("add_stop","Confirmed by you: +"+pd.tgt.n+(pd.removeIdx>=0?", dropped a WR stop":""));
+    say("c","Added "+pd.tgt.n+" as stop 2. Say \"undo\" to take it off.","add_stop");
+  }
+  render(); afterRender();
+}
+function cancelPending(){ if(!pending) return; pending=null; log("cancel","You cancelled; plan unchanged"); say("c","Cancelled. Nothing changed.","cancel"); render(); }
+
+/* ================= next-move deck ================= */
+function skip(fromEl,viaCoach){
+  var ms=movesOf(S.league), i=deckIdx();
+  if(i>=ms.length){ if(viaCoach){ say("c","That was the last of the 5. Say \"undo\" to go back one.","deck_next"); render(); } return; }
+  var card=document.getElementById("movecard");
+  var go=function(){
+    snap(); var k=S.league; S.skips[k]=(S.skips[k]||[]).concat([i]); S.deck[k]=i+1; delete S.chosen[k]; S.reply[k]=null; S._cardIn=true;
+    var skipped=ms[i]; log("deck_next","Skipped "+skipped.partner+" ("+skipped.get.join(" + ")+")"+(viaCoach?" via Coach":""));
+    if(viaCoach) say("c","Skipped. Showing move "+Math.min(i+2,ms.length)+" of "+ms.length+".","deck_next");
+    render(); showSkipReasons(skipped); afterRender();
+  };
+  if(card && isBig("next")){ card.classList.add("out-left"); setTimeout(go,200); } else go();
+}
+function showSkipReasons(m){
+  var row=document.getElementById("skipWhy"); if(!row) return;
+  row.innerHTML='<span class="grey">Why skip? (optional)</span>'+["Don't like the player","Costs too much","Don't trust this manager","Not now"].map(function(x){ return '<button data-act="skipreason" data-v="'+esc(x)+'" data-m="'+esc(m.partner+" / "+m.get.join(" + "))+'">'+x+'</button>'; }).join("");
+  row.classList.remove("fade"); clearTimeout(reasonTimer);
+  reasonTimer=setTimeout(function(){ var r=document.getElementById("skipWhy"); if(r) r.classList.add("fade"); },5000);
+}
+function back(){
+  var k=S.league, sk=S.skips[k]||[]; if(!sk.length) return;
+  snap(); var prev=sk[sk.length-1]; S.skips[k]=sk.slice(0,-1); S.deck[k]=prev; S._cardIn=true;
+  log("deck_back","Back to move "+(prev+1)); render();
+}
+function doIt(){
+  var card=document.getElementById("movecard"), k=S.league, i=deckIdx(), m=curMove();
+  var go=function(){ snap(); S.chosen[k]=i; S._cardIn=true; log("do_it","Picked "+m.partner+" ("+m.get.join(" + ")+"). You send it in ESPN.");
+    render(); toast("Picked. Copy the message, then send it yourself in ESPN."); };
+  if(card && isBig("next")){ card.classList.add("out-right"); setTimeout(go,200); } else go();
+}
+function bindSwipe(){
+  var card=document.getElementById("movecard"); if(!card) return;
+  var x0=null,y0=null,dx=0;
+  card.addEventListener("touchstart",function(e){ x0=e.touches[0].clientX; y0=e.touches[0].clientY; dx=0; e.stopPropagation(); },{passive:true});
+  card.addEventListener("touchmove",function(e){ if(x0==null) return; dx=e.touches[0].clientX-x0; var dy=e.touches[0].clientY-y0;
+    if(Math.abs(dx)>Math.abs(dy)){ card.style.transition="none"; card.style.transform="translateX("+dx+"px) rotate("+(dx/40)+"deg)"; } e.stopPropagation(); },{passive:true});
+  card.addEventListener("touchend",function(e){ card.style.transition=""; card.style.transform=""; e.stopPropagation();
+    if(dx<-70) skip(); else if(dx>70) doIt(); x0=null; });
+}
+
+/* ================= events ================= */
+var toastEl=document.getElementById("toast");
+function toast(s){ toastEl.textContent=s; toastEl.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(function(){ toastEl.classList.remove("on"); },2200); }
+function afterRender(){
+  if(isPhone()){
+    if(S._goto){ gotoPanel(S._goto); }
+    var coach=document.getElementById("coach");
+    if(!pending) coach.classList.remove("open"); else coach.classList.add("open");
+  }
+  S._goto=null;
+}
+function gotoPanel(p){
+  var deck=document.getElementById("deck"), el=document.querySelector('.panel[data-p="'+p+'"]');
+  if(el && isPhone()) deck.scrollTo({left:el.offsetLeft-deck.offsetLeft, behavior:"smooth"});
+}
+
+document.addEventListener("click",function(e){
+  var b=e.target.closest("[data-act],[data-say]"); if(!b) return;
+  if(b.hasAttribute("data-say")){ run(b.getAttribute("data-say")); return; }
+  var act=b.getAttribute("data-act"), v=b.getAttribute("data-v"), p=b.getAttribute("data-p");
+  switch(act){
+    case "league": S.league=+b.getAttribute("data-l"); S.page={}; render(); break;
+    case "expand": S.swap=p; S.bigPanel = S.bigPanel===p ? null : S.bigPanel; log("expand",PANEL_NAMES[p]+" into the big slot (Esc restores)"); render(); break;
+    case "restore": S.swap=null; render(); break;
+    case "pg": S.page[p]=(S.page[p]||0)+(+b.getAttribute("data-d")); render(); break;
+    case "theme": var dark=document.documentElement.getAttribute("data-theme")==="dark"; document.documentElement.setAttribute("data-theme",dark?"light":"dark"); render(); break;
+    case "risk": var nx={safe:"balanced",balanced:"all_in",all_in:"safe"}[planOf(S.league).risk]; openCoach(); apply({type:"set_risk_mode",to:nx,until:null},""); break;
+    case "copy":
+      var txt=(document.getElementById("msgText")||{}).textContent || curMove().msg;
+      if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){ toast("Copied. Paste it to "+curMove().partner+" in ESPN."); },function(){ toast("Copy blocked here. Select the text instead."); });
+      else toast("Copy blocked here. Select the text instead.");
+      log("copy","Message copied (you send it)"); break;
+    case "skip": skip(); break;
+    case "back": back(); break;
+    case "deckreset": snap(); S.deck[S.league]=0; S.skips[S.league]=[]; render(); break;
+    case "doit": doIt(); break;
+    case "skipreason": log("skip_reason","\""+v+"\" on "+b.getAttribute("data-m")+" (teaches the brain what you like)"); var r=document.getElementById("skipWhy"); if(r){ r.innerHTML='<span class="grey">Got it: "'+esc(v)+'". Noted for the brain.</span>'; setTimeout(function(){ var q=document.getElementById("skipWhy"); if(q) q.classList.add("fade"); },1500); } break;
+    case "reply": S.reply[S.league] = S.reply[S.league]===b.getAttribute("data-r") ? null : b.getAttribute("data-r"); render(); break;
+    case "declreason": log("decline_reason","\""+v+"\" logged for "+curMove().partner); toast("Logged: "+v+". The planner re-ranks the deck."); S.reply[S.league]=null; render(); break;
+    case "clearfilter": snap(); S.filter=null; log("filter","Filter cleared (you)"); render(); break;
+    case "pin": run("pin "+v); break;
+    case "unpin": snap(); S.pins=S.pins.filter(function(x){ return x!==v; }); log("unpin","Unpinned "+v); render(); break;
+    case "uncard": snap(); S.cards=S.cards.filter(function(c){ return c.id!==v; }); log("remove_card","Removed a Coach card"); render(); break;
+    case "approve": snap(); ensurePlan(S.league).approved=v; log("approve","Approved target "+v+" (planner re-routes)"); toast("Approved "+v+". The planner re-routes (preview)."); render(); break;
+    case "say": openCoach(); var inp=document.getElementById("askIn"); inp.value=v; inp.focus(); break;
+    case "confirm": confirmPending(); break;
+    case "cancel": cancelPending(); break;
+    case "goto": gotoPanel(p); break;
+  }
+});
+function openCoach(){ document.getElementById("coach").classList.add("open"); }
+document.getElementById("coachHead").addEventListener("click",function(){ if(isPhone()) document.getElementById("coach").classList.toggle("open"); });
+document.getElementById("ask").addEventListener("submit",function(e){ e.preventDefault(); var i=document.getElementById("askIn"); var v=i.value; i.value=""; run(v); });
+document.addEventListener("keydown",function(e){
+  var typing=/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||"");
+  if(e.key==="Escape"){ if(pending){ cancelPending(); return; } if(S.swap){ S.swap=null; log("restore","Esc: next move back in the big slot"); render(); } if(typing) document.activeElement.blur(); return; }
+  if(typing) return;
+  if(e.key==="ArrowLeft"){ e.preventDefault(); skip(); }
+  if(e.key==="ArrowRight"){ e.preventDefault(); doIt(); }
+});
+document.getElementById("deck").addEventListener("scroll",function(){
+  var d=this, w=d.clientWidth||1, i=Math.round(d.scrollLeft/(w+8));
+  if(i!==S._deckPos){ S._deckPos=i; renderDots(); }
+},{passive:true});
+var wasPhone=isPhone();
+window.addEventListener("resize",function(){ if(isPhone()!==wasPhone){ wasPhone=isPhone(); render(); } });
+
+/* initial theme from the system; the toggle overrides */
+try{ document.documentElement.setAttribute("data-theme", window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }catch(err){}
+render();
+say("c","I run this screen. Ask me to show, filter, pin, add a card, resize, or change the plan. Plan changes always show a trade-off first. I never send offers.","hello");
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+---
+name: gridiron-efficiency-half-paragraph-2026-09-20
+description: The model evidence audit's verbatim morning-message paragraph on the efficiency-half advanced-stats arm, recommendation yes after the shrinkage promotion, needs Nick's word.
+metadata:
+  type: project
+---
+
+Audit 02:46Z, verbatim, for morning item 4. Needs Nick's word; not built tonight. Rec: yes, after the shrinkage promotion lands.
+
+"The volume half of the projection is settled tonight — promote the fit and it beats every simple baseline. The efficiency half is the other half of the same number, and it is the one place left where a new model has a real reason to work. Today a player's yards per target, catch rate and touchdown rate are his own past rates pulled toward the positional average, with the pull strength hand-set. That is not laziness: the fitted alternative was tried and made things worse, and the code says why — a player is not a stable group for efficiency within a season. But that reason is also the argument. If his own history is a weak read on his efficiency, that is exactly when an outside signal earns a place: how far downfield he is targeted, his share of the team's air yards, completion percentage over expected, and the two conversion ratios. All five are already columns on the same table the projection reads; nothing new has to be collected. What it would take is one head fitted on seasons before the one it is graded on, scored the same way everything else here is — held-out seasons, a bootstrap clustered by player — and shipped only if the 90% interval excludes zero, under the five-condition gate the volume promotion already uses. The honest prior is that this is harder than volume and the win will be smaller; touchdown rate in particular may be unbeatable. The cost is one build and one grade, no new data. My recommendation is yes, after the shrinkage promotion lands, because that moves the baseline it would be graded against. It is a build, not a defect — nothing is broken if we never do it."

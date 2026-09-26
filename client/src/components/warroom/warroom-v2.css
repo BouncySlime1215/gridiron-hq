@@ -276,6 +276,8 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-tcard-nums b { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 .wr-tcard-nums .wr-unk, .wr-fcard-nums .wr-unk { font: 500 13px/1.4 var(--f-text); letter-spacing: 0; }
 .wr-tcard-f { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; min-width: 0; margin-top: auto; }
+/* AJ-PICK: the "Allow A.J. for him" toggle, its own row under the card's footer. */
+.wr-tcard-aj { display: flex; min-width: 0; }
 .wr-paths { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .wr-path { text-align: left; padding: 16px; }
 .wr-path-h { display: block; font-size: 14px; margin-bottom: 14px; }
@@ -410,6 +412,9 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-action-btns .wr-btn-lg { padding: 6px 12px; font-size: 13px; }
 .wr-action-ok { margin: 0; font-size: 13px; font-weight: 600; color: var(--c-green); }
 .wr-action-err { margin: 0; font-size: 13px; color: var(--c-red); }
+.wr-lanes { margin-top: 6px; }
+.wr-lanes-dis { margin: 6px 0 0; padding: 8px 12px; border-radius: var(--r-badge); background: var(--c-amber-tint); color: var(--c-ink); font-size: 13px; overflow-wrap: anywhere; }
+.wr-lanes .wr-srcs-list ul { margin: 2px 0 8px; padding-left: 16px; }
 .wr-drawer-spend { margin: 0; padding: 0 16px 10px; font-size: 12px; color: var(--c-muted); }
 .wr-drawer-more > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--c-muted); }
 .wr-drawer .card { background: var(--c-soft); color: var(--c-ink); border: 0; border-radius: var(--r-tile); padding: 12px 14px; box-shadow: none; }
@@ -547,6 +552,7 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
   .wr-tcard-main .wr-av { width: 40px !important; height: 40px !important; }
   .wr-tcard-f { grid-area: act; margin: 0; }
   .wr-tcard-f > .wr-muted { display: none; }
+  .wr-tcard-aj { grid-column: 1 / -1; padding-left: 52px; }
   .wr-tcard-nums { grid-area: nums; display: flex; gap: 16px; padding-left: 52px; }
   .wr-tcard-nums > span { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   .wr-tcard-nums b { font-size: 15px; }

@@ -6,8 +6,13 @@
  *
  * Rules (ids are test/fixtures/rule-fuzz-league.mjs's):
  *   never_give     Nico Collins (160) and Chase Brown (80) are never in a give.
- *   aj_brown       A.J. Brown (277) is given only in a step whose get holds a Blue chip (83+) who is a
- *                  consistent weekly scorer now (scoreOf(id).consistent).
+ *   aj_brown       AJ-PICK (Nick 2026-09-25): A.J. Brown (277) is given only in a step whose get holds a
+ *                  player on Nick's aj.allow list (opts.ajAllow) who is a Blue chip (83+) now.
+ *   aj_needs_ok    AJ-PICK: a card that gives 277 carries requires_nick_confirm (deck[j].aj); one Nick has
+ *                  not OK'd sits after every other deck card and is never the next move (best), a backup, a
+ *                  risk-mode pick or a catch-up deal. OK'd = the whole path is in opts.ajConfirmedPaths
+ *                  (pathKey of the card the test confirmed: Nick OKs one exact card, not a step); a lone
+ *                  step (backup, risk-mode pick, catch-up deal) is OK'd only as a step of such a path.
  *   final_get      every player a plan leaves Nick holding that he did not start with scores 83+; a
  *                  flip's leg-2 players and every suggested target are final gets too.
  *   overpay        market value given <= value got, except CAP-1C: exactly 2 for 1, neither given
@@ -56,7 +61,7 @@
  */
 import { NICO_COLLINS, CHASE_BROWN, AJ_BROWN, OLAVE_ID, BLUE_CHIP } from './rule-fuzz-league.mjs';
 
-export const RULES = Object.freeze(['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
+export const RULES = Object.freeze(['never_give', 'aj_brown', 'aj_needs_ok', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
   'claim_not_flipped', 'claim_protected_drop', 'claim_stranded',
   'stranded_hold', 'step_regret']);
 export const DEPTH_PREMIUM = 0.12;
@@ -181,15 +186,27 @@ function tradesWith(ledger, me, team) {
   })).filter(t => t.sent.size && t.got.size);
 }
 
-/** Every rule break in one planner result: [{ rule, surface, detail }]. */
-export function ruleViolations(adapter, res) {
+/** A step's 'team|give|get' key, ids sorted (the oracle's own, not the planner's). */
+export const stepKey = st => `${st.team ?? st.partner}|${[...st.give].map(S).sort().join('+')}|${[...st.get].map(S).sort().join('+')}`;
+/** A whole path's key: its steps' keys in order. */
+export const pathKey = steps => steps.map(stepKey).join('>');
+
+/**
+ * Every rule break in one planner result: [{ rule, surface, detail }].
+ * opts: { ajAllow: Set<id> (Nick's picks for A.J. Brown), ajConfirmedPaths: Set<pathKey> (the cards he OK'd) }.
+ */
+export function ruleViolations(adapter, res, { ajAllow = new Set(), ajConfirmedPaths = new Set() } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const player = id => P.get(Number(id)) ?? P.get(id);
   const val = id => Math.max(0, Number(player(id)?.value) || 0);
   const score = id => Number(adapter.scoreOf(id)?.score);
   const blue = id => score(id) >= BLUE_CHIP;
-  const consistent = id => !!adapter.scoreOf(id)?.consistent;
+  const picked = id => ajAllow.has(S(id));
+  const givesAj = st => (st?.give ?? []).map(S).includes(S(AJ_BROWN));
+  const okdSteps = new Set([...ajConfirmedPaths].flatMap(k => k.split('>')));
+  const okd = st => !givesAj(st) || okdSteps.has(stepKey(st));
+  const okdPath = steps => !steps.some(givesAj) || ajConfirmedPaths.has(pathKey(steps));
   const isOlave = id => S(id) === S(OLAVE_ID) || player(id)?.name === 'Chris Olave';
   const pinned = new Set([NICO_COLLINS, CHASE_BROWN, AJ_BROWN].map(S));
   const sold = soldThisSeason(adapter.tradeLedger, me);
@@ -209,7 +226,7 @@ export function ruleViolations(adapter, res) {
     const give = o.give.map(S), get = o.get.map(S);
     const tag = `${give.join('+')} for ${get.join('+')} (team ${o.team})`;
     if (give.includes(S(NICO_COLLINS)) || give.includes(S(CHASE_BROWN))) bad('never_give', o.surface, tag);
-    if (give.includes(S(AJ_BROWN)) && !get.some(id => blue(id) && consistent(id))) bad('aj_brown', o.surface, tag);
+    if (give.includes(S(AJ_BROWN)) && !get.some(id => blue(id) && picked(id))) bad('aj_brown', o.surface, tag);
     const gv = sum(give), tv = sum(get);
     if (gv > tv * (1 + EPS)) {
       const pct = tv > 0 ? gv / tv - 1 : Infinity;
@@ -224,6 +241,22 @@ export function ruleViolations(adapter, res) {
     if (back.length) bad('no_buyback', o.surface, `${tag} buys back ${back.join('+')}`);
     const undo = tradesWith(adapter.tradeLedger, me, o.team).find(t => get.some(id => t.sent.has(id)) && give.some(id => t.got.has(id)));
     if (undo) bad('no_undo', o.surface, `${tag} undoes a trade with team ${o.team}`);
+  }
+  // AJ-PICK: cards that give 277 say so; one not OK'd is never served as the move to make.
+  if (res.best && !okdPath(res.best.steps)) bad('aj_needs_ok', 'best', `${pathKey(res.best.steps)} not OK'd`);
+  for (const [i, b] of (res.backups ?? []).entries()) if (b?.step && !okd(b.step)) bad('aj_needs_ok', `backup[${i}]`, stepKey(b.step));
+  for (const m of res.risk_modes ?? []) if (m.first_step && !okd(m.first_step)) bad('aj_needs_ok', `risk_modes.${m.mode}`, stepKey(m.first_step));
+  for (const [i, it] of (res.catch_up ?? []).entries()) { const d = dealOfKey(it?.plan_key); if (d && !okd(d)) bad('aj_needs_ok', `catch_up[${i}]`, it.plan_key); }
+  let waitingSeen = false;
+  for (const [j, c] of (res.deck ?? []).entries()) {
+    if (!c.plan) continue;
+    const aj = c.plan.steps.some(givesAj);
+    if (aj && !c.aj?.requires_nick_confirm) bad('aj_needs_ok', `deck[${j}]`, 'gives 277 without requires_nick_confirm');
+    const waiting = aj && !okdPath(c.plan.steps);
+    if (aj && !waiting && c.aj && !c.aj.nick_confirmed) bad('aj_needs_ok', `deck[${j}]`, 'OK\'d card still marked waiting');
+    if (waiting && c.aj?.nick_confirmed) bad('aj_needs_ok', `deck[${j}]`, 'marked confirmed but not OK\'d');
+    if (waiting) waitingSeen = true;
+    else if (waitingSeen) bad('aj_needs_ok', `deck[${j}]`, 'a served card after a card waiting on Nick\'s OK');
   }
   const start = adapter.rosters.get(me);
   for (const [name, p] of plans) for (const id of finalGets(p, start)) if (!blue(id)) bad('final_get', name, `${id} scores ${score(id)}`);

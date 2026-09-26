@@ -78,8 +78,16 @@ export const SENT_AS = Object.freeze(['opening', 'card', 'walk_away']);
 
 export const REQUEST_KINDS = Object.freeze([
   'objective.set', 'target.approve', 'offer.sent', 'offer.reply', 'deck.skip',
-  'mode.set', 'tolerance.set', 'stop.add', 'stop.remove', 'retract'
+  'mode.set', 'tolerance.set', 'stop.add', 'stop.remove', 'retract',
+  'aj.allow', 'aj.revoke', 'aj.confirm'
 ]);
+
+/**
+ * AJ-PICK (campaign/aj-pick.js): who Nick would take for A.J. Brown, and his OK on one exact card.
+ * Only Nick writes these: Coach may explain an A.J. card but never pick for him or confirm one,
+ * not even with confirmed = 1.
+ */
+export const NICK_ONLY_REQUESTS = Object.freeze(['aj.allow', 'aj.revoke', 'aj.confirm']);
 
 /** Requests that change the plan. When Coach proposed them, the row must say Nick confirmed. */
 export const PLAN_REQUESTS = Object.freeze([
@@ -213,8 +221,18 @@ const REQUEST_RULES = {
   'tolerance.set': p => ({ key: p.key, value: toleranceValue(p.key, p.value) }),
   'stop.add': p => ({ stop: stopFrom(p.stop) }),
   'stop.remove': p => ({ stop_id: id(p.stop_id, 'stop_id') }),
-  retract: p => ({ request_id: int(p.request_id, 'request_id', 1, Number.MAX_SAFE_INTEGER) })
+  retract: p => ({ request_id: int(p.request_id, 'request_id', 1, Number.MAX_SAFE_INTEGER) }),
+  'aj.allow': p => ({ player_id: ajPick(p.player_id) }),
+  'aj.revoke': p => ({ player_id: ajPick(p.player_id) }),
+  'aj.confirm': p => ({ move_id: id(p.move_id, 'move_id') })
 };
+
+/** The player Nick would take for A.J. Brown: any player id but A.J. himself. */
+function ajPick(value) {
+  const pid = id(value, 'player_id');
+  if (pid === '277') fail('player_id is A.J. Brown himself');
+  return pid;
+}
 
 /**
  * Validate one request.
@@ -224,6 +242,9 @@ export function validateRequest(kind, payload, { source = 'nick', confirmed = fa
   if (!REQUEST_KINDS.includes(kind)) return { ok: false, error: `unknown request kind ${JSON.stringify(kind)}` };
   if (!plain(payload ?? {})) return { ok: false, error: 'payload must be an object' };
   if (!['nick', 'coach'].includes(source)) return { ok: false, error: 'source must be nick or coach' };
+  if (source !== 'nick' && NICK_ONLY_REQUESTS.includes(kind)) {
+    return { ok: false, error: 'only Nick picks who A.J. Brown may be traded for, and only Nick can OK that card' };
+  }
   if (source === 'coach' && PLAN_REQUESTS.includes(kind) && confirmed !== true) {
     return { ok: false, error: 'a plan change Coach proposed is recorded only after Nick taps Confirm' };
   }

@@ -13,6 +13,7 @@ import { isGuess } from './heroStatus';
 import Icon, { EmptyState } from './icons';
 import BlueChipBoard from './BlueChipBoard';
 import ChanceStat from './ChanceStat';
+import { AjAllowToggle, ajOnMyRoster, boardScore, BLUE_CHIP, type AjPicks } from './AjPick';
 
 const FIT: Record<string, string> = { fits: 'fits your mode', needs_all_in: 'needs all-in', too_risky_for_safe: 'too risky for safe' };
 
@@ -28,13 +29,15 @@ export function pathsTo(moves: Move[], player: string): Move[] {
  * plan's stops sit under it. Approve writes one target.approve request, as the classic
  * Targets panel does; nothing else is written here.
  */
-export default function ScreenGoGet({ view, leagueId, current, onRequest, someoneElse, compact = false }: {
+export default function ScreenGoGet({ view, leagueId, current, onRequest, someoneElse, compact = false, aj = null }: {
   view: WarRoomView; leagueId: number; current: CurrentMove | null;
   onRequest?: (req: WarRoomRequest) => Promise<unknown>;
   /** Trades → Go get: "Someone else?" (a name search) closes the target list. */
   someoneElse?: ReactNode;
   /** Trades → Go get: one plan shown (the rest behind Show more) and the offer folded until a plan is picked. */
   compact?: boolean;
+  /** AJ-PICK (Trades): Nick's picks for A.J. Brown; a Blue chip target card gets the "Allow A.J. for him" toggle. */
+  aj?: AjPicks | null;
 }) {
   const n = namer(view.names);
   const field = view.targets;
@@ -53,6 +56,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest, someon
   const [pathId, setPathId] = useState<string | null>(null);
   const path = paths.find(m => m.move_id === pathId) ?? paths[0] ?? null;
   const selTarget = targets.find(t => t.player === sel) ?? null;
+  const ajToggleFor = (player: string) => !!aj?.enabled && ajOnMyRoster(view) && (boardScore(view, player) ?? -1) >= BLUE_CHIP;
 
   // The sections under the fold (composer, blue chips, stops) render one task later, so the
   // switch to this screen paints the targets and paths in one short frame.
@@ -97,7 +101,8 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest, someon
                   <TargetCard key={t.player} t={t} name={n.one(t.player).name} on={t.player === sel}
                     onPick={() => { setPicked(t.player); setPathId(null); }}
                     state={t.is_plan_target ? 'plan' : t.approved || asked[t.player] === 'saved' ? 'approved' : asked[t.player] === 'saving' ? 'saving' : null}
-                    onApprove={onRequest ? () => approve(t.player) : undefined} />
+                    onApprove={onRequest ? () => approve(t.player) : undefined}
+                    aj={aj && ajToggleFor(t.player) ? <AjAllowToggle player={t.player} name={n.one(t.player).name} picks={aj} /> : null} />
                 ))}
               </div>
               {shownTargets.length < targets.length && (
@@ -235,9 +240,10 @@ export function BuyLowChip({ b }: { b: BuyLow }) {
   );
 }
 
-function TargetCard({ t, name, on, onPick, state, onApprove }: {
+function TargetCard({ t, name, on, onPick, state, onApprove, aj = null }: {
   t: Target; name: string; on: boolean; onPick: () => void;
   state: 'plan' | 'approved' | 'saving' | null; onApprove?: () => void;
+  aj?: ReactNode;
 }) {
   return (
     <div className={`wr-tcard${on ? ' wr-on' : ''}`} role="option" aria-selected={on} data-target-player={t.player}
@@ -262,6 +268,7 @@ function TargetCard({ t, name, on, onPick, state, onApprove }: {
               title={!onApprove ? 'Approving is not wired on this page' : 'The next planner run plans toward him'}
               onClick={onApprove}>{state === 'saving' ? 'Saving…' : 'Approve'}</button>}
       </div>
+      {aj && <div className="wr-tcard-aj">{aj}</div>}
     </div>
   );
 }

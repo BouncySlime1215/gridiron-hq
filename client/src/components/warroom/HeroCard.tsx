@@ -42,6 +42,7 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
   const n = namer(view.names);
   const s = move.steps[0];
   const partner = teamLabel(s.partner);
+  const clock = view.reply_clock?.[String(s.partner)] ?? null;
   const status = heroStatus(s);
   const titleNow = isOk(view.destination) ? view.destination.value.title_now : undefined;
   const noise = isOk(s.title_odds_delta) && s.title_odds_delta.clears_2se === false;
@@ -59,6 +60,7 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
         <div className="wr-hero-partner">
           <span className="wr-k">Send to</span>
           <h2 className="wr-hero-who">{partner}</h2>
+          {clock && <p className="wr-sub" data-testid="hero-send-when" data-guess={clock.guess ? '1' : '0'}>{clock.text}</p>}
         </div>
         <span className={`wr-status wr-status-${status.tone}`} data-testid="hero-status" data-tone={status.tone}
           title={status.reasons.length ? `Why not yet: ${status.reasons.join('; ')}` : 'Nothing shown is a guess and the gain clears 2 SE.'}>

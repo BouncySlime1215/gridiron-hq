@@ -203,3 +203,134 @@ export function loadReplyLatency(database, { leagueId = null, season = null, now
   ];
   return { table, grade, pending: followUpHints(pending, table, { now, grade }), sources: built.sources, reason: built.reason };
 }
+
+/*
+ * REPLY-CLOCK: when to send a league-mate an offer. Extends the table above
+ * (same pairing, same reply hours, same MIN_N); nothing here is a P(yes)
+ * input either.
+ *
+ * Per receiving manager (never Nick's own team): the median reply hours, the
+ * reply rate (answered / (answered + expired + unanswered); an offer Nick
+ * withdrew is his act, not theirs, so it is left out of the rate), and the best
+ * send window: the answered offers' SEND times grouped by US Eastern weekday x
+ * part of day (night 0-6, morning 6-12, afternoon 12-18, evening 18-24); the
+ * window with the most answers wins, ties to the faster median, then the
+ * earlier week slot. `guess` is true below MIN_N answers or when the window
+ * rests on one answer; the text then ends "(guess)". With no answers at all
+ * the text says so and names no window.
+ *
+ * Flag GRIDIRON_REPLY_CLOCK: unset/0 off; 'shadow' computed and served only on
+ * GET /api/reply-latency/clock (marked shadow, drawn nowhere); '1' also drawn
+ * as one "send when" line on War Room trade cards and in the Numbers & People
+ * people lane. Served plan numbers never change: the line rides beside them.
+ */
+export const REPLY_CLOCK_FLAG = 'GRIDIRON_REPLY_CLOCK';
+export const CLOCK_TZ = 'America/New_York';
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const PARTS = [['night', 0], ['morning', 6], ['afternoon', 12], ['evening', 18]];
+
+/** 'off' | 'shadow' | 'on'. */
+export function replyClockMode(env = process.env) {
+  const v = env[REPLY_CLOCK_FLAG];
+  return v === '1' ? 'on' : v === 'shadow' ? 'shadow' : 'off';
+}
+
+const slotFmt = new Intl.DateTimeFormat('en-US', { timeZone: CLOCK_TZ, weekday: 'short', hour: 'numeric', hourCycle: 'h23' });
+/** The US Eastern send slot of a timestamp, or null. */
+export function sendSlot(iso) {
+  const ms = t(iso);
+  if (!Number.isFinite(ms)) return null;
+  const p = Object.fromEntries(slotFmt.formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  const dow = DAYS.indexOf(p.weekday);
+  const hour = Number(p.hour) % 24;
+  const pi = PARTS.reduce((k, [, from], i) => (hour >= from ? i : k), 0);
+  return { day: DAYS[dow], part: PARTS[pi][0], key: dow * 4 + pi };
+}
+
+/** "within the hour", "~3 h", "~2 days". */
+export function hoursText(h) {
+  if (h == null) return null;
+  if (h < 1) return 'within the hour';
+  if (h < 36) return `within ~${Math.round(h)}\u00a0h`; // no break between the number and its unit
+  return `within ~${Math.round(h / 24)}\u00a0days`;
+}
+
+function clockRow(hoursWithSlots, silent) {
+  const hours = hoursWithSlots.map(x => x.h);
+  const n = hours.length;
+  const noReply = silent.expired + silent.unanswered;
+  const asked = n + noReply;
+  const median = quantile(hours, 0.5);
+  const cells = new Map();
+  for (const x of hoursWithSlots) {
+    if (!x.slot) continue;
+    const c = cells.get(x.slot.key) ?? cells.set(x.slot.key, { ...x.slot, hours: [] }).get(x.slot.key);
+    c.hours.push(x.h);
+  }
+  const best = [...cells.values()].map(c => ({ ...c, n: c.hours.length, median_h: quantile(c.hours, 0.5) }))
+    .sort((a, b) => b.n - a.n || a.median_h - b.median_h || a.key - b.key)[0] ?? null;
+  const window = best ? { day: best.day, part: best.part, n: best.n, median_h: round(best.median_h) } : null;
+  const guess = n < MIN_N || (window?.n ?? 0) < 2;
+  const rate = asked ? `answers ${n} of ${asked}` : null;
+  const text = !n
+    ? (noReply ? `Send when: no reply times yet (0 of ${noReply} ${noReply === 1 ? 'offer' : 'offers'} answered)` : 'Send when: no offers to time yet')
+    : `Best time to send: ${window ? `${window.day} ${window.part}` : 'any time'} (replies ${hoursText(median)})${rate ? ` · ${rate}` : ''}${guess ? ' (guess)' : ''}`;
+  return {
+    n_answered: n, n_no_reply: noReply, n_withdrawn: silent.withdrawn,
+    median_h: round(median), reply_rate: asked ? round(n / asked, 3) : null, window, guess, text,
+  };
+}
+
+/**
+ * The clock: per league, one row per receiving manager except `me` (a map
+ * league id -> Nick's team id). `offers` and `silent` are decided-offers.js output.
+ */
+export function replyClock({ offers = [], silent = [] } = {}, { me = {} } = {}) {
+  const leagues = new Map();
+  const mgr = (lid, team) => {
+    if (team == null || String(me[String(lid)] ?? '') === String(team)) return null;
+    const L = leagues.get(String(lid)) ?? leagues.set(String(lid), new Map()).get(String(lid));
+    return L.get(String(team)) ?? L.set(String(team), { answered: [], silent: { expired: 0, withdrawn: 0, unanswered: 0 } }).get(String(team));
+  };
+  for (const o of offers) {
+    const h = replyHours(o);
+    const M = h == null ? null : mgr(o.league_id, o.counterparty_team_id);
+    if (M) M.answered.push({ h, slot: sendSlot(o.sent_at ?? o.proposed_at) });
+  }
+  for (const s of silent) {
+    const M = mgr(s.league_id, s.counterparty_team_id);
+    if (M && s.excluded in M.silent) M.silent[s.excluded] += 1;
+  }
+  const out = {};
+  for (const [lid, L] of [...leagues].sort(([a], [b]) => Number(a) - Number(b))) {
+    out[lid] = {};
+    for (const [team, M] of [...L].sort(([a], [b]) => Number(a) - Number(b))) out[lid][team] = clockRow(M.answered, M.silent);
+  }
+  return { leagues: out, min_n: MIN_N, tz: CLOCK_TZ, p_yes_input: false };
+}
+
+/** Read the db: the clock for one league (or all), Nick's team left out. */
+export function loadReplyClock(database, { leagueId = null, season = null } = {}) {
+  const built = loadDecidedOffers(database, { season });
+  const inLeague = x => leagueId == null || String(x.league_id) === String(leagueId);
+  const me = Object.fromEntries(database.prepare('SELECT id, my_team_id FROM leagues').all()
+    .filter(r => r.my_team_id != null).map(r => [String(r.id), String(r.my_team_id)]));
+  const clock = replyClock({ offers: built.offers.filter(inLeague), silent: (built.silent ?? []).filter(inLeague) }, { me });
+  return { ...clock, sources: built.sources, reason: built.reason };
+}
+
+/**
+ * The "send when" lines for one league, keyed by team id, ready to draw; null
+ * unless the flag is '1' (so off and shadow change no served payload). Never
+ * throws: a failed read draws nothing.
+ */
+export function sendWhenLines(database, leagueId, env = process.env) {
+  if (replyClockMode(env) !== 'on' || leagueId == null) return null;
+  try {
+    const rows = loadReplyClock(database, { leagueId }).leagues[String(leagueId)] ?? {};
+    return Object.fromEntries(Object.entries(rows).map(([team, r]) => [team, { text: r.text, guess: r.guess, n: r.n_answered }]));
+  } catch (e) {
+    console.warn(`[reply-clock] league ${leagueId}: ${String(e?.message ?? e).slice(0, 200)}`);
+    return null;
+  }
+}

@@ -320,6 +320,12 @@ export async function warRoomView(leagueId) {
     const live = await liveNumberHealth(leagueId);
     if (live.status === 'ok') view.number_health = finalize({ x: live }, flag).x;
   }
+  // REPLY-CLOCK (flag '1' only): one "send when" line per league-mate, beside the plan, never in it.
+  if (process.env.GRIDIRON_REPLY_CLOCK === '1' && view.enabled !== false) {
+    const [{ db }, { sendWhenLines }] = await Promise.all([import('../db/index.js'), import('./eval/reply-latency.js')]);
+    const lines = sendWhenLines(db, leagueId);
+    if (lines) view.reply_clock = lines;
+  }
   // FP-GUARD: the blue-chip board's FantasyPros ranks and its `fp` sync block stay on the server.
   return stripFantasyPros(view, { also: ['fp'] });
 }

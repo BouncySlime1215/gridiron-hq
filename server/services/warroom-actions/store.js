@@ -112,6 +112,14 @@ export function recordRequest({ userId, leagueId, kind, payload, source = 'nick'
     }
   }
   const stored = { ...checked.payload };
+  if (checked.kind === 'aj.confirm') {
+    // AJ-PICK: Nick's OK names one exact card in the current plans that gives A.J. Brown.
+    const legs = [0, 1, 2, 3].map(i => findCard(plans?.entries, leagueId, stored.move_id, i)).filter(Boolean);
+    if (!legs.some(c => c.give.includes('277'))) {
+      throw new WarRoomInputError('that card is not in the current plans or does not give A.J. Brown, so there is nothing to OK');
+    }
+    stored.card = legs.map(cardSummary);
+  }
   const card = checked.kind === 'offer.sent' || checked.kind === 'deck.skip'
     ? findCard(plans?.entries, leagueId, stored.move_id, stored.step_index ?? 0) : null;
   if (checked.kind === 'offer.sent' || checked.kind === 'deck.skip') stored.card = cardSummary(card);

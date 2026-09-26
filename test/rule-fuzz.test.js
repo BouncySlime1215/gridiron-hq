@@ -358,9 +358,11 @@ test('gate fuzz: 6,000 random offers, every mode; the tolerance gate never keeps
   assert.ok(kept > 1000, `only ${kept} offers passed the gate: the property was barely exercised`);
 });
 
-test('gate fuzz (U4): 277 is never given unless a get passes consistent() on the same data; today never', async () => {
+// AJ-PICK (Nick 2026-09-25) supersedes the consistent() route: the reader (#483) stays unwired and can no longer
+// open 277 on its own; only a Blue chip on Nick's aj.allow list can (and each such card needs his OK).
+test('gate fuzz (U4 + AJ-PICK): 277 is given only for an 83+ get on Nick\'s aj.allow list, never on consistent() alone', async () => {
   const { ruleVerdict } = await import('../server/services/campaign/never-give.js');
-  const { consistentRead, consistentOfFrom } = await import('../scripts/rnd/consistent-chip.mjs');
+  const { consistentOfFrom } = await import('../scripts/rnd/consistent-chip.mjs');
   const r = rng(CORPUS.gate_seed + 2);
   const table = { positions: { QB: [-8, 0, 8], RB: [-6, 0, 6], WR: [-6, 0, 6], TE: [-4, 0, 4] } };
   const baselines = new Map([['QB', { median: 20, line: 18 }], ['RB', { median: 17, line: 15 }], ['WR', { median: 16, line: 14 }], ['TE', { median: 11, line: 10 }]]);
@@ -380,14 +382,19 @@ test('gate fuzz (U4): 277 is never given unless a get passes consistent() on the
     const base = { neverGive: new Set(['160', '80', '277']), neverGet: new Set(), sold: new Set(), fc, scoreOf, closed: null };
     const all = consistentOfFrom(inputs, { baselines, k: 1, table, servedPositions: ['QB', 'RB', 'WR', 'TE'] });
     const t = { give: ['277'], get: ids };
-    const v = ruleVerdict({ ...base, consistentOf: all }, t);
     tried++;
-    const passes = ids.some(id => inputs.has(id) && consistentRead(inputs.get(id), { baseline: baselines.get(inputs.get(id).position), k: 1, table }).consistent);
+    // consistent() alone never opens 277 any more.
+    assert.ok(ruleVerdict({ ...base, consistentOf: all }, t).reasons.includes('never_give'), `gate seed ${CORPUS.gate_seed + 2} offer ${i}: consistent() opened 277`);
+    // Nick's picks do, for an 83+ pick only, and the verdict says it needs his OK.
+    const ajAllow = new Set(ids.filter(() => r() < 0.7));
+    const v = ruleVerdict({ ...base, ajAllow }, t);
+    const passes = ids.some(id => ajAllow.has(id) && (scoreOf(id) ?? -1) >= 83);
     if (!v.reasons.includes('never_give')) {
       allowed++;
-      assert.ok(passes, `gate seed ${CORPUS.gate_seed + 2} offer ${i}: 277 given for ${ids} with no consistent get`);
-    }
-    // Today (SERVED_POSITIONS empty, and no surface passes a reader): 277 is never given.
+      assert.ok(passes, `gate seed ${CORPUS.gate_seed + 2} offer ${i}: 277 given for ${ids} with no 83+ pick`);
+      assert.equal(v.requires_nick_confirm, true);
+    } else assert.ok(!passes, `gate seed ${CORPUS.gate_seed + 2} offer ${i}: an 83+ pick did not open 277`);
+    // No picks: 277 is never given.
     assert.ok(ruleVerdict({ ...base, consistentOf: consistentOfFrom(inputs, { baselines, k: 1, table }) }, t).reasons.includes('never_give'));
     assert.ok(ruleVerdict(base, t).reasons.includes('never_give'));
   }

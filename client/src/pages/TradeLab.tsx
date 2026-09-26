@@ -57,7 +57,7 @@ export function useTradeDesk() {
  * untouchables as a chip that opens a sheet, and "Trading as" only when the league has no team marked
  * as yours (the app header already picks the league).
  */
-export function TradeDeskHeader({ desk }: { desk: ReturnType<typeof useTradeDesk> }) {
+export function TradeDeskHeader({ desk, extra = null }: { desk: ReturnType<typeof useTradeDesk>; extra?: ReactNode }) {
   const { rosters, me, setTeamId, myPlayers, untouchable, toggleUntouchable } = desk;
   const [sheet, setSheet] = useState(false);
   const locked = myPlayers.filter((p: any) => untouchable.includes(p.id));
@@ -77,6 +77,7 @@ export function TradeDeskHeader({ desk }: { desk: ReturnType<typeof useTradeDesk
           Untouchables: {locked.length}
         </button>
       )}
+      {extra}
       <Sheet open={sheet} title="Untouchables" onClose={() => setSheet(false)}>
         <p className="ds-note mb-3">Tap a player to lock him: Find deals, Go get and Build never offer a locked player. Saved for this league in this browser.
           Your hard rules (never-give players, no buy-backs, blue chips only, no overpaying) apply on top, on the server.</p>

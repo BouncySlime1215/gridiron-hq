@@ -24,7 +24,7 @@ import ChanceStat from './ChanceStat';
  * MoveDetails, drawn behind the page's one Details disclosure. NextMoveDeck owns the
  * deck state and every post; this file only draws and calls back.
  */
-export default function HeroCard({ move, view, leagueId, chosen, isSent, thread, onPick, onMarkSent, onAskCoach }: {
+export default function HeroCard({ move, view, leagueId, chosen, isSent, thread, onPick, onMarkSent, onAskCoach, ajBanner = null }: {
   move: Move;
   view: WarRoomView;
   leagueId: number;
@@ -36,6 +36,8 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
   onPick: () => void;
   onMarkSent: () => void;
   onAskCoach?: () => void;
+  /** AJ-PICK: the "Needs your OK" banner; while it shows, the card cannot be copied or marked sent. */
+  ajBanner?: ReactNode;
 }) {
   const n = namer(view.names);
   const s = move.steps[0];
@@ -50,8 +52,9 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
   const toSide = (id: string) => { const p = playerParts(n.one(id).name); return { id, name: p.name, pos: p.pos, headshot: (shots?.[String(id)] ?? '').startsWith('https://a.espncdn.com/') ? shots![String(id)] : null, title: n.one(id).name }; };
 
   return (
-    <article className="wr-hero-card" data-testid="hero-card" aria-label="Next move" {...spot.handlers} ref={spot.ref}>
+    <article className="wr-hero-card" data-testid="hero-card" aria-label={ajBanner ? 'Needs your OK' : 'Next move'} {...spot.handlers} ref={spot.ref}>
       <span className="wr-spot" aria-hidden><span className="wr-spot-blob" /></span>
+      {ajBanner}
       <div className="wr-hero-head">
         <div className="wr-hero-partner">
           <span className="wr-k">Send to</span>
@@ -81,8 +84,8 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
       </div>
 
       <div className="wr-hero-acts">
-        {!thread && <CopyButton text={messageOf(s, partner, n)} primary onCopy={chosen ? undefined : onPick} />}
-        {chosen && !thread && (
+        {!thread && !ajBanner && <CopyButton text={messageOf(s, partner, n)} primary onCopy={chosen ? undefined : onPick} />}
+        {chosen && !thread && !ajBanner && (
           <button type="button" className="wr-btn wr-btn-lg" disabled={isSent} onClick={onMarkSent}
             title="Tell the planner you sent it in ESPN">
             {isSent ? 'Marked as sent' : 'I sent it'}

@@ -276,6 +276,8 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-tcard-nums b { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 .wr-tcard-nums .wr-unk, .wr-fcard-nums .wr-unk { font: 500 13px/1.4 var(--f-text); letter-spacing: 0; }
 .wr-tcard-f { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; min-width: 0; margin-top: auto; }
+/* AJ-PICK: the "Allow A.J. for him" toggle, its own row under the card's footer. */
+.wr-tcard-aj { display: flex; min-width: 0; }
 .wr-paths { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .wr-path { text-align: left; padding: 16px; }
 .wr-path-h { display: block; font-size: 14px; margin-bottom: 14px; }
@@ -530,6 +532,7 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
   .wr-tcard-main .wr-av { width: 40px !important; height: 40px !important; }
   .wr-tcard-f { grid-area: act; margin: 0; }
   .wr-tcard-f > .wr-muted { display: none; }
+  .wr-tcard-aj { grid-column: 1 / -1; padding-left: 52px; }
   .wr-tcard-nums { grid-area: nums; display: flex; gap: 16px; padding-left: 52px; }
   .wr-tcard-nums > span { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   .wr-tcard-nums b { font-size: 15px; }

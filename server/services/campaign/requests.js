@@ -27,6 +27,7 @@ import { db, rows, run } from '../../db/index.js';
 import { PLAN_REQUESTS } from '../warroom-actions/schema.js';
 import { normaliseObjective } from './objectives.js';
 import { skipWeights } from './partners.js';
+import { ajState } from './aj-pick.js';
 
 /** Deck-skip reasons: #230's ids and the shared ones (FIX-06 renames #230's to the shared set). */
 const SKIP_REASON = Object.freeze({
@@ -200,11 +201,13 @@ export function leagueInputs(leagueId, { objectiveRow = null, fileSkips = [], no
   const reqs = leagueRequests(leagueId, { base: objectiveRow ?? {} });
   const objective = normaliseObjective(reqs.objective, { leagueGoal: reqs.objective.goal ?? 'title' });
   objective.source = reqs.from_requests ? 'warroom_requests' : objectiveRow ? 'objectives_file' : 'default';
+  // AJ-PICK: the one fold of aj.allow / aj.revoke / aj.confirm (aj-pick.js); the rows are stamped with the rest.
+  const aj = ajState({ rows }, leagueId);
   return {
-    objective,
+    objective, aj: { allow: aj.allow, confirmed: aj.confirmed },
     weights: skipWeights([...fileSkips, ...reqs.skips], leagueId, now),
     consume: { leagueId, pending: reqs.pending, sent: reqs.sent },
     summary: { status: reqs.status, reason: reqs.reason ?? null, pending: reqs.pending.length, folded: reqs.used.length,
-      skips: reqs.skips.length, ignored: reqs.ignored },
+      skips: reqs.skips.length, ignored: reqs.ignored, aj_pick: { status: aj.status, picks: aj.allow.size, confirmed: aj.confirmed.size } },
   };
 }

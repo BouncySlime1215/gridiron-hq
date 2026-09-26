@@ -46,7 +46,7 @@ export function AppCoachProvider({ children }: { children: ReactNode }) {
         <div className="wr-root wr-v2 wr-inline wr-app-layer">
           {view && <HealthSheet view={view} open={health} onClose={() => setHealth(false)} />}
           <CoachDrawer coach={coach} plans={view ?? undefined} open={open} onClose={() => setOpen(false)}
-            autoAsk={autoAsk} onAutoAsked={() => setAutoAsk(null)} />
+            autoAsk={autoAsk} onAutoAsked={() => setAutoAsk(null)} onChanged={() => { void wr.refetch?.(); }} />
         </div>
       </SourcesContext.Provider>
     </CoachContext.Provider>

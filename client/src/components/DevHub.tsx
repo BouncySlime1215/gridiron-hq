@@ -179,6 +179,25 @@ export function DevPanel() {
         )}
       </div>
 
+      {/* COACH-CHAT: Coach's AI spend today against its daily limit (llm-budget.js, the `coach` budget). */}
+      {(() => {
+        const coach = (data?.usage?.budgets ?? []).find((b: any) => b.key === 'coach');
+        if (!coach) return null;
+        return (
+          <div data-testid="dev-coach-spend">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Coach AI</h3>
+            <p className="text-xs text-slate-600">
+              {configured ? 'On: questions Coach cannot answer from the plan go to the AI model.' : 'Off: Coach answers from your plan only (no key).'}
+            </p>
+            <p className="text-xs text-slate-600 mt-1">
+              Spent today: <b className="tabular-nums">{money(coach.spent_usd)}</b>
+              {coach.budget_usd != null && <> of a <b className="tabular-nums">{money(coach.budget_usd)}</b> daily limit</>}.
+              {' '}Follow-ups answered from the plan cost nothing.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* data freshness */}
       <div>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Live data</h3>

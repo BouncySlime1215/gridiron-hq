@@ -209,7 +209,8 @@ function cacheBreakpoints({ system, messages, tools, cache_control: automatic })
  */
 export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
   tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null,
-  cacheSystem = false, cachedPrefix = undefined, cacheConversation = false, cacheTtl = '5m', effort = undefined }) {
+  cacheSystem = false, cachedPrefix = undefined, cacheConversation = false, cacheTtl = '5m', effort = undefined,
+  outputSchema = undefined }) {
   const key = getApiKey();
   if (!key) {
     const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
@@ -239,7 +240,12 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
     // Thinking models spend max_tokens on thinking first; `effort` (low..max)
     // is how a caller bounds that, instead of a bigger cap alone.
-    ...(effort ? { output_config: { effort } } : {}),
+    // `outputSchema` (structured outputs) constrains the final text to a JSON
+    // schema, so a JSON-only answer cannot come back as prose, a fence or nothing.
+    ...(effort || outputSchema ? { output_config: {
+      ...(effort ? { effort } : {}),
+      ...(outputSchema ? { format: { type: 'json_schema', schema: outputSchema } } : {})
+    } } : {}),
     ...(cacheConversation ? { cache_control: cacheMark(cacheTtl) } : {})
   };
   const breakpoints = cacheBreakpoints(request);
@@ -273,12 +279,59 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   }
 }
 
-/** Parse a JSON-only response, tolerating code fences. */
+/**
+ * The answer text of a response: every text block, in order, joined. A thinking
+ * model's content leads with `thinking` blocks and may split its answer across
+ * text blocks, so "the first text block" is not the answer.
+ */
+export function responseText(msg) {
+  const blocks = Array.isArray(msg?.content) ? msg.content : [];
+  return blocks.filter(b => b?.type === 'text' && typeof b.text === 'string').map(b => b.text).join('').trim();
+}
+
+/** The first balanced {...} or [...] in a string (strings and escapes respected), or null. */
+function firstJsonValue(text) {
+  const start = text.search(/[[{]/);
+  if (start < 0) return null;
+  const open = text[start];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === open) depth++;
+    else if (c === close && --depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
+}
+
+/**
+ * Parse a JSON-only response. Tolerates thinking blocks before the answer, an
+ * answer split over text blocks, code fences anywhere, and a sentence around the
+ * object. A response with no text at all (a turn that ended on thinking alone)
+ * is an error that says so and carries `stop_reason`.
+ */
 export function parseJson(msg) {
-  const block = msg?.content?.find?.(item => item.type === 'text');
-  if (!block?.text) throw new Error('AI response contained no JSON text block');
-  const text = block.text.trim().replace(/^```json?\s*|\s*```$/g, '');
-  const parsed = JSON.parse(text);
+  const raw = responseText(msg);
+  if (!raw) {
+    const kinds = (Array.isArray(msg?.content) ? msg.content : []).map(b => b?.type).join(', ') || 'nothing';
+    const err = new Error(`AI response contained no JSON text block (content: ${kinds}; stop_reason: ${msg?.stop_reason ?? 'unknown'})`);
+    err.code = 'no_text';
+    throw err;
+  }
+  const text = raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    const inner = firstJsonValue(raw.replace(/```(?:json)?/g, ''));
+    if (!inner) throw e;
+    parsed = JSON.parse(inner);
+  }
   if (parsed == null || typeof parsed !== 'object') throw new Error('AI response must be a JSON object or array');
   return parsed;
 }

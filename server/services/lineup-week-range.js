@@ -34,6 +34,7 @@
 import { leagueWorld } from './league-world.js';
 import { projEspnFlag, ESPN_CAPTURED_POSITIONS } from './espn-week-projection.js';
 import { playerDraw, hashUniform, residuals, REPLAY_RUNS, REPLAY_SEED } from './range-residuals.js';
+import { settledWeekPoints } from './settled-points.js';
 
 export const WEEKLY_RANGE_PERCENTILES = Object.freeze({ floor: 0.10, median: 0.50, ceiling: 0.90 });
 export const WEEKLY_RANGE_METHOD = 'percentiles of the lineup total over the league world\'s correlated runs';
@@ -94,9 +95,11 @@ const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 
 /**
  * One lineup's total in every run of `world` for NFL week `week`.
- * @returns {{ totals: Float64Array, covered: number, starters: number } | { error }}
+ * `settled` (settled-points.js: app id -> points) holds starters whose game this week is over:
+ * each scores his actual points in every run instead of a draw (ONE-NUMBER-FIX).
+ * @returns {{ totals: Float64Array, covered: number, starters: number, settled: number } | { error }}
  */
-export function lineupWeekTotals(world, starterIds, week) {
+export function lineupWeekTotals(world, starterIds, week, { settled = null } = {}) {
   if (!world || world.fail) return { error: world?.fail?.error ?? 'no league world' };
   const wk = world.draws?.get(Number(week));
   if (!wk) return { error: `week ${week} is not one of the simulated weeks` };
@@ -110,9 +113,11 @@ export function lineupWeekTotals(world, starterIds, week) {
   // PROJ-ESPN a skill starter is his served ESPN mean plus k x his residual at the column's rank.
   const cols = [];
   const calibrated = [];
-  let fixed = 0, covered = 0, unknown = 0;
+  let fixed = 0, covered = 0, unknown = 0, done = 0;
   const table = espn ? residuals() : null;
   for (const id of ids) {
+    const actual = settled ? lookup(settled, id) : undefined;
+    if (actual != null) { fixed += actual; covered++; done++; continue; }
     const a = espn ? lookup(espn.assets, id) : null;
     if (a && ESPN_CAPTURED_POSITIONS.has(a.position) && a.week_projection) {
       if (!Number.isFinite(a.current_week_ppg)) { unknown++; continue; }
@@ -141,7 +146,7 @@ export function lineupWeekTotals(world, starterIds, week) {
     }
     totals[run] = t;
   }
-  return { totals, covered, starters: ids.length,
+  return { totals, covered, starters: ids.length, settled: done,
     ...(espn ? { basis: 'espn_calibrated', k: espn.k, unknown } : {}) };
 }
 
@@ -208,8 +213,8 @@ export function rangeOfTotals(totals) {
  * A lineup's weekly range in `world`: { floor, median, ceiling, mean, sd, runs,
  * coverage, percentiles, method }, or { error } (floor/median/ceiling null).
  */
-export function lineupWeekRange(world, starterIds, week) {
-  const t = lineupWeekTotals(world, starterIds, week);
+export function lineupWeekRange(world, starterIds, week, { settled = null } = {}) {
+  const t = lineupWeekTotals(world, starterIds, week, { settled });
   if (t.error) return { floor: null, median: null, ceiling: null, error: t.error };
   return {
     ...rangeOfTotals(t.totals),
@@ -217,12 +222,16 @@ export function lineupWeekRange(world, starterIds, week) {
     week: Number(week),
     percentiles: 'p10 / p50 / p90',
     method: t.basis ? WEEKLY_RANGE_METHOD_ESPN : WEEKLY_RANGE_METHOD,
+    ...(t.settled ? { settled_starters: t.settled } : {}),
     ...(t.basis ? { basis: t.basis, k: t.k, unknown_starters: t.unknown } : {})
   };
 }
 
-/** lineupWeekRange in the league's one world (built once per snapshot, league-world.js). */
-export function leagueLineupWeekRange(lg, starterIds, week) {
+/**
+ * lineupWeekRange in the league's one world (built once per snapshot, league-world.js), with the
+ * starters whose game this week is final at their actual points (settled-points.js).
+ */
+export function leagueLineupWeekRange(lg, starterIds, week, { now = Date.now() } = {}) {
   let world;
   try {
     world = leagueWorld(lg);
@@ -231,5 +240,5 @@ export function leagueLineupWeekRange(lg, starterIds, week) {
     console.error(`[lineup-week-range] league ${lg?.id}: world build failed: ${e?.stack ?? e}`);
     return { floor: null, median: null, ceiling: null, error: 'the league world could not be built' };
   }
-  return lineupWeekRange(world, starterIds, week);
+  return lineupWeekRange(world, starterIds, week, { settled: settledWeekPoints(lg, week, { now }) });
 }

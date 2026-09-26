@@ -63,7 +63,9 @@ export function leagueWorld(lg) {
   const key = snapshotKey(lg);
   const held = worlds.get(lg.id);
   if (held?.key === key) return held.world;
-  const world = tradeImpactWorld(lg, { runs: ONE_WORLD_RUNS });
+  // The league's own weights, the same value tradeImpactWorld defaults to, passed explicitly so
+  // this call site stays checked by test/scoring-call-sites.test.js (#163).
+  const world = tradeImpactWorld(lg, { runs: ONE_WORLD_RUNS, scoring: scoringFor(lg) });
   // A failed build is not held: the next caller retries (a named failure, e.g. no
   // fixtures left, is returned to this caller as the world's `fail`).
   if (!world.fail) worlds.set(lg.id, { key, world });

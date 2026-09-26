@@ -37,7 +37,9 @@
  */
 import { row } from '../db/index.js';
 import { deriveFormat } from './format.js';
-import { assetUniverse, loadRosters, lineupSlots } from './trade-engine.js';
+import { assetUniverse, loadRosters, lineupSlots, tradeWeekContext } from './trade-engine.js';
+import { rosterLocks, lockPins } from './lineup-lock.js';
+import { settledWeekPoints } from './settled-points.js';
 import { irOnRoster } from './lineup-brain.js';
 import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
 import { leagueWorld, worldStamp } from './league-world.js';
@@ -87,8 +89,8 @@ function fillSlots(chosen, slots) {
  * (lineup-week-range.js), its mean, its 99th percentile off the same run totals,
  * and P(score >= target) — the objective a tournament actually pays.
  */
-function scoreLineup(world, week, picks, target) {
-  const { totals } = lineupWeekTotals(world, picks.map(c => c.player.id), week);
+function scoreLineup(world, week, picks, target, settled = null) {
+  const { totals } = lineupWeekTotals(world, picks.map(c => c.player.id), week, { settled });
   const range = rangeOfTotals(totals);
   const sorted = Float64Array.from(totals).sort();
   let hits = 0;
@@ -142,20 +144,36 @@ export function ceilingLineup(leagueId, {
   if (world.fail) return world.fail;
   const wk = Number(week);
   if (!worldWeekMeans(world, wk)) return { error: `week ${week} is not one of the simulated weeks` };
-  const playable = me.players.filter(p => !irReason.has(p.id));
-  const pools = worldCandidates(world, playable, wk)
+  // ONE-NUMBER-FIX: in the current NFL week the lineup is the one fielded (trade-engine.js
+  // #thisWeekLineup's rule): a starter ESPN has locked or whose game kicked off is held, a locked
+  // bench player cannot come in, and a starter whose game is over scores his actual points
+  // (settled-points.js) in every run.
+  const current = Number(tradeWeekContext().week) === wk;
+  const pins = current ? lockPins(rosterLocks(lg, me.roster_id, me.players, { season, week: wk })) : new Map();
+  const settled = current ? settledWeekPoints(lg, wk) : new Map();
+  const slotSet = new Set(slots);
+  const heldIds = new Set([...pins].filter(([, slot]) => slotSet.has(slot)).map(([id]) => id));
+  const playable = me.players.filter(p => !irReason.has(p.id) && (!pins.has(p.id) || heldIds.has(p.id)));
+  const found = worldCandidates(world, playable, wk);
+  // A held starter the world has no mean for (his game is over) is still in, at his actual.
+  const held = playable.filter(p => heldIds.has(p.id) && SCORED.has(p.position)).map(p => {
+    const c = found.find(x => x.player.id === p.id);
+    const actual = settled.get(Number(p.id));
+    return { player: p, mean: actual ?? c?.mean ?? 0, held: true };
+  });
+  const pools = [...held, ...found.filter(c => !heldIds.has(c.player.id))
     .sort((a, b) => b.mean - a.mean)
-    .slice(0, candidates);
+    .slice(0, Math.max(0, candidates - held.length))];
   if (pools.length < slots.length) {
     return { error: `only ${pools.length} playable candidates for ${slots.length} slots in week ${week}` };
   }
   // Every lineup is scored on the world's SAME runs, so two lineups differ only by
   // who is in them and never by sampling luck.
-  const score = (picks, tgt) => scoreLineup(world, wk, picks, tgt);
+  const score = (picks, tgt) => scoreLineup(world, wk, picks, tgt, settled);
 
   // A default target set from the team's own top-heavy lineup: beating your own
   // median is not a goal, beating a strong week is.
-  const naive = fillSlots([...pools].sort((a, b) => b.mean - a.mean), slots)
+  const naive = fillSlots([...pools].sort((a, b) => (b.held === true) - (a.held === true) || b.mean - a.mean), slots)
     .map(f => f.pick).filter(Boolean);
   const naiveScore = score(naive, null);
   const effectiveTarget = target ?? naiveScore.ceiling;
@@ -173,6 +191,7 @@ export function ceilingLineup(leagueId, {
   while (improved && passes < 6) {
     improved = false; passes++;
     for (let i = 0; i < best.length; i++) {
+      if (best[i].held) continue; // a locked starter cannot be swapped out
       for (const cand of pools) {
         if (best.some(b => b.player.id === cand.player.id)) continue;
         const trial = best.slice();
@@ -181,6 +200,7 @@ export function ceilingLineup(leagueId, {
         const legal = fillSlots(trial, slots);
         if (legal.some(f => !f.pick)) continue;
         const picks = legal.map(f => f.pick);
+        if (held.some(h => !picks.some(x => x.player.id === h.player.id))) continue;
         const val = objectiveOf(picks);
         if (val > bestVal) { best = picks; bestVal = val; improved = true; }
       }

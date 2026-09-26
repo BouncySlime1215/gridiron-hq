@@ -1,7 +1,7 @@
 /**
  * NUMBERS-PEOPLE, the tab (Trades → Numbers & People), rendered and clicked:
  *   - the summary line, the read time and a working Refresh (thinking animation while it runs)
- *   - one card per item (the shared NumbersPeopleCard), DIFFER first and highlighted, Claude
+ *   - one card per item (the shared NumbersPeopleCard), in the server's best-first order, Differ highlighted, Claude
  *     (numbers) and Jev (people) side by side with a stance chip and a why, Jev's lane labelled
  *     "from chat, unverified", a verdict badge
  *   - "Going forward": "not enough outcomes yet" under the minimum, the score once it is met
@@ -29,7 +29,7 @@ const item = (key, verdict, title, numbers, people, extra = {}) => {
 };
 const VIEW = {
   enabled: true, status: 'ok', refreshing: false, read_at: '2026-09-25T20:00:00.000Z', week: 3, stale: false, notice: null,
-  summary: { agree: 1, differ: 1, same_but: 1, no_people_read: 0 },
+  summary: { agree: 1, differ: 1, same_but: 1, no_people_read: 0, both_go: 2, split: 1, both_wait: 0, both_avoid: 0 },
   items: [
     item('move:M1', 'differ', 'Get P21 (WR) for P4 (WR)', lane('go', 'The odds gain is worth the price.'), lane('avoid', 'They call this receiver untouchable.')),
     item('target:11', 'same_but', 'P11 (RB)', lane('go', 'Big gain if landed.'), lane('go', 'Their manager is shopping backs.')),
@@ -47,10 +47,10 @@ function setup(view, { onCall } = {}) {
   return { ui, calls, asked };
 }
 
-test('now: the summary, DIFFER first and highlighted, both lanes side by side, verdict badges', async () => {
+test('now: the summary, the server order kept, Differ highlighted, both lanes side by side, verdict badges', async () => {
   const { ui } = setup(VIEW);
   await waitFor(() => one(ui.container, 'data-testid', 'np-summary'), 2000, 'the summary');
-  assert.equal(textOf(one(ui.container, 'data-testid', 'np-summary')), 'Agree on 1 · Differ on 1 · Same call, different reasons on 1');
+  assert.equal(textOf(one(ui.container, 'data-testid', 'np-summary')), 'Both say go on 2 · Split on 1 · Both say avoid on 0');
   const cards = byAttr(ui.container, 'data-testid', 'np-card');
   assert.deepEqual(cards.map(x => x.getAttribute('data-verdict')), ['differ', 'same_but', 'agree']);
   const first = cards[0];
@@ -76,14 +76,14 @@ test('the score shows once enough outcomes have settled', async () => {
 test('Refresh runs the job on demand with the thinking animation, then shows the new reads', async () => {
   let release;
   const gate = new Promise(r => { release = r; });
-  const newer = { ...VIEW, summary: { agree: 3, differ: 0, same_but: 0, no_people_read: 0 }, items: VIEW.items.map(i => ({ ...i, verdict: 'agree' })) };
+  const newer = { ...VIEW, summary: { agree: 3, differ: 0, same_but: 0, no_people_read: 0, both_go: 3, split: 0, both_wait: 0, both_avoid: 0 }, items: VIEW.items.map(i => ({ ...i, verdict: 'agree' })) };
   const { ui, calls } = setup(VIEW, { onCall: async p => { if (p.endsWith('/refresh')) { await gate; return newer; } return {}; } });
   await waitFor(() => one(ui.container, 'data-testid', 'np-summary'), 2000, 'the summary');
   click(button(ui.container, 'Refresh'));
   await waitFor(() => one(ui.container, 'data-testid', 'np-thinking'), 2000, 'the thinking animation');
   assert.equal(calls.at(-1).p, '/numbers-people/4/refresh');
   release();
-  await waitFor(() => /Agree on 3/.test(textOf(one(ui.container, 'data-testid', 'np-summary'))), 2000, 'the new reads');
+  await waitFor(() => /Both say go on 3/.test(textOf(one(ui.container, 'data-testid', 'np-summary'))), 2000, 'the new reads');
   assert.equal(one(ui.container, 'data-testid', 'np-thinking'), null);
   ui.unmount();
 });
@@ -119,7 +119,7 @@ test('the tab sits in the Trades tab row and uses the design system only', () =>
   }
 });
 
-test('a long list folds after four cards (DIFFER never folded), "Show all" opens it', async () => {
+test('a long list folds after four cards (the best four), "Show all" opens it', async () => {
   const many = { ...VIEW, items: [...VIEW.items, ...[5, 6, 7].map(n => ({ ...VIEW.items[2], key: `partner:${n}`, item_id: String(n) }))] };
   const { ui } = setup(many);
   await waitFor(() => byAttr(ui.container, 'data-testid', 'np-card').length === 4, 2000, 'four cards');

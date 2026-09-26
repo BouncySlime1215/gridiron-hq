@@ -192,18 +192,19 @@ test('G1a: the entry point prices the horizon on this team\'s real playoff odds,
   }
 });
 
-test('G1b: the odds that enter the ranking are seeded, so they never drift between calls', () => {
+test('G1b: the odds that enter the ranking are the league world\'s, so they never drift between calls', async () => {
   const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
   const a = engine.myPlayoffOdds(lg, '1');
   const b = engine.myPlayoffOdds(lg, '1');
   assert.equal(a.value, b.value);
   assert.ok(a.value >= 0 && a.value <= 1, `implausible odds ${a.value}`);
-  // It is the simulator's own answer for this roster, not a prior wearing a label.
-  const direct = withRandomSeed(20260918, () => simulateSeason(lg, {
-    runs: 1000, fromWeek: 2, scoring: scoringFor(lg) }));
-  const mine = direct.teams.find(t => String(t.roster_id) === '1');
+  // It is the league world's own answer for this roster (ONE-NUMBER-FIX: the one producer the
+  // twin and the Title tab read), not a prior wearing a label.
+  const { leagueWorld } = await import('../server/services/league-world.js');
+  const world = leagueWorld(lg);
+  const mine = world.base.teams.find(t => String(t.roster_id) === '1');
   assert.equal(a.value, +mine.playoff_odds.toFixed(2));
-  assert.match(a.source, /1000 runs from week 2/);
+  assert.match(a.source, new RegExp(`${world.base.runs} runs from week 2 \\(one world `));
 });
 
 test('G1c: a league the simulator cannot run falls back to the prior and says why', () => {

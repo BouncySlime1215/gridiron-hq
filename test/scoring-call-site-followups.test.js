@@ -35,7 +35,7 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 // trade-engine.js myPlayoffOdds -> simulateSeason's `scoring` option
 // ---------------------------------------------------------------------------
 
-test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\'s real scoring, not a default', async () => {
+test('myPlayoffOdds (the league world, ONE-NUMBER-FIX) hands the world build the league\'s real scoring, not a default', async () => {
   const seen = [];
   mock.module('../server/services/season-sim.js', {
     namedExports: {
@@ -45,8 +45,8 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
       tradeImpact: () => ({ ok: true }),
       // EA-07 (league-world.js, trade-engine.js) imports these; the one world is off here.
       worldPoolFor: () => null, rosBasisFlag: () => ({ on: false, preview: false }),
-      // RL-19-3's title-mutual stage (default off) imports it; never called here.
-      tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } })
+      // myPlayoffOdds reads the league world (league-world.js), which is built here.
+      tradeImpactWorld: (_lg, opts = {}) => { seen.push(opts.scoring); return { fail: { error: 'not simulated in this test' } }; }
     }
   });
   const { myPlayoffOdds } = await import('../server/services/trade-engine.js');
@@ -68,7 +68,7 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
   const lg = row(`SELECT * FROM leagues WHERE league_id = 'playoff-odds-league'`);
 
   myPlayoffOdds(lg, '1');
-  assert.equal(seen.length, 1, 'simulateSeason must have been called by myPlayoffOdds');
+  assert.equal(seen.length, 1, 'the league world must have been built for myPlayoffOdds');
   assert.equal(seen[0].rush_yd, 0.3, 'rush_yd must come from this league\'s own statId 24, not the PPR default (0.1) and not the slot-16 override (0.9)');
   assert.equal(seen[0].rec_yd, 0.2, 'rec_yd must come from this league\'s own statId 42, not the PPR default (0.1)');
 });

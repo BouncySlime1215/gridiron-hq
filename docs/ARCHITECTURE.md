@@ -83,16 +83,19 @@ The `source` on every typed field is one of these 17 ids.
 | `blend.accept` | `server/services/p-yes-blend.js#blendP` | P(yes) from the graded blend of baseline and clone (GRIDIRON_PYES_BLEND). |
 | `usage.xfp` | `server/services/campaign/buy-low.js#scoreBuyLow` | usage up, points down (xFP) for buy-low reads. |
 
-## Flags: switches (109)
+## Flags: switches (131)
 
 A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UNCONFIRMED`. An unproven unit stays off or in shadow until its pre-registered bar passes. "preview-aware file" means a file naming the flag also reads preview mode; read that file before assuming preview leaves it off.
 
 | flag | named in | preview-aware file |
 |---|---|---|
+| `GRIDIRON_A11Y_CHECK` | `scripts/check-a11y.mjs` |  |
 | `GRIDIRON_AI_LEDGER` | `scripts/coach/judge-eval.mjs`, `server/services/ai-ledger.js` |  |
 | `GRIDIRON_AJ_PICK` | `server/services/campaign/aj-pick.js` |  |
 | `GRIDIRON_ALLOW_PAID_RUN` | `scripts/build-manager-archetypes.mjs`, `scripts/build-negotiation-profiles.mjs`, `scripts/campaign/produce-plans.mjs` +7 more | yes |
+| `GRIDIRON_AUTO_PARK` | `scripts/auto-park.mjs` |  |
 | `GRIDIRON_AVAIL_HORIZON` | `server/services/availability-return.js`, `server/services/preview-mode.js`, `server/services/season-sim.js` | yes |
+| `GRIDIRON_BACKUP_HYGIENE` | `scripts/backup-hygiene.mjs` |  |
 | `GRIDIRON_BASIS_02` | `server/services/sim-basis.js` |  |
 | `GRIDIRON_BLEND_WEEK` | `server/services/blend-week.js`, `server/services/trade-engine.js` | yes |
 | `GRIDIRON_BRAIN_REPORT` | `server/routes/brain-report.js`, `server/services/preview-mode.js` | yes |
@@ -107,13 +110,20 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_COACH_NAV` | `server/services/coach/navigator.js`, `server/services/coach/tools.js` | yes |
 | `GRIDIRON_COACH_NEGOTIATE` | `server/services/coach/negotiator.js`, `server/services/coach/tools.js` | yes |
 | `GRIDIRON_COACH_PRELOAD` | `server/services/coach/ask.js` |  |
+| `GRIDIRON_CODE_SHA` | `server/services/serve-pin.js` |  |
+| `GRIDIRON_CONSOLIDATION` | `scripts/campaign/produce-plans.mjs`, `server/services/campaign/consolidation.js`, `server/services/campaign/planner.js` | yes |
 | `GRIDIRON_COUNTERPART` | `scripts/campaign/counterpart-inputs.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/partners.js` +2 more | yes |
+| `GRIDIRON_DAILY_DIGEST` | `scripts/campaign/daily-digest.mjs`, `scripts/refresh-live-data.mjs`, `server/services/campaign/daily-digest.js` |  |
+| `GRIDIRON_DATA_QUALITY` | `server/index.js`, `server/routes/data-quality.js`, `server/services/data-quality.js` |  |
 | `GRIDIRON_DB_INTEGRITY_CHECK` | `scripts/engine-daemon-bench.mjs`, `scripts/rnd/is-title-bench.mjs`, `scripts/schema-snapshot.mjs` +2 more |  |
 | `GRIDIRON_DEADLINE_MODE` | `server/services/campaign/deadline-mode.js`, `server/services/campaign/planner.js` |  |
+| `GRIDIRON_DEP_HYGIENE` | `scripts/dep-hygiene.mjs` |  |
+| `GRIDIRON_DIGEST_STATE` | `scripts/campaign/daily-digest.mjs`, `server/services/campaign/daily-digest.js` |  |
 | `GRIDIRON_DRAFT_ID_MAP` | `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/draft-capital.js` | yes |
+| `GRIDIRON_E4_LIVE` | `server/services/eval/e4-planner.js` |  |
 | `GRIDIRON_EBAYES_SHADOW` | `server/services/eval/e-bayes.js`, `server/services/p-yes.js` |  |
 | `GRIDIRON_ESPN_ZERO_INACTIVE` | `server/services/espn-zero-inactive.js` | yes |
-| `GRIDIRON_EXGB` | `scripts/refresh-live-data.mjs`, `server/migrations/107_exgb_shadow.js`, `server/services/exgb-flag.js` +4 more | yes |
+| `GRIDIRON_EXGB` | `scripts/refresh-live-data.mjs`, `server/migrations/107_exgb_shadow.js`, `server/migrations/120_proj_duel.js` +6 more | yes |
 | `GRIDIRON_FAST_RESCORE` | `server/services/season-sim.js`, `server/services/title-odds-trades.js` | yes |
 | `GRIDIRON_FLIP_LEGS` | `server/services/campaign/search.js` | yes |
 | `GRIDIRON_FLIP_STRANDED` | `server/services/campaign/gets-floor.js`, `server/services/campaign/planner.js` |  |
@@ -123,8 +133,10 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_HIS_SIDE` | `server/services/campaign/his-side.js`, `server/services/campaign/partners.js`, `server/services/campaign/view.js` |  |
 | `GRIDIRON_HISTORY_INGEST` | `scripts/probe-league-history.mjs`, `server/migrations/104_league_history_transactions.js`, `server/services/league-history-tx.js` |  |
 | `GRIDIRON_HUB_PEOPLE` | `server/services/engine/producers/index.js`, `server/services/engine/producers/people.js`, `server/services/engine/producers/weakness.js` +1 more | yes |
+| `GRIDIRON_INJURY_INSURANCE` | `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/injury-insurance.js` | yes |
 | `GRIDIRON_IS_TITLE` | `server/services/is-title.js` |  |
 | `GRIDIRON_LADDER` | `server/services/campaign/ladder.js`, `server/services/campaign/planner.js`, `server/services/campaign/plans-schema.js` +1 more |  |
+| `GRIDIRON_LAST_GOOD` | `server/routes/warroom-negotiate.js`, `server/routes/warroom.js`, `server/services/campaign/last-good.js` +1 more | yes |
 | `GRIDIRON_LIVING` | `server/services/eval/living-gate.js` |  |
 | `GRIDIRON_LIVING01A_ENABLED` | `scripts/campaign/league-adapter.mjs` | yes |
 | `GRIDIRON_LOVE_TAG` | `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/love.js` | yes |
@@ -147,14 +159,18 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_PLANS_EXPIRE` | `server/services/campaign/plan-age.js` |  |
 | `GRIDIRON_PLAYER_SCORE` | `scripts/campaign/league-adapter.mjs`, `server/services/campaign/plans-schema.js`, `server/services/campaign/view.js` +1 more | yes |
 | `GRIDIRON_PLAYOFF_SEEDING` | `server/services/campaign/planner.js`, `server/services/playoff-path.js` |  |
+| `GRIDIRON_PLAYOFF_WEEK_VALUE` | `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/playoff-week.js` | yes |
 | `GRIDIRON_POINTS_FEASIBILITY` | `server/services/campaign/feasibility.js`, `server/services/campaign/view.js` | yes |
 | `GRIDIRON_PREVIEW_UNCONFIRMED` | `server/services/preview-mode.js` | yes |
 | `GRIDIRON_PRICE_BAND_V2` | `server/services/preview-mode.js`, `server/services/price-band.js`, `server/services/trade-engine.js` | yes |
 | `GRIDIRON_PRODUCER_FAST` | `scripts/campaign/bench-producer.mjs`, `scripts/campaign/league-adapter.mjs`, `server/services/preview-mode.js` | yes |
+| `GRIDIRON_PRODUCER_SPEED` | `scripts/campaign/points-memo.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/season-sim.js` | yes |
 | `GRIDIRON_PROJ_ESPN` | `server/services/espn-week-projection.js`, `server/services/lineup-week-range.js`, `server/services/number-audit.js` +2 more | yes |
+| `GRIDIRON_PROTECTED_UPGRADE` | `server/services/campaign/protected-upgrade.js` |  |
 | `GRIDIRON_PULSE_02` | `scripts/people/jev-pulse.mjs`, `scripts/people/pulse.mjs`, `server/services/people/pulse.js` | yes |
 | `GRIDIRON_PULSE_ENABLED` | `scripts/people/pulse.mjs`, `scripts/refresh-live-data.mjs`, `server/routes/trades.js` +1 more | yes |
 | `GRIDIRON_PULSE_JEV` | `scripts/people/jev-pulse.mjs`, `server/services/people/pulse.js` | yes |
+| `GRIDIRON_PWA` | `server/index.js`, `server/platform/pwa.js` |  |
 | `GRIDIRON_PYES_BASELINE` | `server/services/campaign/plans-schema.js`, `server/services/p-yes.js`, `server/services/trade-outcomes.js` |  |
 | `GRIDIRON_PYES_BLEND` | `scripts/campaign/league-adapter.mjs`, `server/services/campaign/planner.js`, `server/services/offer-capture.js` +2 more | yes |
 | `GRIDIRON_PYES_FORWARD` | `server/services/p-yes-blend.js`, `server/services/p-yes.js` |  |
@@ -165,18 +181,23 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_REACH` | `scripts/campaign/produce-plans.mjs`, `scripts/refresh-live-data.mjs`, `server/services/campaign/planner.js` +2 more | yes |
 | `GRIDIRON_REASONING_ENABLED` | `server/services/reasoning-flag.js` | yes |
 | `GRIDIRON_RECEPTIVENESS_ACTIVITY` | `server/services/counterparty-pricing.js` | yes |
+| `GRIDIRON_RELEASE_NOTES` | `scripts/release-notes.mjs`, `server/index.js`, `server/routes/release-notes.js` +1 more |  |
+| `GRIDIRON_REPLY_CLOCK` | `server/routes/reply-latency.js`, `server/services/eval/reply-latency.js`, `server/services/war-room-view.js` | yes |
 | `GRIDIRON_REPLY_LATENCY` | `server/index.js`, `server/routes/reply-latency.js`, `server/services/eval/reply-latency.js` |  |
 | `GRIDIRON_RISK_RULE` | `server/services/campaign/modes.js`, `server/services/campaign/planner.js` |  |
 | `GRIDIRON_RL16_1_ENABLED` | `server/services/trade-horizon.js` | yes |
 | `GRIDIRON_RL17_3_ENABLED` | `server/services/preview-mode.js`, `server/services/season-sim.js`, `server/services/sim-basis.js` | yes |
 | `GRIDIRON_RL19_1_ENABLED` | `server/services/counterparty-pricing.js`, `server/services/trade-tactics.js` | yes |
-| `GRIDIRON_SEARCH_WIDE` | `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/planner.js` +1 more | yes |
+| `GRIDIRON_SEARCH_WIDE` | `scripts/campaign/bench-producer.mjs`, `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs` +2 more | yes |
+| `GRIDIRON_SEASON_REPLAY` | `scripts/eval/season-replay.mjs` |  |
 | `GRIDIRON_SELL_HIGH` | `scripts/campaign/league-adapter.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/sell-high.js` | yes |
+| `GRIDIRON_SERVE_PIN` | `scripts/eval/repro-card.mjs`, `server/migrations/119_served_pins.js`, `server/services/serve-log.js` +2 more |  |
 | `GRIDIRON_SIM_ASOF_PROJ` | `server/services/season-sim.js` | yes |
 | `GRIDIRON_SIM_KDST` | `server/services/season-sim.js` | yes |
 | `GRIDIRON_SOURCE_TABLES` | `scripts/eval/produce-source-tables.mjs`, `scripts/refresh-live-data.mjs`, `server/services/eval/sources/flag.js` +2 more |  |
 | `GRIDIRON_STANDINGS_RECONCILE` | `server/services/standings-reconcile.js` |  |
 | `GRIDIRON_START_ALL` | `scripts/launcher.mjs`, `scripts/start-all.mjs` |  |
+| `GRIDIRON_STARTUP_HEALTH` | `server/index.js`, `server/services/startup-health.js` |  |
 | `GRIDIRON_STEP_REGRET` | `server/services/campaign/planner.js` |  |
 | `GRIDIRON_STOPS` | `server/services/campaign/planner.js`, `server/services/campaign/stops.js`, `server/services/campaign/view.js` |  |
 | `GRIDIRON_TEAMRANKINGS_LOOKUP` | `server/services/nfl-teamrankings-lookup.js` |  |
@@ -193,13 +214,14 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_WARROOM_OBJECTIVES` | `scripts/campaign/produce-plans.mjs`, `server/services/campaign/never-give.js` | yes |
 | `GRIDIRON_WARROOM_PEOPLE_ENABLED` | `server/services/warroom-flag.js` | yes |
 | `GRIDIRON_WARROOM_PLANS` | `server/services/warroom-flag.js` | yes |
-| `GRIDIRON_WARROOM_PUSHES` | `scripts/campaign/produce-plans.mjs` | yes |
+| `GRIDIRON_WARROOM_PUSHES` | `scripts/campaign/daily-digest.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/daily-digest.js` | yes |
 | `GRIDIRON_WARROOM_RB_SHADOW` | `server/services/campaign/rb-shadow.js` |  |
 | `GRIDIRON_WARROOM_RESCORE_CACHE` | `scripts/campaign/produce-plans.mjs`, `scripts/campaign/rescore-cache.mjs` | yes |
 | `GRIDIRON_WARROOM_SKIPS` | `scripts/campaign/produce-plans.mjs` | yes |
 | `GRIDIRON_WEAKNESS` | `server/services/engine/producers/index.js`, `server/services/engine/producers/weakness.js`, `server/services/people/weakness.js` | yes |
+| `GRIDIRON_X` | `server/services/serve-pin.js` |  |
 
-## Settings (35)
+## Settings (37)
 
 Paths, hosts, budgets and limits. Not switches.
 
@@ -212,7 +234,7 @@ Paths, hosts, budgets and limits. Not switches.
 | `GRIDIRON_CHAT_HOST` | `scripts/chat-sync.mjs` |  |
 | `GRIDIRON_COACH_THREAD_TURNS` | `server/services/coach/threads.js` |  |
 | `GRIDIRON_DB_INTEGRITY_INTERVAL_HOURS` | `server/db/index.js` |  |
-| `GRIDIRON_DB_PATH` | `scripts/_bottom-up-team-total-worker.mjs`, `scripts/_prepare-validation-db.mjs`, `scripts/_recheck-variance-only.mjs` +88 more | yes |
+| `GRIDIRON_DB_PATH` | `scripts/_bottom-up-team-total-worker.mjs`, `scripts/_prepare-validation-db.mjs`, `scripts/_recheck-variance-only.mjs` +92 more | yes |
 | `GRIDIRON_ENGINE_LOCK` | `scripts/engine-daemon-bench.mjs`, `scripts/engine-daemon.mjs`, `server/services/engine/daemon/lock.js` |  |
 | `GRIDIRON_ENGINE_SCHEMA` | `server/services/nfl-engine-registry.js` |  |
 | `GRIDIRON_ESPN_PROJ_LEAGUES` | `server/services/espn-weekly-projection-capture.js` |  |
@@ -234,11 +256,13 @@ Paths, hosts, budgets and limits. Not switches.
 | `GRIDIRON_PULSE_LEAGUE` | `scripts/refresh-live-data.mjs` |  |
 | `GRIDIRON_REAL_DB_PATH` | `scripts/_prepare-validation-db.mjs`, `scripts/audit-props-total-consistency.mjs`, `scripts/backfill-historical-trial-registry.mjs` +1 more |  |
 | `GRIDIRON_REFRESH_LOCK` | `scripts/refresh-live-data.mjs` |  |
+| `GRIDIRON_RELEASE_NOTES_FILE` | `scripts/release-notes.mjs`, `server/services/release-notes.js` |  |
 | `GRIDIRON_RESEARCH_PYTHON` | `scripts/chat-sync.mjs`, `server/betting/nfl/forecast/python-artifact.js`, `server/services/league-chat-sync.js` |  |
 | `GRIDIRON_SEARCH_WIDE_BEAM` | `server/services/campaign/search-wide.js` |  |
 | `GRIDIRON_SEARCH_WIDE_CANDIDATES` | `server/services/campaign/search-wide.js` |  |
 | `GRIDIRON_SEARCH_WIDE_RESCORES` | `server/services/campaign/search-wide.js` |  |
 | `GRIDIRON_SMOKE_PORT` | `scripts/start-smoke.mjs` |  |
+| `GRIDIRON_TITLE_PATH` | `server/services/campaign/planner.js`, `server/services/campaign/title-path.js`, `server/services/campaign/view.js` |  |
 | `GRIDIRON_WARROOM_LEAGUES` | `scripts/campaign/produce-plans.mjs`, `scripts/refresh-live-data.mjs`, `server/services/campaign/plan-age.js` | yes |
 
 ## Secrets (5)

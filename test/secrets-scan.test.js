@@ -19,6 +19,8 @@ const rnd = (n, alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 };
 const HEX = '0123456789ABCDEF';
 const j = (...p) => p.join('');
+const G = rnd(32, HEX);
+const GUID = [G.slice(0, 8), G.slice(8, 12), G.slice(12, 16), G.slice(16, 20), G.slice(20)].join('-');
 
 // One synthetic sample per rule id. Adding a rule without a sample fails the coverage test below.
 const SAMPLES = {
@@ -33,7 +35,7 @@ const SAMPLES = {
   'stripe-live-key': `${j('sk', '_live_')}${rnd(32)}`,
   'fly-token': `${j('Fly', 'V1 ')}fm2_${rnd(120, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/')}`,
   'espn-s2-cookie': `${j('espn', '_s2')}=${rnd(60)}%2B${rnd(60)}%2F${rnd(60)}`,
-  'espn-swid': `${j('SW', 'ID')}: "{${rnd(8, HEX)}-${rnd(4, HEX)}-${rnd(4, HEX)}-${rnd(4, HEX)}-${rnd(12, HEX)}}"`,
+  'espn-swid': `${j('SW', 'ID')}: "{${GUID}}"`,
   'jwt': `Authorization: Bearer ${j('ey', 'J')}${rnd(30)}.${j('ey', 'J')}${rnd(60)}.${rnd(43, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')}`,
   'generic-assigned-secret': `const apiSecret = "${rnd(40, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/')}";`
 };

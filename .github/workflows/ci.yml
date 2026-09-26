@@ -59,6 +59,21 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Plan item 38. The repository is public: fail on credential patterns in
+      # any tracked file. Reports name file, line, rule and a fingerprint, never
+      # the value. Known false positives live in .secrets-allowlist with a reason.
+      - name: Secrets scan
+        run: npm run check:secrets
+
+      # Plan item 38. League-mate names come from the NAMES_DENYLIST repository
+      # secret (one name per line) and are never printed. Fork PRs get no
+      # secrets, so the step then passes with a SKIPPED warning rather than a
+      # silent green; on this repository's own PRs and on main it always runs.
+      - name: Names scan
+        run: node scripts/check-names-leak.mjs --denylist-env NAMES_DENYLIST --skip-if-none --tracked
+        env:
+          NAMES_DENYLIST: ${{ secrets.NAMES_DENYLIST }}
+
       # Fails when a surface starts depending on something nothing produces --
       # a page that still renders, using a constant or an empty list, and looks
       # fine. Derived from the source by scripts/wiring-map.mjs; reads no

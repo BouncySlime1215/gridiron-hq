@@ -129,7 +129,7 @@ test('CI: --denylist-env reads names from an env var, finds a hit, prints no nam
 });
 
 test('CI: --denylist-env over every tracked file passes when no name is committed', () => {
-  const { code, out } = runCli(['--denylist-env', 'TEST_NAMES', '--tracked'], { TEST_NAMES: 'Zedquill-not-in-repo-7f3a' });
+  const { code, out } = runCli(['--denylist-env', 'TEST_NAMES', '--tracked'], { TEST_NAMES: ['Zedquill', 'not-in-repo', '7f3a'].join('-') });
   assert.equal(code, 0, out);
   assert.match(out, /PASS files/);
 });

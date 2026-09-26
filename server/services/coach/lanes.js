@@ -36,6 +36,7 @@ import { verifyAnswer } from './verify.js';
 import { peopleRead, pulseRead } from './brain-tools.js';
 import { readChatTradeInterest } from '../people/chat-trade-interest.js';
 import { jevLane, jevLines } from './jev-lane.js';
+import { neutralAnswer } from './answer-shape.js';
 import { reconcile, cardFor } from './reconcile.js';
 import { db, row } from '../../db/index.js';
 
@@ -44,8 +45,8 @@ export const LANES_ENV = 'GRIDIRON_COACH_LANES';
 export const lanesOn = (env = process.env) => env[LANES_ENV] !== '0';
 
 export const LANE_MODELS = Object.freeze({ numbers: COACH_MODEL, people: COACH_MODEL, synth: COACH_MODEL, synth_trade: 'claude-opus-5-5' });
-export const PEOPLE_LABEL = 'chat read (ungraded)';
-export const JEV_LABEL = 'Jev, chat read (ungraded)';
+export const PEOPLE_LABEL = 'from chat, unverified';
+export const JEV_LABEL = 'Jev, from chat, unverified';
 const TRADE = /\b(trades?|offers?|deals?|packages?|swap|flip|accept|counter)\b/i;
 const PEOPLE_OUTPUT_TOKENS = 3000;
 const SYNTH_OUTPUT_TOKENS = 4000;
@@ -116,7 +117,7 @@ export function peopleSignals({ leagueId, focus = {}, database = db }) {
 
 const PEOPLE_SYSTEM = `You are the people lane of Coach, a personal fantasy-football app. You read only the STORED PEOPLE SIGNALS given to you: labels about one league-mate (what he wants, is shopping, calls untouchable, how open to trading he reads, his labelled chat statements, what his trade screenshots showed). They are ungraded reads, not facts, and they never override a number.
 
-Answer the question from those signals only. Every claim must cite the signal cells it stands on (for example r1#0.wants). Never state a number that is not in a cited cell. Never suggest a trade of your own and never offer to send anything. If the signals say nothing useful, return no claims and one refusal saying so.
+Refer to the league-mate as they, them or their, never he, him or his. Answer the question from those signals only. Every claim must cite the signal cells it stands on (for example r1#0.wants). Never state a number that is not in a cited cell. Never suggest a trade of your own and never offer to send anything. If the signals say nothing useful, return no claims and one refusal saying so.
 
 Reply with ONLY this JSON object: {"claims":[{"text":"...","cites":["r1#0.column"]}],"refusals":["..."],"as_of":null}`;
 
@@ -170,7 +171,7 @@ const SYNTH_SYSTEM = `You write Coach's one reply from two lanes that answered t
 
 NUMBERS lane: grounded in the plan and the app's data. PEOPLE lane: ungraded reads of stored chat signals about a league-mate. Numbers win: a people read never changes a number and never makes a trade look better than the numbers say.
 
-Write short claims a person can act on. Every claim keeps the cites of the lane lines it comes from (copy them exactly) and says which lane it rests on ("numbers", "people" or "both"). A claim resting on the people lane must say it is a chat read. Never write a number that is not in the lines you were given.
+Write short claims a person can act on. Every claim keeps the cites of the lane lines it comes from (copy them exactly) and says which lane it rests on ("numbers", "people" or "both"). A claim resting on the people lane must end with "(from chat, unverified)". Refer to any league-mate as they, them or their, never he, him or his. Never write a number that is not in the lines you were given.
 
 If the lanes agree, say so in one claim. If they disagree, fill "disagreement" with one plain sentence in the form "Numbers say X; chat suggests Y because Z." and "action" with what to do (only something the numbers lane already supports). Otherwise both are null. Never suggest sending anything for Nick, and never suggest a trade that is not in the numbers lane.
 
@@ -180,7 +181,7 @@ async function synthesize({ question, a, b, ledger, remap, model, jev = false })
   const lines = (lane, claims, map = x => x) => claims.map(c => ({ lane, text: c.text, cites: c.cites.map(map) }));
   const given = [...lines('numbers', a.answer.claims), ...lines('people', b.answer.claims, remap)];
   const who = jev ? 'The PEOPLE lane is Jev (a people and chat evaluator) reading Claude\'s numbers lane; call it "Jev" and write a disagreement as "Numbers say X; Jev reads Y because Z."'
-    : 'The PEOPLE lane is Claude reading stored people signals (Jev is not wired here); call it "the chat read".';
+    : 'The PEOPLE lane is Claude reading stored people signals (Jev is not wired here); call it "the chat read". Refer to any league-mate as they, them or their, never he, him or his.';
   const prompt = `QUESTION: ${question}\n\n${who}\n\nLANE LINES:\n${JSON.stringify(given)}\n\nNUMBERS LANE REFUSALS: ${JSON.stringify(a.answer.refusals)}`;
   const msg = await callClaude({ feature: 'coach:synth', model, maxTokens: SYNTH_OUTPUT_TOKENS, system: SYNTH_SYSTEM,
     messages: [{ role: 'user', content: prompt }], outputSchema: SYNTH_SCHEMA });
@@ -189,7 +190,7 @@ async function synthesize({ question, a, b, ledger, remap, model, jev = false })
   const claims = (parsed.claims ?? []).filter(c => c?.text).map(c => {
     const cites = (c.cites ?? []).map(String);
     const lane = cites.every(x => peopleCites.has(x)) && cites.length ? 'people' : (cites.some(x => peopleCites.has(x)) ? 'both' : 'numbers');
-    const text = lane === 'people' && !/chat read/i.test(c.text) ? `${c.text} (${PEOPLE_LABEL})` : c.text;
+    const text = lane === 'people' && !/from chat/i.test(c.text) ? `${c.text} (${PEOPLE_LABEL})` : c.text;
     return { text, cites, lane };
   });
   const all = given.flatMap(g => g.cites);
@@ -202,7 +203,7 @@ async function synthesize({ question, a, b, ledger, remap, model, jev = false })
 
 /** When the synthesis cannot stand up: lane A as it was, lane B's lines under their label. */
 function fallback(a, b, remap) {
-  const people = b.answer.claims.map(c => ({ text: `Chat read (ungraded): ${c.text}`, cites: c.cites.map(remap), lane: 'people' }));
+  const people = b.answer.claims.map(c => ({ text: `From chat, unverified: ${c.text}`, cites: c.cites.map(remap), lane: 'people' }));
   return { claims: [...a.answer.claims.map(c => ({ ...c, lane: 'numbers' })), ...people], refusals: a.answer.refusals, as_of: a.answer.as_of };
 }
 
@@ -217,7 +218,7 @@ const cacheKey = (threadId, question, focus) => `${threadId}|${question}|${JSON.
  * Returns askCoach's shape with `answer`/`ledger` replaced by the reply and
  * `lanes` describing each lane (for the "Numbers + People" reveal).
  */
-export async function answerWithLanes({ question, askArgs, focus = {}, leagueId, threadId = null, signals = undefined }) {
+export async function answerWithLanes({ question, askArgs, focus = {}, leagueId, threadId = null, signals = undefined, partnerLabel = null }) {
   const key = cacheKey(threadId, question, focus);
   if (threadId != null && cache.has(key)) return { ...cache.get(key), cached: true };
   const people = signals === undefined ? peopleSignals({ leagueId, focus }) : signals;
@@ -228,6 +229,11 @@ export async function answerWithLanes({ question, askArgs, focus = {}, leagueId,
   }
   // Lane 1: Claude solo, on the numbers and the plan.
   const a = await askCoach({ ...askArgs, feature: 'coach:lane_numbers' });
+  // COACH-V2 drawer: lane 1's answer goes out first (the drawer shows it while Jev reads), then lane 2 starts.
+  const emit = typeof askArgs?.onEvent === 'function' ? askArgs.onEvent : () => {};
+  // The partial answer Nick sees while Jev reads: league-mates already "they", as in the final answer.
+  emit({ t: 'lane1', answer: neutralAnswer(a.answer).answer, ledger: a.ledger });
+  emit({ t: 'lane2_start', who: partnerLabel ?? null });
   // Lane 2: Claude -> Jev. Jev reads lane 1's verified lines and the stored signals and leads the take.
   const j = await jevLane({ question, laneOne: a.answer, signals: people, focus });
   let b;

@@ -83,19 +83,9 @@ export function numbersPrompt(items) {
   return `ITEMS:\n${JSON.stringify(items.map(i => ({ key: itemKey(i), kind: i.item_type, facts: factsFor(i) })))}`;
 }
 
-/** Gendered words a league-mate line may not use, and their neutral forms where the swap is safe. */
-const NEUTRAL = [[/\bhimself\b/gi, 'themselves'], [/\bhim\b/gi, 'them'], [/\bhis\b/gi, 'their'], [/\bhe's\b/gi, "they're"],
-  [/\bhe is\b/gi, 'they are'], [/\bhe was\b/gi, 'they were'], [/\bhe has\b/gi, 'they have'], [/\bhe does\b/gi, 'they do'],
-  [/\bhe doesn't\b/gi, "they don't"], [/\bhe won't\b/gi, "they won't"], [/\bhe will\b/gi, 'they will'], [/\bhe would\b/gi, 'they would'],
-  [/\bhe can\b/gi, 'they can'], [/\bhe might\b/gi, 'they might']];
-export const GENDERED = /\b(he|him|his|himself|she|her|hers|herself)\b/i;
-
-/** A league-mate line in neutral words; null when a gendered word is left that cannot be swapped safely. */
-export function neutral(text) {
-  let t = text;
-  for (const [rx, to] of NEUTRAL) t = t.replace(rx, m => (m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to));
-  return GENDERED.test(t) ? null : t;
-}
+// The one pronoun guard lives in people/neutral.js (shared with Coach's answers); re-exported for callers here.
+export { neutral, GENDERED } from '../people/neutral.js';
+import { neutral } from '../people/neutral.js';
 
 /** A why line that is safe to show: short, no digits, no quotes, neutral. Null when it is not. */
 export function cleanWhy(why) {

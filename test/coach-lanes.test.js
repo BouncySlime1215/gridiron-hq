@@ -7,7 +7,7 @@
  *     when nobody is in focus
  *   - a disagreement comes back as its own line ("numbers say X; chat suggests Y")
  *   - the synthesis passes verify.js or is not shown: an unsupported number
- *     falls back to lane A plus lane B's lines under "Chat read (ungraded)"
+ *     falls back to lane A plus lane B's lines under "From chat, unverified"
  *   - raw chat text never reaches a Coach prompt: a speech-shaped value in a
  *     stored profile is dropped before lane B is asked
  *   - each lane logs its model and cost in ai_usage under its own feature
@@ -134,16 +134,27 @@ test('lane 2 is Claude -> Jev: Jev reads lane 1 and leads; the reply compares th
     disagreement: 'Numbers say go; Jev reads wait because of his price.' } });
   setAnthropicClientForTesting(client);
   try {
-    const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
+    const events = [];
+    const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 }, onEvent: e => events.push(e) });
     assert.equal(states.length, 1);
+    // COACH-V2 drawer: lane 1 goes out as a partial answer before Jev starts, and names the partner by team.
+    const at = t => events.findIndex(e => e.t === t);
+    assert.ok(at('lane1') >= 0 && at('lane1') < at('lane2_start'), 'lane 1 is sent before lane 2 starts');
+    assert.ok(events[at('lane1')].answer.claims.length > 0, 'the partial has lane 1 lines');
+    // League-mates are "they" in what Nick sees: the synthesis said "his yes" and "his price".
+    const GENDERED_WORD = /\b(he|his|him|himself|he's)\b/i;
+    for (const t of [...out.answer.claims.map(c => c.text), out.answer.shape.verdict.text, out.answer.shape.disagreement, out.numbers_people.people.why, out.lanes.disagreement, ...out.lanes.people.claims, ...(out.thread?.followups ?? [])]) {
+      assert.doesNotMatch(t, GENDERED_WORD, t);
+    }
+    assert.equal(out.lanes.disagreement, 'Numbers say go; Jev reads wait because of their price.');
     assert.match(states[0], /Fixture Receiver is the player in question\./, "Jev reads lane 1's verified line");
     assert.match(states[0], /MANAGER M1/);
     for (const name of MANAGER_NAMES) assert.ok(!states[0].includes(name), 'no manager name in the Jev state');
     assert.doesNotMatch(states[0], /SENTINEL-CHAT-LINE|roster_id/, 'no chat text, no roster id');
     assert.equal(out.lanes.title, 'Claude + Jev');
     assert.equal(out.lanes.people.source, 'jev');
-    assert.deepEqual(out.lanes.people.claims, ['Jev: 31% he takes it as sent (chat read, ungraded).',
-      'Jev: wait, mainly on price (chat read, ungraded).', "Jev doubts Claude's call: only 35% that it is right for him (chat read, ungraded)."]);
+    assert.deepEqual(out.lanes.people.claims, ['Jev: 31% they take it as sent (from chat, unverified).',
+      'Jev: wait, mainly on price (from chat, unverified).', "Jev doubts Claude's call: only 35% that it is right for them (from chat, unverified)."]);
     assert.equal(out.lanes.synthesis, 'model');
     assert.equal(out.lanes.verdict, 'differ');
     assert.match(out.lanes.disagreement, /^Numbers say .*; Jev reads /);
@@ -190,7 +201,7 @@ test('a synthesis with an unsupported number is not shown: lane A plus the label
   const out = await chatTurn({ userId: user, leagueId: 4, question: 'is he likely to bite?', hasModel: true, context: { league: 4 } });
   assert.equal(out.lanes.synthesis, 'fell_back');
   assert.doesNotMatch(out.answer.claims.map(c => c.text).join(' '), /87%/);
-  assert.ok(out.answer.claims.some(c => /^Chat read \(ungraded\): /.test(c.text)));
+  assert.ok(out.answer.claims.some(c => /^From chat, unverified: /.test(c.text)));
   assert.ok(out.answer.claims.some(c => c.lane === 'numbers'));
 });
 

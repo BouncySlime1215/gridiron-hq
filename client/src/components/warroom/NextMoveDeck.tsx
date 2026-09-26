@@ -296,6 +296,9 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
       <span className="wr-tag wr-src">{move.rank === 1 ? 'Best plan' : `Plan ${move.rank}`}</span>
       <span className="wr-sp" />
       <span className="wr-hint">When to send: <Val f={move.steps[0].send_when} fmt={v => v} /></span>
+      {view.reply_clock?.[String(move.steps[0].partner)] && (
+        <span className="wr-hint" data-testid="deck-send-when">{view.reply_clock[String(move.steps[0].partner)].text}</span>
+      )}
     </>
   ) : null;
 

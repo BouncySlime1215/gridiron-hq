@@ -182,6 +182,9 @@ export interface Destination {
 
 export interface Snapshot { id: string; as_of: string; schema?: string; producer?: string; producer_version?: string }
 
+/** REPLY-CLOCK: the league-mate's send-when line; `guess` below the answer threshold. */
+export interface SendWhenLine { text: string; guess: boolean; n: number }
+
 export interface WarRoomView {
   enabled: boolean;
   preview?: boolean;
@@ -212,6 +215,8 @@ export interface WarRoomView {
   risk_modes?: Field<RiskModeRow[]>;
   teams?: Field<Record<string, TeamName>>;
   partners?: Field<Partner[]>;
+  /** REPLY-CLOCK (flag '1'): per league-mate team id, one ready-to-draw "send when" line. */
+  reply_clock?: Record<string, SendWhenLine>;
   /** PLAYER-SCORE: the blue-chip board (people/player-score.js via the producer). */
   blue_chips?: Field<BlueChipBoardData>;
 }

@@ -368,3 +368,28 @@ test('Coach: an answer about an item with a read carries that read (stored with 
     assert.equal(off.numbers_people, undefined);
   } finally { delete process.env.GRIDIRON_NUMBERS_PEOPLE; }
 });
+
+test('REPLY-CLOCK: with GRIDIRON_REPLY_CLOCK=1 a league-mate\'s item carries one "send when" line; off or shadow, the view is unchanged', () => {
+  run(`CREATE TABLE IF NOT EXISTS league_transactions_raw (league_id INTEGER, season INTEGER, tx_id TEXT, type TEXT, execution_type TEXT,
+    team_id INTEGER, related_tx_id TEXT, proposed_at TEXT, items_json TEXT)`);
+  const items = JSON.stringify([{ fromTeamId: 1, toTeamId: 3 }, { fromTeamId: 3, toTeamId: 1 }]);
+  run(`INSERT INTO league_transactions_raw VALUES (4, 2026, 'rc-a', 'TRADE_PROPOSAL', 'EXECUTE', 1, NULL, '2026-09-01T23:00:00.000Z', ?)`, items);
+  run(`INSERT INTO league_transactions_raw VALUES (4, 2026, 'rc-b', 'TRADE_DECLINE', 'EXECUTE', 3, 'rc-a', '2026-09-02T02:00:00.000Z', NULL)`);
+  const strip = v => JSON.stringify({ ...v, items: v.items.map(({ send_when, ...i }) => i) });
+  try {
+    delete process.env.GRIDIRON_REPLY_CLOCK;
+    const off = numbersPeopleView({ leagueId: 4, entry: entry4(), now: 0 });
+    assert.ok(off.items.every(i => !('send_when' in i)));
+    process.env.GRIDIRON_REPLY_CLOCK = 'shadow';
+    assert.equal(JSON.stringify(numbersPeopleView({ leagueId: 4, entry: entry4(), now: 0 })), JSON.stringify(off));
+    process.env.GRIDIRON_REPLY_CLOCK = '1';
+    const on = numbersPeopleView({ leagueId: 4, entry: entry4(), now: 0 });
+    assert.equal(strip(on), JSON.stringify(off), 'every served number unchanged');
+    const withLine = on.items.filter(i => i.send_when);
+    assert.ok(withLine.length > 0 && withLine.every(i => i.partner === '3'));
+    assert.equal(withLine[0].send_when.text, 'Best time to send: Tue evening (replies within ~3\u00a0h) · answers 1 of 1 (guess)');
+  } finally {
+    delete process.env.GRIDIRON_REPLY_CLOCK;
+    run(`DELETE FROM league_transactions_raw WHERE tx_id IN ('rc-a', 'rc-b')`);
+  }
+});

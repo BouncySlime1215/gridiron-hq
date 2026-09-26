@@ -21,6 +21,8 @@ export interface LaneRead {
 export interface NPItem {
   key: string; item_type: 'move' | 'target' | 'partner'; item_id: string; title: string; subtitle: string | null;
   partner?: string | null; players: { id: string; name: string }[];
+  /** REPLY-CLOCK (flag '1'): the league-mate's "send when" line, drawn in the people lane. */
+  send_when?: { text: string; guess: boolean; n: number } | null;
   numbers: LaneRead; people: LaneRead; verdict: Verdict; read_at?: string | null;
   history: { week: number | null; numbers: Stance | null; people: Stance | null; verdict: Verdict }[];
 }
@@ -57,7 +59,7 @@ function Cites({ read }: { read: LaneRead }) {
   );
 }
 
-function Lane({ read, people }: { read: LaneRead; people?: boolean }) {
+function Lane({ read, people, sendWhen }: { read: LaneRead; people?: boolean; sendWhen?: NPItem['send_when'] }) {
   const lane = people ? LANES.people : LANES.numbers;
   return (
     <div className="min-w-0 rounded-[var(--r-tile)] bg-[var(--c-soft)] p-3" data-testid={`np-lane-${people ? 'people' : 'numbers'}`}>
@@ -69,6 +71,7 @@ function Lane({ read, people }: { read: LaneRead; people?: boolean }) {
       {people && <div className="ds-note mb-1">{peopleLabel(read.label)}</div>}
       <p className={read.skipped ? 'ds-note' : 'text-sm'}>{whyOf(read, people)}</p>
       <Cites read={read} />
+      {sendWhen && <div className="ds-note mt-1.5" data-testid="np-send-when">{sendWhen.text}</div>}
     </div>
   );
 }
@@ -98,7 +101,7 @@ function Compact({ item }: { item: NPItem }) {
         {open && (
           <div className="mt-2 space-y-2" data-testid="np-compact-detail">
             <div><div className="ds-note">Claude · numbers{item.numbers.basis && BASIS[item.numbers.basis] ? ` · on ${BASIS[item.numbers.basis]}` : ''}</div><Cites read={item.numbers} /></div>
-            <div><div className="ds-note">Jev · people · {peopleLabel(item.people.label)}{item.people.basis && BASIS[item.people.basis] ? ` · on ${BASIS[item.people.basis]}` : ''}</div><Cites read={item.people} /></div>
+            <div><div className="ds-note">Jev · people · {peopleLabel(item.people.label)}{item.people.basis && BASIS[item.people.basis] ? ` · on ${BASIS[item.people.basis]}` : ''}</div><Cites read={item.people} />{item.send_when && <div className="ds-note mt-1" data-testid="np-send-when">{item.send_when.text}</div>}</div>
           </div>
         )}
         <div className="mt-1 flex justify-end">
@@ -133,7 +136,7 @@ export default function NumbersPeopleCard({ item, variant = 'full', headshots = 
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <Lane read={item.numbers} />
-          <Lane read={item.people} people />
+          <Lane read={item.people} people sendWhen={item.send_when} />
         </div>
         {onAsk && (
           <div className="mt-2 flex justify-end">

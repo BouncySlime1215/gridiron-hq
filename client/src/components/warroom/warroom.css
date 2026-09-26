@@ -168,7 +168,7 @@
    No layout shift: the bar and the reason row keep their height; the leaving card is an
    absolute layer in a clipped stage; motion is transform/opacity only. */
 .wr-swipe { display: flex; flex-direction: column; min-width: 0; }
-.wr-swipe-bar { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 4px; }
+.wr-swipe-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 4px; }
 .wr-swipe-pos { font-variant-numeric: tabular-nums; min-width: 7ch; }
 .wr-swipe-stage { position: relative; overflow: hidden; }
 .wr-swipe-card { animation: wr-swipe-in .22s ease both; touch-action: pan-y; will-change: transform; }

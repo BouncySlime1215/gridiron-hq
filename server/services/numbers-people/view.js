@@ -18,6 +18,7 @@ import { PEOPLE_LABEL } from '../coach/lanes.js';
 import { JEV_CITE_LABELS } from './lanes.js';
 import { bestFirst, bandOf } from './order.js';
 import { keyItems } from './items.js';
+import { sendWhenLines } from '../eval/reply-latency.js';
 
 const ok = f => f?.status === 'ok';
 
@@ -134,9 +135,13 @@ function citedFacts(r) {
 }
 
 /** One stored read as the shared card (NumbersPeopleCard) shows it. */
-function shapeItem(r, { entry, n, history, readAt = null }) {
+function shapeItem(r, { entry, n, history, readAt = null, clock = null }) {
+  const d = describe(r, entry, n);
+  // REPLY-CLOCK (flag '1'): the league-mate's "send when" line, drawn in the people lane.
+  const sendWhen = clock && d.partner != null ? clock[d.partner] ?? null : null;
   return {
-    key: `${r.item_type}:${r.item_id}`, item_type: r.item_type, item_id: r.item_id, ...describe(r, entry, n),
+    ...(sendWhen ? { send_when: sendWhen } : {}),
+    key: `${r.item_type}:${r.item_id}`, item_type: r.item_type, item_id: r.item_id, ...d,
     numbers: laneOut(r.lane_a, { nameOf: n.player }), people: laneOut(r.lane_b, { nameOf: n.player, people: true }),
     verdict: r.verdict, read_at: readAt ?? r.created_at ?? null,
     history: (history.get(`${r.item_type}:${r.item_id}`) ?? []).map(h => ({ week: h.week, numbers: h.lane_a?.stance ?? null,
@@ -159,7 +164,8 @@ export function readForFocus({ leagueId, focus, entry = null, database = default
     ?? (focus.players ?? []).map(p => find('target', p)).find(Boolean)
     ?? find('partner', focus.partner);
   if (!r) return null;
-  return shapeItem(r, { entry, n: namer(entry), history: weeklyHistory(database, leagueId, [r]), readAt: last.created_at });
+  return shapeItem(r, { entry, n: namer(entry), history: weeklyHistory(database, leagueId, [r]), readAt: last.created_at,
+    clock: sendWhenLines(database, leagueId) });
 }
 
 /**
@@ -187,6 +193,7 @@ export function numbersPeopleView({ leagueId, entry = null, database = defaultDb
   const summary = { agree: 0, differ: 0, same_but: 0, no_people_read: 0, both_go: 0, split: 0, both_wait: 0, both_avoid: 0 };
   const band = { go: 'both_go', split: 'split', wait: 'both_wait', avoid: 'both_avoid' };
   const facts = factsByKey(entry);
+  const clock = sendWhenLines(database, leagueId);
   const cards = reads.map((r, i) => {
     summary[r.verdict] += 1;
     const claude = r.lane_a?.stance ?? null;
@@ -194,7 +201,7 @@ export function numbersPeopleView({ leagueId, entry = null, database = defaultDb
     const b = band[bandOf(claude, jev)];
     if (b) summary[b] += 1;
     const key = `${r.item_type}:${r.item_id}`;
-    return { item: shapeItem(r, { entry, n, history }), claude, jev, order: i, facts: facts.get(key) ?? citedFacts(r) };
+    return { item: shapeItem(r, { entry, n, history, clock }), claude, jev, order: i, facts: facts.get(key) ?? citedFacts(r) };
   });
   // Best first (order.js): both say go at the top, both say avoid at the bottom.
   const items = bestFirst(cards).map(c => c.item);

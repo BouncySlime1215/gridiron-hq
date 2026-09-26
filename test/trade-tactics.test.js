@@ -740,6 +740,16 @@ test('G5c: the cutoff is a parsed date — a space-separated later row must not 
   assert.equal(later.get('2').decisions_n, 5, 'and it must be read once the clock passes it');
 });
 
+test('G5c2: TM-34 last_action_at is his newest own move up to the cutoff, never a draft pick or league processing', () => {
+  const asOf = tactics.timingRead(LEAGUE, { season: SEASON, now: NOW });
+  const later = tactics.timingRead(LEAGUE, { season: SEASON, now: '2026-09-20T00:00:00Z' });
+  const h = asOf.get('2');
+  assert.ok(h.actions_n > 0 && typeof h.last_action_at === 'string', JSON.stringify(h.last_action_at));
+  assert.ok(Date.parse(h.last_action_at) <= Date.parse(NOW), 'nothing after the cutoff');
+  assert.ok(Date.parse(later.get('2').last_action_at) >= Date.parse(h.last_action_at), 'a later cutoff never moves it back');
+  for (const [, e] of asOf) if (e.actions_n === 0) assert.equal(e.last_action_at, null, `roster ${e.roster_id}`);
+});
+
 // ================================================= G5d transaction freshness
 /**
  * The same rule as the manager read (docs/tdd/transactions-as-of.tdd.md), on the

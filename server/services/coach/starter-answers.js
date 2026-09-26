@@ -32,6 +32,7 @@ import { warRoomPlansPath } from '../warroom-flag.js';
 import { safeToSend, broken, saidLately } from './preset-claims.js';
 import { readStatements } from './brief-inputs.js';
 import { db } from '../../db/index.js';
+import { outOfDateReason } from '../campaign/plan-age.js';
 
 export const STARTER_INTENTS = Object.freeze(['next_move', 'why_nothing', 'all_in', 'message_first', 'next_alternative',
   'safe_to_send', 'said_lately', 'broken']);
@@ -158,6 +159,8 @@ export async function starterAnswer({ question, intent, leagueId = null, plansPa
   const league = leagueId ?? TARGET_LEAGUE;
   const entry = leagueEntry(file, league);
   if (!entry) return refuse(`League ${league} is not in the plans file.`);
+  const stale = outOfDateReason(entry, file.leagues);
+  if (stale) return refuse(stale);
   const { claims, dropped, numbers_checked } = groundStarter(starterClaims(intent, { entry, ledger }), ledger);
   const asOf = file.generated_at ? `plans file of ${file.generated_at}` : 'plans file';
   const refusals = claims.length ? [] : ['Coach could not ground any line of this answer in the plan, so it is not showing one.'];
@@ -184,6 +187,9 @@ async function planEntry({ leagueId, plansPath }) {
   const league = leagueId ?? TARGET_LEAGUE;
   const entry = leagueEntry(file, league);
   if (!entry) return { refusal: `League ${league} is not in the plans file.` };
+  // PLANS-EXPIRE (integration-10a): the War Room hides an out-of-date plan, so Coach does not answer from it.
+  const stale = outOfDateReason(entry, file.leagues);
+  if (stale) return { refusal: stale };
   return { file, entry, league };
 }
 

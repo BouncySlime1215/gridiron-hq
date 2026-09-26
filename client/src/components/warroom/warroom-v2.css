@@ -451,6 +451,8 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
   .wr-hero-card { padding: 20px 16px; gap: 20px; border-radius: 20px; }
   .wr-hero-who { font-size: 24px; }
   .wr-plan-switch { margin: -36px 0 8px auto; }
+  /* Inside Trades / Today on a phone the pager takes its own line under the tab row, never beside it. */
+  .wr-inline .wr-plan-switch { margin: 0 0 8px auto; }
   .wr-hero-deal { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .wr-hero-arrow { transform: rotate(90deg); justify-self: center; margin: 0; width: 28px; height: 28px; }
   .wr-pchip-n { font-size: 16px; }

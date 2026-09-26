@@ -74,6 +74,10 @@ button.ds-chip:active { transform: scale(.97); }
 
 .ds-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--c-soft); box-shadow: inset 0 0 0 1px var(--c-line); border-radius: 999px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .ds-tabs::-webkit-scrollbar { display: none; }
+/* A row with more tabs than fit scrolls sideways; the edge that hides tabs fades out (Tabs sets data-fade). */
+.ds-tabs[data-fade="end"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+.ds-tabs[data-fade="start"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+.ds-tabs[data-fade="both"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 .ds-tab { flex: none; border: 0; background: none; border-radius: 999px; padding: 6px 14px; font: 500 14px/1.2 var(--font-body); color: var(--c-muted); cursor: pointer; white-space: nowrap;
   transition: background-color var(--t), color var(--t); }
 .ds-tab:hover { color: var(--c-ink); }
@@ -208,9 +212,6 @@ button.ds-chip:active { transform: scale(.97); }
 /* The page area is at least a screen tall, so the data credit under it starts below the fold and a
    page filling in never drags it (and everything above it) around on first draw. */
 .app-main { min-height: calc(100dvh - 3.5rem); }
-
-/* A tab row that wraps onto a second line on a phone instead of scrolling sideways (Trades). */
-.ds-tabs-wrap .ds-tabs { flex-wrap: wrap; border-radius: 18px; overflow-x: visible; }
 
 /* Trades → Build: the summary bar, above the two cards (in the flow; nothing floats over the rows). */
 .build-bar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;

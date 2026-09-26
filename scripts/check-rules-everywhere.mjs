@@ -18,6 +18,8 @@
  *   every get scores 83+ on the served blue-chip board (unscored fails) | every player priced by FantasyCalc (fc_value)
  *   Nick never gives more fc_value than he gets (the +12% depth-only 2-for-1 exception needs lineup
  *   points and title odds, which no surface here carries, so it never applies)
+ *   STEP-REGRET: every served step of the War Room plan (the file and the view as served) gains title
+ *   odds on its own (a step at or below 0 breaks "every move beats doing nothing")
  *
  * FantasyPros exposure (Nick's rule: never displayed or committed): the War Room view and Coach's
  * plan_read of the blue-chip board, as served, must carry no key matching /^fp_|fantasypros/i.
@@ -44,6 +46,7 @@ const proposals = await import('../server/services/trade-proposals.js');
 const negotiate = await import('../server/services/warroom-negotiate.js');
 const negotiateRoute = await import('../server/routes/warroom-negotiate.js');
 const coachTools = await import('../server/services/coach/tools.js');
+const newsLag = await import('../server/services/news-lag-trader.js');
 const neverGive = await import('../server/services/campaign/never-give.js');
 const { warRoomPlansPath, WARROOM_ENV } = await import('../server/services/warroom-flag.js');
 db.exec('PRAGMA query_only = ON');
@@ -140,6 +143,19 @@ surface('offer-many (290 + best priced)', () => {
   const out = engine.offerForMany(lgFull, { myTeamId: ME, targetIds: [290, ...(pick ? [Number(pick)] : [])] });
   return { packages: (out.ladders ?? []).flatMap(l => fromLadder(l, ids(l.targets))), dropped: out.dropped_by_rule };
 });
+surface('news-edge (buys and claims)', () => {
+  const raw = newsLag.newsOpportunities(LEAGUE, { myTeamId: ME, hours: 24 * 21 });
+  if (raw.error) return { skip: `not run: ${raw.error}` };
+  // Served the way the route serves it (routes/trades.js /news-edge): through news-lag-trader.js#gateNewsEdge.
+  const out = newsLag.gateNewsEdge(raw, neverGive.ruleGate({ row, rows }, { leagueId: LEAGUE, teamId: ME }));
+  // A buy is a trade: every rule. A claim is not: only never get and no buy-back apply, so its
+  // package is checked with those two alone (a get of 290 or of a sold player is still a violation).
+  const buys = (out.opportunities ?? []).filter(o => ['buy_beneficiary', 'buy_low'].includes(o.action?.kind));
+  const claims = (out.opportunities ?? []).filter(o => o.action?.kind === 'claim_waiver');
+  const bad = claims.map(o => S(o.action.target_id)).filter(id => NEVER_GET.has(id) || sold.has(id));
+  return { packages: [...buys.map(o => ({ give: [], get: ids([o.action.target_id]) })),
+    ...bad.map(id => ({ give: [], get: [id] }))], dropped: out.dropped_by_rule };
+});
 surface('title-trades', () => {
   const out = titleOddsTrades(LEAGUE, { teamId: ME, shortlist: 4, runs: 200 });
   if (out.error) return { skip: `not run: ${out.error}` };
@@ -182,6 +198,20 @@ surface('coach draft message', () => {
   return { packages: out.action ? [{ give: ['80'], get: [] }] : [], dropped: out.dropped_by_rule };
 });
 
+/* ------------------------------------------------------------ STEP-REGRET on the served numbers */
+// Nick's rule "every move beats doing nothing, per step" (restated in scripts/rules/step-regret-check.mjs, not
+// imported from the code it checks). The plans file as the producer wrote it, and the War Room view as served.
+const { servedStepRegret } = await import('./rules/step-regret-check.mjs');
+const stepRegretResult = (name, entry) => {
+  if (!entry) { results.push({ name, skip: 'not run: no plans entry for this league' }); return; }
+  const moves = [...(entry.next_move?.status === 'ok' ? [entry.next_move.value] : []), ...(entry.alternatives?.status === 'ok' ? entry.alternatives.value ?? [] : [])];
+  const breaks = servedStepRegret(entry);
+  results.push({ name, n: moves.reduce((k, m) => k + (m.steps?.length ?? 0), 0), dropped: null,
+    bad: breaks.map(b => ({ give: [b.move_id], get: [`step ${b.step}`], v: [`step ${b.step} of ${b.move_id} (${b.where}) gains ${(b.delta * 100).toFixed(2)} pts of title odds, not above 0`] })) });
+};
+stepRegretResult('war-room plans file: STEP-REGRET', fs.existsSync(plansFile)
+  ? (JSON.parse(fs.readFileSync(plansFile, 'utf8')).leagues ?? []).find(l => S(l.league) === S(LEAGUE)) : null);
+
 /* ------------------------------------------------------------ FantasyPros exposure */
 // Nick's rule: FantasyPros is never displayed or committed, so no client payload carries its fields.
 // Each client-facing view is built as the route serves it (through the /api guard when it exists) and
@@ -214,6 +244,13 @@ await fpSurface('fantasypros: war-room view', async () => {
   if (!view?.enabled) return { skip: 'not run: War Room view is off' };
   return fpKeys(asServed(view));
 });
+{
+  process.env[WARROOM_ENV] = '1';
+  const { warRoomView } = await import('../server/services/war-room-view.js');
+  const view = await warRoomView(LEAGUE);
+  if (view?.enabled) stepRegretResult('war-room view as served: STEP-REGRET', view);
+  else results.push({ name: 'war-room view as served: STEP-REGRET', skip: 'not run: War Room view is off' });
+}
 await fpSurface('fantasypros: coach plan_read blue_chips', async () => {
   const { planRead } = await import('../server/services/coach/brain-tools.js');
   const cols = new Map();

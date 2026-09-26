@@ -74,6 +74,7 @@ export const EXCLUSION_RULES = Object.freeze([
 ]);
 const SCREENSHOT = 'observed_screenshot';
 const DEDUP_WINDOW_MS = 72 * 3_600_000;
+const SILENT = new Set(['withdrawn', 'expired', 'unanswered']);
 const EXPIRY_ACTOR = /^TradeTaskProcessor/;
 const ANSWER = { TRADE_ACCEPT: 'accepted', TRADE_DECLINE: 'declined' };
 
@@ -107,7 +108,10 @@ function teamsIn(items) {
  * `raw` league_transactions_raw rows, `snapshots` trade_proposal_snapshots rows.
  * Returns `offers` (decided, placed in time: the set E1 grades), `orphans`
  * (decided, proposal never seen), `excluded` totals and `by_league` counts,
- * including `stale_outcome_row` (observed rows the raw answer overrode).
+ * including `stale_outcome_row` (observed rows the raw answer overrode), and
+ * `silent`: the ESPN offers with no answer (withdrawn, expired, unanswered),
+ * each with proposer, counterparty and proposal time where known, for the
+ * reply-time reader (reply-latency.js). Silence is never a decision here.
  */
 export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) {
   const byLeague = new Map();
@@ -190,8 +194,13 @@ export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) 
 
   const offers = [];
   const orphans = [];
+  const silent = [];
   for (const o of all) {
-    if (o.excluded) { exclude(o, o.excluded); continue; }
+    if (o.excluded) {
+      exclude(o, o.excluded);
+      if (SILENT.has(o.excluded)) silent.push(o);
+      continue;
+    }
     if (copies.has(o)) { exclude(o, o.copy_rule ?? 'espn_copy_of_app_offer'); continue; }
     if (o.source === 'observed' && o.proposal_basis === null && placed.has(key(o.league_id, o.season, o.espn_tx_id))) {
       exclude(o, 'orphan_placed_by_screenshot'); continue;
@@ -214,7 +223,7 @@ export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) 
   const excluded = emptyCounts();
   for (const L of byLeague.values()) for (const r of EXCLUSION_RULES) excluded[r] += L.excluded[r];
   const by_league = Object.fromEntries([...byLeague].sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b)));
-  return { offers, orphans, excluded, by_league };
+  return { offers, orphans, silent, excluded, by_league };
 }
 
 /**
@@ -264,7 +273,14 @@ export function rawOfferGroups({ raw = [], snapshots = [], exclude = () => {} } 
     const base = { league_id: lid, season, espn_tx_id: txId };
     if (!answer) {
       const rule = close ? (EXPIRY_ACTOR.test(close.member_id ?? '') ? 'expired' : 'withdrawn') : 'unanswered';
-      fromRaw.set(k, { ...base, excluded: rule, closed_at: close?.proposed_at ?? null, close_tx_id: close ? String(close.tx_id) : null });
+      // Who proposed to whom and when, for readers of silence (reply-latency.js):
+      // additive, the exclusion itself does not depend on them.
+      const others = teamsIn(parseItems(p?.items_json) ?? parseItems(snap?.items_json) ?? parseItems(close?.items_json))
+        .filter(x => x !== String(proposer));
+      fromRaw.set(k, { ...base, excluded: rule, closed_at: close?.proposed_at ?? null, close_tx_id: close ? String(close.tx_id) : null,
+        proposer_team_id: proposer == null ? null : String(proposer),
+        counterparty_team_id: others.length === 1 ? others[0] : null,
+        proposed_at: p?.proposed_at ?? snap?.proposed_at ?? null });
       continue;
     }
     const sources = [[p?.items_json, 'proposal'], [snap?.items_json, 'snapshot'], [close?.items_json, 'close'], [answer.items_json, 'answer']];

@@ -80,6 +80,9 @@ test('the route uses the schedule\'s current week, not a fixed one: a row at tha
   // FC-SNAP added dynasty_values to the registry; all_fresh needs a price fetched today too.
   db.prepare(`INSERT OR REPLACE INTO dynasty_values (format_key, player_id, value, fetched_at)
               VALUES ('rd_sf1_t10_ppr1', 1, 100, datetime('now'))`).run();
+  // FC-FRESH-AGE added the redraft fc_value rows (the trade-rule currency): fetched today too.
+  db.prepare(`INSERT OR REPLACE INTO player_metrics (player_id, source, value, fetched_at)
+              VALUES (1, 'fc_value', 100, datetime('now'))`).run();
   const body = await (await get('/api/data-freshness')).json();
   const pwu = body.tables.find(t => t.table === 'player_week_usage');
   assert.equal(pwu.status, 'fresh', 'a current-week row was not recognised as current — the route sent the wrong week');

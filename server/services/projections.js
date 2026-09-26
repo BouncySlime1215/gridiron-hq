@@ -909,6 +909,38 @@ export function buildProjections({
   return out;
 }
 
+/**
+ * O1C-WIRE: a projection with its per-game targets / carries shifted by an opportunity delta
+ * (validated O1-RADAR cells, applied only through betting-fantasy-link.js#opportunityWire).
+ * Share moves; team volume, efficiency, availability and the QBR term do not. The delta is
+ * scored with his own shrunk rates, so expected points stay linear in volume. Volume never goes
+ * below zero. Returns a new object; the input is not mutated.
+ */
+export function withOpportunityDelta(projection, { targets = 0, carries = 0 } = {}, scoring = PPR) {
+  const p = projection.params;
+  const t = Math.max(0, p.targets + targets);
+  const c = Math.max(0, p.carries + carries);
+  const rates = { ypa: 0, passTdRate: 0, intRate: 0, ypc: p.ypc, rushTdRate: p.rush_td_rate,
+    catchRate: p.catch_rate, ypt: p.ypt, recTdRate: p.rec_td_rate };
+  const dPts = expectedPoints({ targets: t - p.targets, carries: c - p.carries, attempts: 0 }, rates, scoring);
+  const v = projection.volume;
+  const ppg = Math.max(0, projection.ppg + dPts);
+  return {
+    ...projection,
+    volume: {
+      ...v,
+      target_share: v.team_pass_att ? +(t / v.team_pass_att).toFixed(4) : v.target_share,
+      targets_per_game: +t.toFixed(2),
+      carry_share: v.team_rush_att ? +(c / v.team_rush_att).toFixed(4) : v.carry_share,
+      carries_per_game: +c.toFixed(2)
+    },
+    params: { ...p, targets: t, carries: c },
+    structural_ppg_pre_qbr: +(projection.structural_ppg_pre_qbr + dPts).toFixed(2),
+    ppg: +ppg.toFixed(2),
+    points: +(ppg * projection.expected_games).toFixed(1)
+  };
+}
+
 /** Expected fantasy points per game from expected volume and per-opportunity rates. */
 function expectedPoints({ targets, carries, attempts }, r, scoring) {
   return scoreSim({

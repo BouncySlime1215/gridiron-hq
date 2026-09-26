@@ -16,6 +16,8 @@ import { PPR } from './scoring.js';
 import {
   buildPlayerWeekEngine, playerWeekEventExpectation, playerWeekProjection
 } from './player-week-engine.js';
+import { withOpportunityDelta } from './projections.js';
+import { O1C_GATES } from './o1c-gate.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
@@ -217,4 +219,70 @@ export function standouts(season, week, { minPoints = 8, limit = 25, scoring = P
     out.push(v);
   }
   return out.sort((a, b) => b.betting_points - a.betting_points).slice(0, limit);
+}
+
+// ------------------------------------------------------------------ O1C-WIRE
+
+/**
+ * O1C-WIRE (batch D item 14): the one door through which validated O1-RADAR cells reach the
+ * fantasy projection. Only its own flag switches it; preview mode never does.
+ *   unset / other  'off'     nothing computed, the served projection is returned as is
+ *   'shadow'                 the wired number is computed beside the served one, never served
+ *   '1'            'on'      cells whose O1C gate passed (o1c-gate.js) are applied; others stay shadow
+ */
+export const O1C_FLAG = 'GRIDIRON_O1C_WIRE';
+export function o1cFlag(env = process.env) {
+  const v = env[O1C_FLAG];
+  return v === '1' ? 'on' : v === 'shadow' ? 'shadow' : 'off';
+}
+
+const O1C_GROUP = { RB: 'RB', WR: 'WRTE', TE: 'WRTE' };
+
+/** One cell's effect (opportunities per game) as a targets / carries delta for this projection. */
+function volumeDelta(group, effect, params) {
+  if (group === 'WRTE') return { targets: effect, carries: 0 };
+  // RB effects are measured in carries + targets: split by his own projected mix.
+  const tot = params.carries + params.targets;
+  const cShare = tot > 0 ? params.carries / tot : 1;
+  return { targets: effect * (1 - cShare), carries: effect * cShare };
+}
+
+/**
+ * The projection to serve, given the player's served radar row (opportunity-radar.js#serveRow,
+ * read through its one accessor opportunityOf). Only events the radar validated (passes_gate,
+ * status 'validated', a finite effect) enter; watch flags never do. A validated cell moves the
+ * served projection only with the flag at '1' AND its O1C gate 'passed'.
+ * Returns { mode, projection, shadow, cells }.
+ */
+export function opportunityWire(projection, opp, { env = process.env, gates = O1C_GATES, scoring = PPR } = {}) {
+  const mode = o1cFlag(env);
+  if (mode === 'off') return { mode, projection, shadow: null, cells: [] };
+  if (opp?.player_id != null && Number(opp.player_id) !== Number(projection.player_id)) {
+    throw new Error(`O1C-WIRE: radar row is for player ${opp.player_id}, projection is for ${projection.player_id}`);
+  }
+  const group = O1C_GROUP[projection.position];
+  const cells = [];
+  const all = { targets: 0, carries: 0 };
+  const applied = { targets: 0, carries: 0 };
+  for (const e of (group ? opp?.opportunity_events ?? [] : [])) {
+    if (!e.passes_gate || e.status !== 'validated' || !Number.isFinite(e.effect)) continue;
+    const cell = `${e.type}|${group}`;
+    const d = volumeDelta(group, e.effect, projection.params);
+    all.targets += d.targets; all.carries += d.carries;
+    const gate = gates[cell];
+    const on = mode === 'on' && gate?.status === 'passed';
+    if (on) { applied.targets += d.targets; applied.carries += d.carries; }
+    cells.push({ cell, effect: e.effect, n: e.n ?? null, ci: e.ci ?? null, o1c: gate?.status ?? 'unregistered', applied: on,
+      reason: on ? 'O1C gate passed' : mode === 'shadow' ? 'shadow mode'
+        : gate ? `O1C gate ${gate.status}: shadow only` : 'cell not registered with the O1C gate: shadow only' });
+  }
+  const wired = withOpportunityDelta(projection, all, scoring);
+  const shadow = { ppg_before: projection.ppg, ppg_wired: wired.ppg, delta_ppg: +(wired.ppg - projection.ppg).toFixed(2),
+    targets: all.targets, carries: all.carries };
+  const appliedCells = cells.filter(c => c.applied).map(c => c.cell);
+  if (!appliedCells.length) return { mode, projection, shadow, cells };
+  const served = withOpportunityDelta(projection, applied, scoring);
+  served.opportunity_wire = { applied: appliedCells, delta_ppg: +(served.ppg - projection.ppg).toFixed(2),
+    basis: 'validated O1 radar cells that passed the O1C gate (share only; team volume unchanged)' };
+  return { mode, projection: served, shadow, cells };
 }

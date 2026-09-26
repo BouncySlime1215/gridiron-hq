@@ -39,6 +39,10 @@ const { run, rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 const { hashSessionToken, requireAuthenticated } = await import('../server/platform/auth.js');
 const { setAnthropicClientForTesting } = await import('../server/services/claude.js');
+// Nick's rules are held by rules-check.js and fuzzed in coach-rules-fuzz.test.js; the fixture has no board or
+// FantasyCalc values (the gate would fail closed on every move), so this conversation test runs without it.
+const { setCoachRulesSource } = await import('../server/services/coach/rules-check.js');
+setCoachRulesSource(() => null);
 const { default: warroomRouter } = await import('../server/routes/warroom.js');
 const { default: coachRouter } = await import('../server/routes/coach.js');
 

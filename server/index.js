@@ -66,6 +66,7 @@ const { default: brainReportRouter } = await import('./routes/brain-report.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
+const { default: numbersPeopleRouter } = await import('./routes/numbers-people.js');
 const { default: engineRouter } = await import('./routes/engine.js');
 const { default: warroomRouter } = await import('./routes/warroom.js');
 const { default: warroomNegotiateRouter } = await import('./routes/warroom-negotiate.js');
@@ -181,6 +182,8 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 // Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
 // so it is mounted bare rather than behind legacyAuthenticated.
 app.use('/api/coach', coachRouter);
+// NUMBERS-PEOPLE: both Coach lanes' reads side by side (Trades → Numbers & People); own auth per route.
+app.use('/api/numbers-people', numbersPeopleRouter);
 // ONE ENGINE reader (ENGINE-00a, EA-00): read-only world state for pages and Coach, with typed status.
 app.use('/api/engine', ...legacyAuthenticated, engineRouter);
 // War Room writes (WR-3 requests, saved layouts, Coach action log). Records only;

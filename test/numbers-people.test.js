@@ -304,7 +304,8 @@ test('copy: league-mates are "they" (labels, whys), and no label is long enough 
   for (const stance of ['go', 'wait', 'avoid']) for (const backs of [0.2, 0.8]) for (const accept of [0.2, 0.8]) {
     assert.doesNotMatch(jevWhy({ stance, claude: { stance: 'go' }, backs, accept }), GENDERED);
   }
-  assert.equal(neutral("He rarely accepts; his roster is thin and he's shopping."), null, 'an unswappable "he" is withheld');
+  assert.equal(neutral("He rarely accepts; his roster is thin and he's shopping."), "They rarely accept; their roster is thin and they're shopping.", 'an adverb between "he" and the verb swaps');
+  assert.equal(neutral('He, of all managers, sells late.'), null, 'an unswappable "he" is withheld');
   assert.equal(neutral("His roster is thin and he's shopping."), "Their roster is thin and they're shopping.");
   // Every static string in the view and the client components.
   const srcs = ['server/services/numbers-people/view.js', 'client/src/components/trade/NumbersPeople.tsx',

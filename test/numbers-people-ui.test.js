@@ -3,7 +3,7 @@
  *   - the summary line, the read time and a working Refresh (thinking animation while it runs)
  *   - one card per item (the shared NumbersPeopleCard), DIFFER first and highlighted, Claude
  *     (numbers) and Jev (people) side by side with a stance chip and a why, Jev's lane labelled
- *     "chat read (ungraded)", a verdict badge
+ *     "from chat, unverified", a verdict badge
  *   - "Going forward": "not enough outcomes yet" under the minimum, the score once it is met
  *   - a budget stop: the last reads plus the notice, no error
  *   - "Ask Coach about this" puts the item in the thread's focus, then opens Coach on it
@@ -25,7 +25,7 @@ const lane = (stance, why, extra = {}) => ({ stance, basis: 'price', why, why_wi
 const item = (key, verdict, title, numbers, people, extra = {}) => {
   const [item_type, item_id] = key.split(':');
   return { key, item_type, item_id, title, subtitle: 'With Team Two', players: [{ id: '21', name: 'P21 (WR)' }], partner: '3',
-    numbers, people: { ...people, label: 'chat read (ungraded)' }, verdict, history: [{ week: 2, numbers: 'go', people: 'go', verdict: 'agree' }, { week: 3, numbers: numbers.stance, people: people.stance ?? null, verdict }], ...extra };
+    numbers, people: { ...people, label: 'from chat, unverified' }, verdict, history: [{ week: 2, numbers: 'go', people: 'go', verdict: 'agree' }, { week: 3, numbers: numbers.stance, people: people.stance ?? null, verdict }], ...extra };
 };
 const VIEW = {
   enabled: true, status: 'ok', refreshing: false, read_at: '2026-09-25T20:00:00.000Z', week: 3, stale: false, notice: null,
@@ -56,7 +56,7 @@ test('now: the summary, DIFFER first and highlighted, both lanes side by side, v
   const first = cards[0];
   assert.match(textOf(first), /Get P21 \(WR\) for P4 \(WR\).*Differ/);
   assert.match(textOf(one(first, 'data-testid', 'np-lane-numbers')), /Claude\s*numbers\s*Go.*The odds gain is worth the price\..*52%/);
-  assert.match(textOf(one(first, 'data-testid', 'np-lane-people')), /Jev\s*people\s*Avoid.*chat read \(ungraded\).*untouchable/);
+  assert.match(textOf(one(first, 'data-testid', 'np-lane-people')), /Jev\s*people\s*Avoid.*from chat, unverified.*untouchable/);
   assert.match(textOf(cards[1]), /Same call, different reasons/);
   assert.match(textOf(cards[2]), /Agree/);
   // Going forward: honest n, and the week-by-week chips.

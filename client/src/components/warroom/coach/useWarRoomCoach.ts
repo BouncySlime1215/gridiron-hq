@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../api';
+import { parseSse, stageOf, type Stage } from './coachStream';
 import {
   newSession, dispatch, confirm as confirmPending, cancel as cancelPending, undo as undoLast,
   markRecorded, coachFooter, savedLayoutOf, type CoachSession, type CoachAction, type Outcome
@@ -36,6 +37,10 @@ export interface CoachMessage {
     derived: { id: string; op?: string; value?: unknown; inputs?: string[]; label?: string }[] };
   /** The question this reply answers. */
   question?: string;
+  /** COACH-V2 drawer: lane 1's answer shown while Jev is still reading. */
+  partial?: boolean;
+  /** COACH-V2 drawer: this answer failed; the cause in plain words (the drawer offers Try again). */
+  failed?: string;
   /** COACH-CHAT: 2-3 follow-up questions Coach can answer next (all $0). */
   followups?: string[];
   /** COACH-CHAT: actions Coach proposes (rendered as action cards; nothing runs without a tap). */
@@ -101,6 +106,16 @@ interface Options {
 
 const LAYOUT_TYPES = new Set(['arrange_layout', 'reset_layout', 'pin_card', 'plug_in', 'undo']);
 
+/** A failure's cause in plain words, never the raw error. */
+export function failedText(e: unknown): string {
+  const status = (e as { status?: number } | null)?.status;
+  const msg = e instanceof Error ? e.message : '';
+  if (status === 429 || /budget|limit is used/i.test(msg)) return "Today's AI limit is used. Answers from your plan still work.";
+  if (status === 503 || /credit|unavailable/i.test(msg)) return "Coach's AI is unavailable right now. Answers from your plan still work.";
+  if (status === 401 || status === 403) return 'Coach could not sign in to answer. Reload the page and try again.';
+  return 'Coach could not answer this one.';
+}
+
 export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Options) {
   const [session, setSession] = useState<CoachSession>(() => newSession());
   const [messages, setMessages] = useState<CoachMessage[]>([]);
@@ -121,7 +136,8 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
         setEnabled(res.enabled);
         if (res.enabled && res.saved?.layout) setSession(newSession(res.saved.layout));
       })
-      .catch(report('Could not load your saved layout (using the default)'));
+      // No raw error text on screen: the cause goes to the console, Nick gets one plain line.
+      .catch((e: unknown) => { console.warn('Coach: the saved layout could not be loaded', e); setError("Couldn't load your layout; showing the default."); });
     return () => { live = false; };
   }, [report]);
 
@@ -252,15 +268,63 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
   }, [leagueId]);
 
   /** Ask Coach. Screen commands come back as actions; the reply always ends with the footer. */
+  /**
+   * COACH-V2 drawer: the stage Coach is at (one line that changes in place), who Jev is asked about,
+   * and lane 1's answer while Jev is still reading (the partial answer).
+   */
+  const [stage, setStage] = useState<Stage | null>(null);
+  const [stageWho, setStageWho] = useState<string | null>(null);
+  const [partial, setPartial] = useState<CoachMessage | null>(null);
+
+  /** The answer as it happens (text/event-stream); null when streaming cannot start here, so the plain POST answers. */
+  const streamAsk = useCallback(async (body: string): Promise<any | null> => {
+    let res: Response;
+    try {
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('gridiron_session_token') : null;
+      res = await fetch('/api/coach/ask', { method: 'POST', body,
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+    } catch (e) {
+      console.warn('Coach: streaming is not available here; asking without it', e);
+      return null;
+    }
+    if (!res.ok || !res.body || !/text\/event-stream/.test(res.headers.get('content-type') ?? '')) return null;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const { events, rest } = parseSse(buffer);
+      buffer = rest;
+      for (const ev of events) {
+        if (ev.t === 'result') return ev;
+        if (ev.t === 'error') throw Object.assign(new Error(ev.error ?? 'Coach could not answer'), { status: ev.status });
+        const st = stageOf(ev);
+        if (st) setStage(st);
+        if (ev.t === 'lane2_start') setStageWho(typeof ev.who === 'string' ? ev.who : null);
+        if (ev.t === 'lane1' && ev.answer) {
+          setPartial({ who: 'coach', text: '', claims: ev.answer.claims ?? [], refusals: ev.answer.refusals ?? [], ledger: ev.ledger ?? undefined,
+            shape: ev.answer.shape ?? null, partial: true });
+        }
+      }
+    }
+    throw new Error('the answer stream ended before the answer');
+  }, []);
+
+  /** Ask Coach. Screen commands come back as actions; the reply always ends with the footer. */
   const ask = useCallback(async (question: string, extra?: { deck_index?: number; move_id?: string }): Promise<CoachMessage | null> => {
     const q = question.trim();
     if (!q) return null;
     say({ who: 'nick', text: q });
     setBusy(true);
+    setStage('reading');
+    setStageWho(null);
+    setPartial(null);
+    const body = JSON.stringify({ question: q, league_id: leagueId ?? undefined, thread: !!leagueId,
+      context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: ref.current.ui.league, ...(extra ?? {}) } });
     try {
-      const res = await api<any>('/coach/ask', { method: 'POST', body: JSON.stringify({
-        question: q, league_id: leagueId ?? undefined, thread: !!leagueId,
-        context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: ref.current.ui.league, ...(extra ?? {}) } }) });
+      const res = (await streamAsk(body)) ?? await api<any>('/coach/ask', { method: 'POST', body });
       const outcomes = (Array.isArray(res.actions) ? res.actions : []).map((a: unknown) => apply(a, q));
       const grounded: { text: string; cites: string[]; footer?: boolean }[] = (res.answer?.claims ?? [])
         .map((c: { text: string; cites?: string[]; footer?: boolean }) => ({ text: c.text, cites: Array.isArray(c.cites) ? c.cites : [],
@@ -277,17 +341,21 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
       say(reply);
       return reply;
     } catch (e) {
-      report('Coach could not answer')(e);
+      // A failed answer is a bubble with its cause in plain words and Try again; the raw error goes to the console.
+      console.warn('Coach could not answer', e);
+      say({ who: 'coach', text: '', failed: failedText(e), question: q });
       return null;
     } finally {
       setBusy(false);
+      setStage(null);
+      setPartial(null);
     }
-  }, [apply, leagueId, plans, report, say]);
+  }, [apply, leagueId, plans, say, streamAsk]);
 
   return {
     enabled, session, ui: session.ui, pending: session.pending, log: session.log, messages, busy, error,
     footer, ask, apply, confirm, cancel, undo, input, clearError: () => setError(null),
-    starters, threadReady, newConversation, doProposal
+    starters, threadReady, newConversation, doProposal, stage, stageWho, partial
   };
 }
 

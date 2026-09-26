@@ -25,7 +25,7 @@ const coachWith = messages => ({
 const reply = lanes => ({ who: 'coach', text: 'x', question: 'is he likely to bite?', claims: [{ text: 'The offer stands.', cites: [] }], refusals: [], lanes });
 
 test('both lanes: a collapsed "Numbers + People" toggle and the disagreement line', async () => {
-  const lanes = { numbers: { claims: ['The offer stands.'] }, people: { claims: ['His profile lists P21 (WR) as a want.'], label: 'chat read (ungraded)' },
+  const lanes = { numbers: { claims: ['The offer stands.'] }, people: { claims: ['Their profile lists P21 (WR) as a want.'], label: 'from chat, unverified' },
     disagreement: 'Numbers say the offer stands; chat suggests he wants P21 himself because his profile lists him.', action: 'Send the served offer as it is.' };
   const ui = mount(React.createElement(CoachDrawer, { coach: coachWith([{ who: 'nick', text: 'is he likely to bite?' }, reply(lanes)]), open: true, onClose() {} }));
   await waitFor(() => one(ui.container, 'data-testid', 'coach-answer'), 2000, 'the answer');
@@ -37,13 +37,13 @@ test('both lanes: a collapsed "Numbers + People" toggle and the disagreement lin
   click(one(box, 'aria-expanded', 'false'));
   await waitFor(() => one(box, 'data-testid', 'coach-lanes-detail'), 2000, 'the lanes open');
   const detail = one(box, 'data-testid', 'coach-lanes-detail');
-  assert.match(textOf(detail), /Numbers.*The offer stands\..*People.*chat read \(ungraded\).*P21/);
+  assert.match(textOf(detail), /Numbers.*The offer stands\..*People.*from chat, unverified.*P21/);
   ui.unmount();
 });
 
 test('Jev led lane 2: the toggle says "Claude + Jev" and the lanes are named Claude and Jev', async () => {
   const lanes = { title: 'Claude + Jev', numbers: { claims: ['The offer stands.'] },
-    people: { source: 'jev', claims: ['Jev: 31% he takes it as sent (chat read, ungraded).'], label: 'Jev, chat read (ungraded)' },
+    people: { source: 'jev', claims: ['Jev: 31% they take it as sent (from chat, unverified).'], label: 'Jev, from chat, unverified' },
     disagreement: 'Numbers say send it; Jev reads wait because of his price.', action: null };
   const ui = mount(React.createElement(CoachDrawer, { coach: coachWith([{ who: 'nick', text: 'q' }, reply(lanes)]), open: true, onClose() {} }));
   await waitFor(() => one(ui.container, 'data-testid', 'coach-lanes'), 2000, 'the toggle');
@@ -51,7 +51,7 @@ test('Jev led lane 2: the toggle says "Claude + Jev" and the lanes are named Cla
   assert.match(textOf(box), /^Claude \+ Jev \(they disagree\)/);
   click(one(box, 'aria-expanded', 'false'));
   await waitFor(() => one(box, 'data-testid', 'coach-lanes-detail'), 2000, 'the lanes open');
-  assert.match(textOf(one(box, 'data-testid', 'coach-lanes-detail')), /Claude \(numbers\).*Jev \( ?chat read, ungraded ?\).*31%/);
+  assert.match(textOf(one(box, 'data-testid', 'coach-lanes-detail')), /Claude \(numbers\).*Jev \( ?from chat, unverified ?\).*31%/);
   ui.unmount();
 });
 

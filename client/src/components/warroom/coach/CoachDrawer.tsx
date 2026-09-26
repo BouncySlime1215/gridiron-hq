@@ -4,6 +4,8 @@ import PlugInCard, { FIELD_LABELS } from './PlugInCard';
 import { DraftCard, PlanChangeCard, ProposalCard } from './ActionCards';
 import type { CoachMessage, WarRoomCoach } from './useWarRoomCoach';
 import { api } from '../../../api';
+import { EmptyState, ErrorState, Skeleton } from '../../ui/DesignSystem';
+import { stageText, STILL_WORKING, STILL_WORKING_MS, type Stage } from './coachStream';
 import Icon from '../icons';
 import NumbersPeopleCard from '../../trade/NumbersPeopleCard';
 
@@ -39,6 +41,17 @@ export function plainNote(text: string): string {
     .replace(/\b[a-z_]{3,}(?:\.[a-z_]{3,})+\b/g, id => (FIELD_LABELS[id] ?? id.split('.').pop()!.replace(/_/g, ' ')).toLowerCase());
 }
 
+/** The goal strip in plain words: the parts the plan has; "Plan not ready yet" when it has none (no placeholder copy). */
+const UNKNOWN = new Set(['no goal set yet', 'not computed yet']);
+export function contextParts(f: { destination: string; stops_left: string; next_move: string }): string[] {
+  const parts = [
+    ...(UNKNOWN.has(f.destination) ? [] : [f.destination]),
+    ...(UNKNOWN.has(f.stops_left) ? [] : [`${f.stops_left} stop${f.stops_left === '1' ? '' : 's'} left`]),
+    ...(UNKNOWN.has(f.next_move) ? [] : [`Next: ${f.next_move}`])
+  ];
+  return parts.length ? parts : ['Plan not ready yet'];
+}
+
 const money = (n: number) => `$${n < 0.01 && n > 0 ? '0.01' : n.toFixed(2)}`;
 
 export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAutoAsked, deckAt, onChanged }: {
@@ -53,7 +66,7 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
 }) {
   const [text, setText] = useState('');
   const [showLog, setShowLog] = useState(false);
-  const [spend, setSpend] = useState<{ model_on: boolean; spent_today_usd: number } | null>(null);
+  const [spend, setSpend] = useState<{ model_on: boolean; spent_today_usd: number; daily_budget_usd?: number | null } | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,18 +81,26 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
 
   useEffect(() => { if (open) closeRef.current?.focus?.(); }, [open]);
 
-  // The newest message in view.
+  // The newest answer in view from its top (not the bottom of the drawer): its verdict is never under the goal strip.
   const count = coach.messages.length;
   useEffect(() => {
     const el = bodyRef.current;
-    if (open && el && typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight });
-  }, [open, count, coach.busy]);
+    if (!open || !el || typeof el.scrollTo !== 'function') return;
+    if (typeof el.querySelectorAll !== 'function') { el.scrollTo({ top: el.scrollHeight }); return; }
+    const bubbles = el.querySelectorAll('[data-testid="coach-msg-me"], [data-testid="coach-msg-coach"], [data-testid="coach-thinking"], [data-testid="coach-partial"]');
+    const last = bubbles[bubbles.length - 1] as HTMLElement | undefined;
+    const lastMe = [...el.querySelectorAll('[data-testid="coach-msg-me"]')].pop() as HTMLElement | undefined;
+    // Show Nick's question and the answer under it; a long answer starts at its top.
+    const target = lastMe ?? last;
+    if (target) el.scrollTo({ top: Math.max(0, target.offsetTop - 12) });
+    else el.scrollTo({ top: el.scrollHeight });
+  }, [open, count, coach.busy, coach.partial]);
 
   // Today's AI spend, for the one-line hint under the box (only when the model is on).
   useEffect(() => {
     if (!open) return;
     let live = true;
-    api<{ model_on: boolean; spent_today_usd: number }>('/coach/spend')
+    api<{ model_on: boolean; spent_today_usd: number; daily_budget_usd?: number | null }>('/coach/spend')
       .then(res => { if (live) setSpend(res); })
       .catch((e: unknown) => console.warn('Coach: today\'s AI spend could not be read', e));
     return () => { live = false; };
@@ -113,15 +134,17 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
           <button type="button" className="wr-icon-btn" onClick={onClose} aria-label="Close Coach" ref={closeRef}><Icon name="close" size={18} /></button>
         </div>
         <p className="wr-drawer-ctx" data-testid="coach-context">
-          <span>{coach.footer.destination}</span>
-          <span>{coach.footer.stops_left} stop{coach.footer.stops_left === '1' ? '' : 's'} left</span>
-          <span>Next: {coach.footer.next_move}</span>
+          {contextParts(coach.footer).map(t => <span key={t}>{t}</span>)}
         </p>
         <div className="wr-drawer-b" aria-live="polite" ref={bodyRef}>
           {coach.error && (
             <div role="alert" className="wr-state wr-state-failed">
               {coach.error} <button type="button" className="wr-link" onClick={coach.clearError}>Dismiss</button>
             </div>
+          )}
+          {aiBanner(spend) && <p className="wr-ai-banner" role="status" data-testid="coach-ai-banner">{aiBanner(spend)}</p>}
+          {empty && (
+            <EmptyState icon="coach" title="Ask Coach about your plan" description="Tap a question, or type your own below. Answers from your plan cost nothing." />
           )}
           {empty && (
             <ul className="wr-fixedq wr-stagger" aria-label="Ask Coach">
@@ -138,12 +161,20 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
             <div className="wr-thread2" data-testid="coach-thread">
               {messages.map((m, i) => (
                 <div key={i} className={m.who === 'nick' ? 'wr-msg-me' : 'wr-msg-coach'} data-testid={m.who === 'nick' ? 'coach-msg-me' : 'coach-msg-coach'}>
-                  {m.who === 'nick' ? m.text : <Answer slot={m} />}
+                  {m.who === 'nick' ? m.text : m.failed
+                    ? <ErrorState title="No answer this time" message={m.failed} retryLabel="Try again" retry={m.question && !coach.busy ? () => ask(m.question!) : undefined} />
+                    : <Answer slot={m} />}
                 </div>
               ))}
             </div>
           )}
-          {coach.busy && <div className="wr-msg-coach"><Answer slot="asking" question={lastAsked} /></div>}
+          {coach.busy && coach.partial && (
+            <div className="wr-msg-coach" data-testid="coach-partial">
+              <Answer slot={coach.partial} />
+              <ThinkingStages stage={coach.stage ?? 'asking_jev'} who={coach.stageWho} compact />
+            </div>
+          )}
+          {coach.busy && !coach.partial && <div className="wr-msg-coach"><ThinkingStages stage={coach.stage ?? 'reading'} who={coach.stageWho} question={lastAsked} /></div>}
           {!coach.busy && coach.pending && <PlanChangeCard pending={coach.pending} coach={coach} onChanged={onChanged} />}
           {!coach.busy && draft && <DraftCard text={draft} />}
           {!coach.busy && lastCoach?.proposals?.map(p => (
@@ -184,6 +215,35 @@ export default function CoachDrawer({ coach, plans, open, onClose, autoAsk, onAu
         )}
       </aside>
     </>
+  );
+}
+
+/** The banner when the model cannot answer today; plan answers still work (COACH-V2 section 3 states). */
+export function aiBanner(spend: { model_on: boolean; spent_today_usd: number; daily_budget_usd?: number | null } | null): string | null {
+  if (!spend) return null;
+  if (!spend.model_on) return 'The AI is off here. Answers from your plan still work.';
+  if (spend.daily_budget_usd != null && spend.spent_today_usd >= spend.daily_budget_usd) return "Today's AI limit is used. Answers from your plan still work.";
+  return null;
+}
+
+/**
+ * COACH-V2 thinking stages: one line that changes in place with what Coach is doing, over
+ * skeleton lines at the answer's final size; after 8 s, "Still working, the numbers will show first."
+ */
+function ThinkingStages({ stage, who, question, compact }: { stage: Stage; who?: string | null; question?: string; compact?: boolean }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    const t = setTimeout(() => setSlow(true), STILL_WORKING_MS);
+    return () => clearTimeout(t);
+  }, [question]);
+  return (
+    <div className="wr-answer wr-thinking" role="status" aria-live="polite" data-testid="coach-thinking" data-stage={stage}>
+      <span className="wr-think-line" data-testid="coach-stage">{stageText(stage, who)}<span className="wr-dots3" aria-hidden><i /><i /><i /></span></span>
+      {question && !compact && <span className="wr-think-q">“{question}”</span>}
+      {slow && <span className="wr-think-q" data-testid="coach-still-working">{STILL_WORKING}</span>}
+      {!compact && <><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-2/3" /></>}
+    </div>
   );
 }
 
@@ -263,7 +323,7 @@ function LanesReveal({ lanes }: { lanes: NonNullable<CoachMessage['lanes']> }) {
         <div className="wr-srcs-list" data-testid="coach-lanes-detail">
           <b>{lanes.people?.source === 'jev' ? 'Claude (numbers)' : 'Numbers'}</b>
           <ul>{(lanes.numbers?.claims ?? []).map((t, i) => <li key={`n${i}`}>{t}</li>)}{!(lanes.numbers?.claims ?? []).length && <li>Nothing the numbers could stand up.</li>}</ul>
-          <b>{lanes.people?.source === 'jev' ? 'Jev' : 'People'} ({lanes.people?.source === 'jev' ? 'chat read, ungraded' : lanes.people?.label ?? 'chat read (ungraded)'})</b>
+          <b>{lanes.people?.source === 'jev' ? 'Jev' : 'People'} ({lanes.people?.source === 'jev' ? 'from chat, unverified' : lanes.people?.label ?? 'from chat, unverified'})</b>
           <ul>{people.map((t, i) => <li key={`p${i}`}>{t}</li>)}</ul>
         </div>
       )}

@@ -29,7 +29,8 @@
  *            doing nothing, re-priced on paired seeds), but it is never a gate
  *            before n allows: status stays not_enough_data until LIVE_GATE
  *            is met (E4-LIVE, pre-registered in its PR), so an early 'failing'
- *            can never push the plan to Balanced (brain-rule.js).
+ *            can never push the plan to Balanced (brain-rule.js). Behind its own flag,
+ *            GRIDIRON_E4_LIVE=1; off (default) serves the pre-E4-LIVE row (liveLegacy).
  *
  * Pass bar (pre-registered in the replay script header and the PR before the
  * graded run): planner minus the BEST baseline (highest mean on the graded rows),
@@ -51,8 +52,10 @@ export const ARMS = Object.freeze(['planner', ...BASELINES]);
  * moves every league at once. Before that the number is shown, labelled early, never graded.
  */
 export const LIVE_GATE = Object.freeze({ weeks: 8, nflWeeks: 3 });
-/** Kept for callers of the old name: the gate's league-week minimum. */
+/** Kept for callers of the old name: the gate's league-week minimum (flag on). */
 export const LIVE_MIN_WEEKS = LIVE_GATE.weeks;
+/** The minimum main served before E4-LIVE; still in force while GRIDIRON_E4_LIVE is off. */
+export const LEGACY_MIN_WEEKS = 4;
 export const BOOT = Object.freeze({ reps: 2000, seed: 404 });
 export const PASS_BAR = 'planner minus the best simple baseline (finder best offer, do nothing, greedy fair 1-for-1): '
   + 'realized title gain, league-clustered 95% CI > 0';
@@ -387,13 +390,42 @@ function simNoise(rows, have) {
   return out;
 }
 
+/** E4-LIVE's own switch. Off (default): the row main served before E4-LIVE (liveLegacy). */
+export const LIVE_FLAG = 'GRIDIRON_E4_LIVE';
+export const liveFlagOn = (env = process.env) => env[LIVE_FLAG] === '1';
+
+/** The pre-E4-LIVE row, byte-for-byte: 4 graded weeks, no early number, no coverage. */
+export function liveLegacy(database, { season = 2026, minWeeks = LEGACY_MIN_WEEKS } = {}) {
+  const common = { check: LIVE_CHECK, name: `${NAME} (2026, live)`, metricName: 'title_gain_planner_minus_best_baseline', passBar: PASS_BAR };
+  const src = readSource(database, 'planner_move_outcomes', LIVE_COLUMNS);
+  if (!src.ok) return waiting({ ...common, minN: minWeeks, unit: 'weeks', reason: src.reason });
+  const rows = src.rows.filter(r => Number(r.season) === season
+    && [r.planner_gain, r.finder_gain, r.greedy_gain].every(v => v != null && Number.isFinite(Number(v))));
+  const weeks = new Set(rows.map(r => `${r.league_id}:${r.week}`)).size;
+  if (weeks < minWeeks) return waiting({ ...common, minN: minWeeks, n: weeks, unit: 'weeks', reason: `${weeks} graded week(s) so far` });
+  const s = summarize(rows.map(r => ({ cluster: `${r.league_id}:${r.week}`, season: r.season,
+    planner: { title: Number(r.planner_gain) }, finder: { title: Number(r.finder_gain) }, greedy: { title: Number(r.greedy_gain) } })));
+  const status = verdict(s.vs_best);
+  return result({ ...common, status, metric: s.vs_best.mean, ci: s.vs_best.ci, n: weeks,
+    ...(status === STATUS.NOT_ENOUGH_DATA ? { needsN: s.vs_best.ci ? moreNeeded(weeks, s.vs_best.ci[1] - s.vs_best.ci[0], Math.max(Math.abs(s.vs_best.mean), 1e-3) * 2) : minWeeks, needsUnit: 'weeks' } : {}),
+    detail: roundSummary(s) });
+}
+
+/**
+ * The E4-live row. `flag` (default: GRIDIRON_E4_LIVE === '1') picks E4-LIVE's early-number
+ * row (liveEarly) over the legacy one; nothing else changes with it.
+ */
+export function live(database, { flag = liveFlagOn(), ...opts } = {}) {
+  return flag ? liveEarly(database, opts) : liveLegacy(database, opts.minWeeks != null ? { season: opts.season, minWeeks: opts.minWeeks } : { season: opts.season });
+}
+
 /**
  * E4-live: every league's 2026 graded weeks in planner_move_outcomes (one row per
  * league-week; a row counts only when all three arms were re-priced). The number is
  * reported with n from the first graded week; it becomes a grade (passing / failing)
  * only once LIVE_GATE is met. `gate` overrides LIVE_GATE (tests only).
  */
-export function live(database, { season = 2026, gate = LIVE_GATE, minWeeks = null } = {}) {
+export function liveEarly(database, { season = 2026, gate = LIVE_GATE, minWeeks = null } = {}) {
   const g = { weeks: minWeeks ?? gate.weeks, nflWeeks: gate.nflWeeks };
   const common = { check: LIVE_CHECK, name: `${NAME} (2026, live)`, metricName: 'title_gain_planner_minus_best_baseline', passBar: PASS_BAR };
   const src = readSource(database, 'planner_move_outcomes', LIVE_COLUMNS);

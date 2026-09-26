@@ -66,7 +66,7 @@ test('historical row: waits until frozen; a frozen summary grades from its store
 
 test('live row: not_enough_data until the pre-registered gate (8 graded league-weeks, 3 NFL weeks)', () => {
   const db = new DatabaseSync(':memory:');
-  const a = E4.live(db);
+  const a = E4.live(db, { flag: true });
   assert.equal(a.check, 'E4-live');
   assert.equal(a.status, STATUS.NOT_ENOUGH_DATA);
   assert.equal(a.needs_n, 8);
@@ -75,12 +75,12 @@ test('live row: not_enough_data until the pre-registered gate (8 graded league-w
   const ins = db.prepare('INSERT INTO planner_move_outcomes VALUES (?, ?, ?, ?, ?, ?)');
   for (const w of [3, 4, 5]) ins.run('1', 2026, w, 0.01, 0, 0);
   ins.run('1', 2025, 9, 0.01, 0, 0);
-  const b = E4.live(db);
+  const b = E4.live(db, { flag: true });
   assert.equal(b.n, 3);
   assert.equal(b.needs_n, 5);
   assert.equal(b.status, STATUS.NOT_ENOUGH_DATA);
   for (const w of [6, 7, 8, 9, 10]) ins.run('1', 2026, w, 0.02 + w * 0.001, 0, 0.001);
-  const c = E4.live(db);
+  const c = E4.live(db, { flag: true });
   assert.equal(c.n, 8);
   assert.equal(c.status, STATUS.PASSING);
   assert.equal(c.detail.provisional, false);
@@ -91,7 +91,7 @@ test('E4-LIVE: the early number is reported with its n from the first graded wee
   db.exec('CREATE TABLE planner_move_outcomes (league_id TEXT, season INTEGER, week INTEGER, planner_gain REAL, finder_gain REAL, greedy_gain REAL)');
   const ins = db.prepare('INSERT INTO planner_move_outcomes VALUES (?, ?, ?, ?, ?, ?)');
   ins.run('4', 2026, 3, 0.012, 0.004, 0.001);
-  const one = E4.live(db);
+  const one = E4.live(db, { flag: true });
   assert.equal(one.n, 1);
   assert.equal(one.status, STATUS.NOT_ENOUGH_DATA);
   assert.equal(one.metric, 0.008, 'served minus the best baseline (finder here)');
@@ -109,20 +109,20 @@ test('E4-LIVE: a strongly negative early run is never failing before n allows (n
   const ins = db.prepare('INSERT INTO planner_move_outcomes VALUES (?, ?, ?, ?, ?, ?)');
   // 7 league-weeks, every one clearly worse than the finder: the CI is wholly below 0.
   for (const [lg, w] of [[1, 3], [2, 3], [3, 3], [4, 3], [1, 4], [2, 4], [3, 4]]) ins.run(String(lg), 2026, w, -0.02 - lg * 0.001, 0.01, 0);
-  const r = E4.live(db);
+  const r = E4.live(db, { flag: true });
   assert.equal(r.n, 7);
   assert.ok(r.ci_high < 0, 'the early interval is below zero');
   assert.equal(r.status, STATUS.NOT_ENOUGH_DATA);
   // 8 league-weeks but only 2 NFL weeks: still not a grade.
   ins.run('4', 2026, 4, -0.03, 0.01, 0);
-  const r2 = E4.live(db);
+  const r2 = E4.live(db, { flag: true });
   assert.equal(r2.n, 8);
   assert.equal(r2.detail.gate.nfl_weeks, 2);
   assert.equal(r2.status, STATUS.NOT_ENOUGH_DATA);
   assert.match(r2.needs_text, /across at least 3 NFL weeks/);
   // A third NFL week meets the gate: now it may fail.
   ins.run('1', 2026, 5, -0.025, 0.01, 0);
-  const r3 = E4.live(db);
+  const r3 = E4.live(db, { flag: true });
   assert.equal(r3.status, STATUS.FAILING);
   assert.equal(r3.needs_text, null);
 });
@@ -136,7 +136,7 @@ test('E4-LIVE: coverage says how many weeks were captured, settled, graded, ungr
   ins.run('4', 2026, 4, null, 0, 0.002, null, 0, 0.004, 'planner: give 9 no longer on team 5', 't');
   ins.run('1', 2026, 4, 0.01, null, 0, 0.002, null, 0, 'finder: finder not run', 't');
   ins.run('4', 2026, 5, null, null, null, null, null, null, null, null);
-  const r = E4.live(db);
+  const r = E4.live(db, { flag: true });
   assert.equal(r.n, 1);
   assert.deepEqual({ ...r.detail.coverage, ungraded_reasons: undefined },
     { captured: 4, settled: 3, graded: 1, ungraded: 2, open: 1, ungraded_reasons: undefined });
@@ -147,9 +147,35 @@ test('E4-LIVE: coverage says how many weeks were captured, settled, graded, ungr
   none.exec(`CREATE TABLE planner_move_outcomes (league_id TEXT, season INTEGER, week INTEGER, planner_gain REAL, finder_gain REAL,
     greedy_gain REAL, settled_at TEXT, settle_note TEXT)`);
   none.prepare('INSERT INTO planner_move_outcomes VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('4', 2026, 3, null, null, null, null, null);
-  const w = E4.live(none);
+  const w = E4.live(none, { flag: true });
   assert.equal(w.n, 0);
   assert.match(w.needs_text, /needs 8 more weeks \(0 graded weeks so far \(1 waiting for the week to finish, 0 ungraded\)\)/);
+});
+
+test('E4-LIVE flag: off (default) serves the pre-E4-LIVE row unchanged; on serves the early number', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE planner_move_outcomes (league_id TEXT, season INTEGER, week INTEGER, planner_gain REAL, finder_gain REAL, greedy_gain REAL)');
+  const ins = db.prepare('INSERT INTO planner_move_outcomes VALUES (?, ?, ?, ?, ?, ?)');
+  for (const w of [3, 4, 5]) ins.run('4', 2026, w, 0.01, 0, 0);
+  const prev = process.env.GRIDIRON_E4_LIVE;
+  try {
+    delete process.env.GRIDIRON_E4_LIVE;
+    assert.equal(E4.liveFlagOn(), false);
+    const off = E4.live(db);
+    assert.deepEqual(off, E4.liveLegacy(db), 'flag off: the legacy row, field for field');
+    assert.equal(off.needs_n, 1, 'legacy gate: 4 graded weeks');
+    assert.match(off.needs_text, /needs 1 more weeks \(3 graded week\(s\) so far\)/);
+    assert.equal(off.detail.coverage, undefined, 'no early number or coverage while off');
+    process.env.GRIDIRON_E4_LIVE = '0';
+    assert.deepEqual(E4.live(db), off, "'0' is off");
+    process.env.GRIDIRON_E4_LIVE = '1';
+    const on = E4.live(db);
+    assert.equal(on.needs_n, 5);
+    assert.equal(on.detail.provisional, true);
+    assert.match(on.needs_text, /^early number, not a grade: over 3 graded weeks/);
+  } finally {
+    if (prev === undefined) delete process.env.GRIDIRON_E4_LIVE; else process.env.GRIDIRON_E4_LIVE = prev;
+  }
 });
 
 test('run returns the historical and the live row', () => {

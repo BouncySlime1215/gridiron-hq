@@ -64,7 +64,7 @@ export const OBJECTIVES = {
 export const BRAIN_REPORT = {
   run_id: 'fixture-run', computed_at: '2026-09-24T04:30:00.000Z',
   checks: [
-    { check: 'E1', name: 'Chance he says yes is calibrated', status: 'failing', metric_name: 'calibration_slope', metric: 0.41,
+    { check: 'E1', name: 'Chance they say yes is calibrated', status: 'failing', metric_name: 'calibration_slope', metric: 0.41,
       ci_low: 0.22, ci_high: 0.6, n: 64, needs_text: null, pass_bar: 'slope within 0.8-1.2', detail: {} },
     ...['E2', 'E3', 'E4', 'E5', 'E6', 'E7'].map(check => ({ check, name: `check ${check}`, status: 'not_enough_data',
       metric_name: 'n', metric: null, ci_low: null, ci_high: null, n: 3, needs_text: 'needs 37 more offers',

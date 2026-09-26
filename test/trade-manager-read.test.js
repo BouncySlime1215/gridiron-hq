@@ -272,7 +272,7 @@ test('M5b: the panel gates on counterparty_data and says so instead of guessing'
   assert.match(src, /hasManagerData\(cp\)/, 'the no-corpus case is not gated');
   assert.match(src, /No read on this manager yet/, 'there is no honest no-data line');
   // The distinction the service itself insists on.
-  assert.match(src, /not "he looks neutral"/i,
+  assert.match(src, /not "they look neutral"/i,
     'the no-data line must not be confusable with a neutral read');
 });
 

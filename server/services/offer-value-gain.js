@@ -23,7 +23,7 @@ import { BLUE_CHIP_SCORE } from './campaign/search.js';
 
 const DAY_MS = 86400e3;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
-export const VALUE_GAIN_NOTE = 'Info only: how much FantasyCalc value the other manager gains. Not a chance he says yes.';
+export const VALUE_GAIN_NOTE = 'Info only: how much FantasyCalc value the other manager gains. Not a chance they say yes.';
 
 const sum = (ids, fc) => {
   let t = 0;

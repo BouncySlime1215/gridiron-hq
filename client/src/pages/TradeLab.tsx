@@ -554,7 +554,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
               <div>
                 <h3 className="text-sm font-bold text-slate-700 mb-0.5">Go get him — {offer.offers.length} ways to land him</h3>
                 <p className="text-[11px] text-slate-500 mb-2">
-                  Cheapest first. Open with #1; if he says no, move down the list.
+                  Cheapest first. Open with #1; if they say no, move down the list.
                   {untouchable.length > 0 && ` Your ${untouchable.length} untouchable player${untouchable.length > 1 ? 's' : ''} never appear here.`}
                 </p>
                 <div className="space-y-2">

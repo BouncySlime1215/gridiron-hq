@@ -46,10 +46,10 @@ const RECEPTIVENESS_READ = (v: number) =>
     : v <= 0.85 ? 'hard to get talking' : v <= 0.96 ? 'leans closed' : 'middle of the league';
 
 const BASIS_NOTE: Record<string, string> = {
-  heuristic_anchored: 'anchored on his own accept rate',
-  heuristic_unanchored: 'no decided offers with him yet, so it is unanchored',
+  heuristic_anchored: 'anchored on their own accept rate',
+  heuristic_unanchored: 'no decided offers with them yet, so it is unanchored',
   no_information: 'a declared starting point, not a measurement',
-  activity_baseline: 'activity baseline (E1 pending): the same for every offer to him',
+  activity_baseline: 'activity baseline (E1 pending): the same for every offer to them',
 };
 
 const TIER_NOTE: Record<string, string> = {
@@ -59,10 +59,10 @@ const TIER_NOTE: Record<string, string> = {
 };
 
 const NO_HOLD_NOTE: Record<string, string> = {
-  yes: 'his no is final',
-  usually: 'his no usually holds',
-  rarely: 'his no rarely holds',
-  unknown: 'the corpus does not say whether his no holds',
+  yes: 'their no is final',
+  usually: 'their no usually holds',
+  rarely: 'their no rarely holds',
+  unknown: 'the corpus does not say whether their no holds',
 };
 
 /** The hand-set tier, which is a person's override and not a measurement. */
@@ -85,7 +85,7 @@ function Band({ a }: { a?: Acceptance | null }) {
   if (!a.band) {
     return (
       <span className="text-[11px] text-[var(--muted)]" title={a.why ?? undefined}>
-        Chance he says yes: not stated ({words(a.basis) || 'no basis'})
+        Chance they say yes: not stated ({words(a.basis) || 'no basis'})
       </span>
     );
   }
@@ -140,7 +140,7 @@ function PlayerReads({ reads }: { reads: ManagerPlayerRead[] }) {
           <li key={`${r.player}-${i}`} className="text-[11px] leading-snug">
             <div className="flex flex-wrap items-baseline gap-x-1.5">
               <span className="font-semibold text-[var(--ink)]">{r.player}</span>
-              {r.owns === true && <span className="text-[10px] text-[var(--subtle)]">his</span>}
+              {r.owns === true && <span className="text-[10px] text-[var(--subtle)]">theirs</span>}
               {r.verdict && <span className="text-[var(--accent)]">{words(r.verdict)}</span>}
               {r.confidence && <span className="text-[var(--subtle)]">({r.confidence})</span>}
               {r.mentions != null && (
@@ -149,8 +149,8 @@ function PlayerReads({ reads }: { reads: ManagerPlayerRead[] }) {
               {r.declared && (
                 <span className={`text-[10px] font-semibold ${r.declared === 'held' ? 'text-crit' : 'text-amber-700'}`}
                   title={r.declared === 'held'
-                    ? 'he has called him untouchable and his word has held'
-                    : 'he has called him untouchable, but his refusals have not held — an opening price'}>
+                    ? 'they have called them untouchable and their word has held'
+                    : 'they have called them untouchable, but their refusals have not held — an opening price'}>
                   {r.declared === 'held' ? 'untouchable (held)' : 'untouchable (bluffed before)'}
                 </span>
               )}
@@ -170,7 +170,7 @@ function Negotiation({ cp }: { cp: Counterparty }) {
   const asks = cp.asking_for_declared ?? [];
   if (!p && !asks.length && !cp.word_stance) return null;
   const calib = [
-    p?.no_holds ? NO_HOLD_NOTE[p.no_holds] ?? `his no: ${p.no_holds}` : null,
+    p?.no_holds ? NO_HOLD_NOTE[p.no_holds] ?? `their no: ${p.no_holds}` : null,
     p?.praise_means ? `praise reads as ${p.praise_means}` : null,
     p?.inflation && p.inflation !== 'unknown' ? `${p.inflation} inflation` : null,
   ].filter(Boolean);
@@ -196,16 +196,16 @@ function Negotiation({ cp }: { cp: Counterparty }) {
       {calib.length > 0 && <p className="text-[11px] text-[var(--subtle)]">{calib.join(' · ')}</p>}
       {!!(p?.what_moves_him?.length || p?.what_shuts_him_down?.length) && (
         <p className="text-[11px] text-[var(--muted)]">
-          {p?.what_moves_him?.length ? <>moves him: {p.what_moves_him.join('; ')}</> : null}
+          {p?.what_moves_him?.length ? <>moves them: {p.what_moves_him.join('; ')}</> : null}
           {p?.what_moves_him?.length && p?.what_shuts_him_down?.length ? ' · ' : null}
-          {p?.what_shuts_him_down?.length ? <>shuts him down: {p.what_shuts_him_down.join('; ')}</> : null}
+          {p?.what_shuts_him_down?.length ? <>shuts them down: {p.what_shuts_him_down.join('; ')}</> : null}
         </p>
       )}
       {asks.length > 0 && (
         <p className="text-[11px] text-amber-700" title={cp.word_stance_note ?? cp.word_note ?? undefined}>
-          You are asking for {asks.join(' and ')}, which he has called untouchable — his word has not held
+          You are asking for {asks.join(' and ')}, which they have called untouchable — their word has not held
           often enough to take literally{cp.word_credibility != null
-            ? ` (${pct(cp.word_credibility)} of his declarations have held)` : ''}. Expect a first no.
+            ? ` (${pct(cp.word_credibility)} of their declarations have held)` : ''}. Expect a first no.
         </p>
       )}
     </div>
@@ -270,7 +270,7 @@ export default function ManagerRead({ deal, compact = false }:
         </div>
         <p className="mt-0.5 text-[11px] text-[var(--muted)]">
           No read on this manager yet — this league has no chat corpus, so the deal is priced on our
-          numbers only. This is not "he looks neutral"; it is nothing measured either way.
+          numbers only. This is not "they look neutral"; it is nothing measured either way.
         </p>
       </div>
     );
@@ -306,7 +306,7 @@ export default function ManagerRead({ deal, compact = false }:
           {factors.length > 0
             ? <Factors factors={factors} />
             : <p className="mt-1 text-[11px] text-[var(--subtle)]">
-              Nothing named moved his receptiveness — it sits at the no-information default.
+              Nothing named moved their receptiveness — it sits at the no-information default.
             </p>}
           <PlayerReads reads={cp!.player_reads ?? []} />
           <Negotiation cp={cp!} />

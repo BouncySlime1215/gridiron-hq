@@ -180,14 +180,14 @@ test('War Room: the deck card has a His screen toggle, and a precomputed screen 
     const data = { enabled: true, league: 4, ...screen, precomputed: { as_of: doc.generated_at, plans_generated_at: doc.plans_generated_at } };
     const text = textOf(renderToStaticMarkup(React.createElement(HisScreenView, { data })));
     assert.match(text, /Team 7.s screen/);
-    assert.match(text, /on his screen/i);
-    assert.match(text, /His roster now/);
+    assert.match(text, /on their screen/i);
+    assert.match(text, /Their roster now/);
     assert.match(text, /After the offer/);
-    assert.match(text, /He gives up His WR1/);
+    assert.match(text, /They give up His WR1/);
     assert.match(text, /20\.0% → 18\.0%/);
     assert.match(text, /Worked out by the planner/);
     const toggle = renderToStaticMarkup(React.createElement(HisScreenToggle, { leagueId: 4, offer: { partner: '7', give: ['1'], get: ['10'] } }));
-    assert.match(textOf(toggle), /His screen/);
+    assert.match(textOf(toggle), /Their screen/);
     assert.match(hisScreenPath(4, { partner: '7', give: ['1'], get: ['10'] }), /^\/trades\/4\/his-screen\?partner=7&give=1&get=10$/);
     // Mounted on the deck card, with the card's own offer (step 1).
     const producer = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/ui-contract-plans.json', import.meta.url), 'utf8'));

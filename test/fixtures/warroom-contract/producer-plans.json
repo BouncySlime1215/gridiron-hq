@@ -48,7 +48,9 @@
       "status": "ok",
       "value": {
        "kind": "title",
-       "label": "Win the title"
+       "label": "Win the title",
+       "metric": "title",
+       "metric_label": "Title odds"
       },
       "source": "campaign.plan"
      },
@@ -281,9 +283,9 @@
         "value": {
          "case_for": "If Team 3 says yes you move 17.3 pts of title odds.",
          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
          "news_check": "Act now: no pending news on the players you get.",
-         "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
          "cites": [
           "steps[0].p_yes",
@@ -316,7 +318,7 @@
            "feature": "nick_override",
            "effect": "price_cap",
            "value": 0,
-           "basis": "Nick's read (nick_override): never above fair on his screen"
+           "basis": "Nick's read (nick_override): never above fair on their screen"
           }
          ]
         },
@@ -350,9 +352,9 @@
       "value": {
        "case_for": "If all 1 step(s) land you gain 17.3 pts of title odds; across yes and no outcomes that is 10.3 pts of title odds expected, and the path completes 59% of the time.",
        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
        "news_check": "Act now: no pending news on the players you get.",
-       "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+       "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
        "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
        "cites": [
         "steps[0].p_yes",
@@ -481,9 +483,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 17.3 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -516,7 +518,7 @@
             "feature": "nick_override",
             "effect": "price_cap",
             "value": 0,
-            "basis": "Nick's read (nick_override): never above fair on his screen"
+            "basis": "Nick's read (nick_override): never above fair on their screen"
            }
           ]
          },
@@ -550,9 +552,9 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 17.3 pts of title odds; across yes and no outcomes that is 10.3 pts of title odds expected, and the path completes 59% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -676,9 +678,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 9.4 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -711,7 +713,7 @@
             "feature": "nick_override",
             "effect": "price_cap",
             "value": 0,
-            "basis": "Nick's read (nick_override): never above fair on his screen"
+            "basis": "Nick's read (nick_override): never above fair on their screen"
            }
           ]
          },
@@ -745,9 +747,9 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 9.4 pts of title odds; across yes and no outcomes that is 5.3 pts of title odds expected, and the path completes 57% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -871,9 +873,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 11.8 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -906,7 +908,7 @@
             "feature": "nick_override",
             "effect": "price_cap",
             "value": 0,
-            "basis": "Nick's read (nick_override): never above fair on his screen"
+            "basis": "Nick's read (nick_override): never above fair on their screen"
            }
           ]
          },
@@ -940,9 +942,9 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 11.8 pts of title odds; across yes and no outcomes that is 6.2 pts of title odds expected, and the path completes 53% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -1066,9 +1068,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 11.8 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -1101,7 +1103,7 @@
             "feature": "nick_override",
             "effect": "price_cap",
             "value": 0,
-            "basis": "Nick's read (nick_override): never above fair on his screen"
+            "basis": "Nick's read (nick_override): never above fair on their screen"
            }
           ]
          },
@@ -1135,9 +1137,9 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 11.8 pts of title odds; across yes and no outcomes that is 6.2 pts of title odds expected, and the path completes 53% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -1199,7 +1201,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P3 (RB) for P21 (WR) (his screen -15%)."
+          "text": "Open with P3 (RB) for P21 (WR) (their screen -15%)."
          },
          "source": "clone.price"
         },
@@ -1246,11 +1248,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen -15%)",
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen -15%)",
              "counter_with": "repeat the opening once, then hold",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -1272,10 +1274,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 12.2 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with repeat the opening once, then hold.",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with repeat the opening once, then hold.",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -1307,7 +1309,7 @@
             "feature": "nick_override",
             "effect": "price_cap",
             "value": 0,
-            "basis": "Nick's read (nick_override): never above fair on his screen"
+            "basis": "Nick's read (nick_override): never above fair on their screen"
            }
           ]
          },
@@ -1341,10 +1343,10 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 12.2 pts of title odds; across yes and no outcomes that is 5.8 pts of title odds expected, and the path completes 48% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with repeat the opening once, then hold.",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with repeat the opening once, then hold.",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -2660,7 +2662,7 @@
      "checks": [
       {
        "id": "E1",
-       "name": "Chance he says yes is calibrated",
+       "name": "Chance they say yes is calibrated",
        "bar": "slope within 0.8-1.2",
        "status": "failing",
        "result": "calibration_slope 0.41 (95% CI 0.22 to 0.6)",
@@ -2723,8 +2725,8 @@
       }
      ],
      "blocks": [
-      "E1 Chance he says yes is calibrated is failing",
-      "Until E1 passes, every \"chance he says yes\" is a guess."
+      "E1 Chance they say yes is calibrated is failing",
+      "Until E1 passes, every \"chance they say yes\" is a guess."
      ]
     },
     "source": "eval.check",
@@ -2947,7 +2949,7 @@
         "feature": "wants_player",
         "effect": "log_odds",
         "value": 1,
-        "basis": "he wants a player you have",
+        "basis": "they want a player you have",
         "player": "2",
         "n": 4
        }
@@ -3793,6 +3795,8 @@
       "value": {
        "kind": "points",
        "label": "95 projected pts a week",
+       "metric": "points",
+       "metric_label": "Title odds",
        "points_per_week": 95
       },
       "source": "campaign.plan"
@@ -3950,7 +3954,7 @@
          "get": [
           "22"
          ],
-         "text": "Open with P4 (WR) + P7 (WR) for P22 (QB) (his screen +17%)."
+         "text": "Open with P4 (WR) + P7 (WR) for P22 (QB) (their screen +17%)."
         },
         "source": "clone.price"
        },
@@ -4006,11 +4010,11 @@
          "counter": {
           "status": "ok",
           "value": {
-           "do": "Check his ask against the walk-away.",
+           "do": "Check their ask against the walk-away.",
            "counter_rules": {
-            "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +30%)",
-            "counter_with": "the next rung: 5 + 7 (his screen +22%)",
-            "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +30%)",
+            "counter_with": "the next rung: 5 + 7 (their screen +22%)",
+            "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
            }
           },
           "source": "plan.path"
@@ -4032,10 +4036,10 @@
         "value": {
          "case_for": "If Team 3 says yes you move 10.5 pts a week.",
          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
          "news_check": "Act now: no pending news on the players you get.",
-         "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-         "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +22%).",
+         "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +22%).",
          "cites": [
           "steps[0].p_yes",
           "steps[0].title_odds_delta"
@@ -4092,7 +4096,7 @@
          "get": [
           "12"
          ],
-         "text": "Open with P3 (RB) for P12 (QB) (his screen -8%)."
+         "text": "Open with P3 (RB) for P12 (QB) (their screen -8%)."
         },
         "source": "clone.price"
        },
@@ -4140,11 +4144,11 @@
          "counter": {
           "status": "ok",
           "value": {
-           "do": "Check his ask against the walk-away.",
+           "do": "Check their ask against the walk-away.",
            "counter_rules": {
-            "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +25%)",
-            "counter_with": "the next rung: 22 (his screen -4%)",
-            "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +25%)",
+            "counter_with": "the next rung: 22 (their screen -4%)",
+            "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
            }
           },
           "source": "plan.path"
@@ -4166,10 +4170,10 @@
         "value": {
          "case_for": "If Team 2 says yes you move 6.0 pts a week.",
          "his_side": "Team 2's roster read lists WR as thin, and the offer is built on it.",
-         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
          "news_check": "Act now: no pending news on the players you get.",
-         "confidence": "Chance he says yes is 7%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-         "counter": "If he counters, counter with the next rung: 22 (his screen -4%).",
+         "confidence": "Chance they say yes is 7%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "counter": "If they counter, counter with the next rung: 22 (their screen -4%).",
          "cites": [
           "steps[0].p_yes",
           "steps[0].title_odds_delta"
@@ -4210,10 +4214,10 @@
       "value": {
        "case_for": "If all 2 step(s) land you gain 16.5 pts a week; across yes and no outcomes that is 6.5 pts a week expected, and the path completes 4% of the time.",
        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
        "news_check": "Act now: no pending news on the players you get.",
-       "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-       "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +22%).",
+       "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+       "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +22%).",
        "cites": [
         "steps[0].p_yes",
         "steps[0].title_odds_delta"
@@ -4279,7 +4283,7 @@
           "get": [
            "22"
           ],
-          "text": "Open with P4 (WR) + P7 (WR) for P22 (QB) (his screen +17%)."
+          "text": "Open with P4 (WR) + P7 (WR) for P22 (QB) (their screen +17%)."
          },
          "source": "clone.price"
         },
@@ -4335,11 +4339,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +30%)",
-             "counter_with": "the next rung: 5 + 7 (his screen +22%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +30%)",
+             "counter_with": "the next rung: 5 + 7 (their screen +22%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -4361,10 +4365,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 10.5 pts a week.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +22%).",
+          "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +22%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -4421,7 +4425,7 @@
           "get": [
            "12"
           ],
-          "text": "Open with P3 (RB) for P12 (QB) (his screen -8%)."
+          "text": "Open with P3 (RB) for P12 (QB) (their screen -8%)."
          },
          "source": "clone.price"
         },
@@ -4469,11 +4473,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +25%)",
-             "counter_with": "the next rung: 22 (his screen -4%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +25%)",
+             "counter_with": "the next rung: 22 (their screen -4%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -4495,10 +4499,10 @@
          "value": {
           "case_for": "If Team 2 says yes you move 6.0 pts a week.",
           "his_side": "Team 2's roster read lists WR as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 7%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 22 (his screen -4%).",
+          "confidence": "Chance they say yes is 7%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 22 (their screen -4%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -4539,10 +4543,10 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 16.5 pts a week; across yes and no outcomes that is 6.5 pts a week expected, and the path completes 4% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +22%).",
+        "confidence": "Chance they say yes is 59%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +22%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -4665,9 +4669,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 7.5 pts a week.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -4768,9 +4772,9 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 10.5 pts a week; across yes and no outcomes that is 4.8 pts a week expected, and the path completes 28% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -4894,9 +4898,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 7.5 pts a week.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -4997,9 +5001,9 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 10.5 pts a week; across yes and no outcomes that is 4.8 pts a week expected, and the path completes 28% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -5123,9 +5127,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 7.5 pts a week.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -5226,9 +5230,9 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 10.5 pts a week; across yes and no outcomes that is 4.4 pts a week expected, and the path completes 26% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -5290,7 +5294,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (his screen +4%)."
+          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (their screen +4%)."
          },
          "source": "clone.price"
         },
@@ -5339,11 +5343,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +15%)",
-             "counter_with": "the next rung: 5 + 7 (his screen +8%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +15%)",
+             "counter_with": "the next rung: 5 + 7 (their screen +8%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -5365,10 +5369,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 7.5 pts a week.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +8%).",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +8%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -5468,10 +5472,10 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 10.5 pts a week; across yes and no outcomes that is 4.4 pts a week expected, and the path completes 26% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +8%).",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +8%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -6734,7 +6738,7 @@
      "checks": [
       {
        "id": "E1",
-       "name": "Chance he says yes is calibrated",
+       "name": "Chance they say yes is calibrated",
        "bar": "slope within 0.8-1.2",
        "status": "failing",
        "result": "calibration_slope 0.41 (95% CI 0.22 to 0.6)",
@@ -6797,8 +6801,8 @@
       }
      ],
      "blocks": [
-      "E1 Chance he says yes is calibrated is failing",
-      "Until E1 passes, every \"chance he says yes\" is a guess."
+      "E1 Chance they say yes is calibrated is failing",
+      "Until E1 passes, every \"chance they say yes\" is a guess."
      ]
     },
     "source": "eval.check",
@@ -7583,6 +7587,8 @@
       "value": {
        "kind": "get_player",
        "label": "Get P21 (WR)",
+       "metric": "title",
+       "metric_label": "Title odds",
        "player_id": "21"
       },
       "source": "campaign.plan"
@@ -7754,7 +7760,7 @@
          "get": [
           "21"
          ],
-         "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (his screen +12%)."
+         "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (their screen +12%)."
         },
         "source": "clone.price"
        },
@@ -7809,11 +7815,11 @@
          "counter": {
           "status": "ok",
           "value": {
-           "do": "Check his ask against the walk-away.",
+           "do": "Check their ask against the walk-away.",
            "counter_rules": {
-            "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
+            "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +12%)",
             "counter_with": "repeat the opening once, then hold",
-            "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
            }
           },
           "source": "plan.path"
@@ -7835,10 +7841,10 @@
         "value": {
          "case_for": "If Team 3 says yes you move 11.6 pts of title odds.",
          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
          "news_check": "Act now: no pending news on the players you get.",
-         "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-         "counter": "If he counters, counter with repeat the opening once, then hold.",
+         "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "counter": "If they counter, counter with repeat the opening once, then hold.",
          "cites": [
           "steps[0].p_yes",
           "steps[0].title_odds_delta"
@@ -7879,10 +7885,10 @@
       "value": {
        "case_for": "If all 1 step(s) land you gain 11.6 pts of title odds; across yes and no outcomes that is 6.1 pts of title odds expected, and the path completes 53% of the time.",
        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
        "news_check": "Act now: no pending news on the players you get.",
-       "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-       "counter": "If he counters, counter with repeat the opening once, then hold.",
+       "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+       "counter": "If they counter, counter with repeat the opening once, then hold.",
        "cites": [
         "steps[0].p_yes",
         "steps[0].title_odds_delta"
@@ -7949,7 +7955,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (his screen +12%)."
+          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (their screen +12%)."
          },
          "source": "clone.price"
         },
@@ -8004,11 +8010,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +12%)",
              "counter_with": "repeat the opening once, then hold",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -8030,10 +8036,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 11.6 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with repeat the opening once, then hold.",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with repeat the opening once, then hold.",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -8074,10 +8080,10 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 11.6 pts of title odds; across yes and no outcomes that is 6.1 pts of title odds expected, and the path completes 53% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with repeat the opening once, then hold.",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with repeat the opening once, then hold.",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -8139,7 +8145,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (his screen +12%)."
+          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (their screen +12%)."
          },
          "source": "clone.price"
         },
@@ -8194,11 +8200,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +12%)",
              "counter_with": "repeat the opening once, then hold",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -8220,10 +8226,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 11.5 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with repeat the opening once, then hold.",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with repeat the opening once, then hold.",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -8264,10 +8270,10 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 11.5 pts of title odds; across yes and no outcomes that is 6.0 pts of title odds expected, and the path completes 53% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with repeat the opening once, then hold.",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with repeat the opening once, then hold.",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -8329,7 +8335,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (his screen +4%)."
+          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (their screen +4%)."
          },
          "source": "clone.price"
         },
@@ -8384,11 +8390,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
-             "counter_with": "the next rung: 5 + 7 (his screen +8%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +12%)",
+             "counter_with": "the next rung: 5 + 7 (their screen +8%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -8410,10 +8416,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 12.2 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +8%).",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +8%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -8454,10 +8460,10 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 12.2 pts of title odds; across yes and no outcomes that is 5.8 pts of title odds expected, and the path completes 48% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +8%).",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +8%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -8519,7 +8525,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (his screen +4%)."
+          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (their screen +4%)."
          },
          "source": "clone.price"
         },
@@ -8574,11 +8580,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +15%)",
-             "counter_with": "the next rung: 5 + 7 (his screen +8%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +15%)",
+             "counter_with": "the next rung: 5 + 7 (their screen +8%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -8600,10 +8606,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 12.2 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +8%).",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +8%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -8644,10 +8650,10 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 12.2 pts of title odds; across yes and no outcomes that is 5.8 pts of title odds expected, and the path completes 48% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 5 + 7 (his screen +8%).",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 5 + 7 (their screen +8%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -8708,7 +8714,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P3 (RB) for P21 (WR) (his screen -15%)."
+          "text": "Open with P3 (RB) for P21 (WR) (their screen -15%)."
          },
          "source": "clone.price"
         },
@@ -8756,11 +8762,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +42%)",
-             "counter_with": "the next rung: 4 + 7 (his screen +4%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +42%)",
+             "counter_with": "the next rung: 4 + 7 (their screen +4%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -8782,10 +8788,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 12.3 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 44%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 4 + 7 (his screen +4%).",
+          "confidence": "Chance they say yes is 44%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 4 + 7 (their screen +4%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -8826,10 +8832,10 @@
        "value": {
         "case_for": "If all 1 step(s) land you gain 12.3 pts of title odds; across yes and no outcomes that is 5.4 pts of title odds expected, and the path completes 44% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 44%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 4 + 7 (his screen +4%).",
+        "confidence": "Chance they say yes is 44%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 4 + 7 (their screen +4%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -10041,7 +10047,7 @@
      "checks": [
       {
        "id": "E1",
-       "name": "Chance he says yes is calibrated",
+       "name": "Chance they say yes is calibrated",
        "bar": "slope within 0.8-1.2",
        "status": "failing",
        "result": "calibration_slope 0.41 (95% CI 0.22 to 0.6)",
@@ -10104,10 +10110,10 @@
       }
      ],
      "blocks": [
-      "E1 Chance he says yes is calibrated is failing",
+      "E1 Chance they say yes is calibrated is failing",
       "You asked for Fuck it, let's go; the plan runs Balanced until the report card is current and nothing fails.",
       "Testing-tier signals are off.",
-      "Until E1 passes, every \"chance he says yes\" is a guess."
+      "Until E1 passes, every \"chance they say yes\" is a guess."
      ],
      "fell_back_to": "balanced"
     },
@@ -10973,7 +10979,9 @@
       "status": "ok",
       "value": {
        "kind": "title",
-       "label": "Win the title"
+       "label": "Win the title",
+       "metric": "title",
+       "metric_label": "Title odds"
       },
       "source": "campaign.plan"
      },
@@ -11954,7 +11962,7 @@
      "checks": [
       {
        "id": "E1",
-       "name": "Chance he says yes is calibrated",
+       "name": "Chance they say yes is calibrated",
        "bar": "slope within 0.8-1.2",
        "status": "failing",
        "result": "calibration_slope 0.41 (95% CI 0.22 to 0.6)",
@@ -12017,8 +12025,8 @@
       }
      ],
      "blocks": [
-      "E1 Chance he says yes is calibrated is failing",
-      "Until E1 passes, every \"chance he says yes\" is a guess."
+      "E1 Chance they say yes is calibrated is failing",
+      "Until E1 passes, every \"chance they say yes\" is a guess."
      ]
     },
     "source": "eval.check",
@@ -12682,7 +12690,9 @@
       "status": "ok",
       "value": {
        "kind": "title",
-       "label": "Win the title"
+       "label": "Win the title",
+       "metric": "title",
+       "metric_label": "Title odds"
       },
       "source": "campaign.plan"
      },
@@ -12915,9 +12925,9 @@
         "value": {
          "case_for": "If Team 3 says yes you move 11.7 pts of title odds.",
          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
          "news_check": "Act now: no pending news on the players you get.",
-         "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
          "cites": [
           "steps[0].p_yes",
@@ -12976,7 +12986,7 @@
          "get": [
           "32"
          ],
-         "text": "Open with P6 (RB) for P32 (QB) (his screen -32%)."
+         "text": "Open with P6 (RB) for P32 (QB) (their screen -32%)."
         },
         "source": "clone.price"
        },
@@ -13023,11 +13033,11 @@
          "counter": {
           "status": "ok",
           "value": {
-           "do": "Check his ask against the walk-away.",
+           "do": "Check their ask against the walk-away.",
            "counter_rules": {
-            "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +36%)",
-            "counter_with": "the next rung: 3 (his screen +0%)",
-            "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +36%)",
+            "counter_with": "the next rung: 3 (their screen +0%)",
+            "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
            }
           },
           "source": "plan.path"
@@ -13049,10 +13059,10 @@
         "value": {
          "case_for": "If Team 4 says yes you move 5.0 pts of title odds.",
          "his_side": "Team 4's roster read lists WR as thin, and the offer is built on it.",
-         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
          "news_check": "Act now: no pending news on the players you get.",
-         "confidence": "Chance he says yes is 30%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-         "counter": "If he counters, counter with the next rung: 3 (his screen +0%).",
+         "confidence": "Chance they say yes is 30%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "counter": "If they counter, counter with the next rung: 3 (their screen +0%).",
          "cites": [
           "steps[0].p_yes",
           "steps[0].title_odds_delta"
@@ -13093,9 +13103,9 @@
       "value": {
        "case_for": "If all 2 step(s) land you gain 16.6 pts of title odds; across yes and no outcomes that is 6.9 pts of title odds expected, and the path completes 16% of the time.",
        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
        "news_check": "Act now: no pending news on the players you get.",
-       "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+       "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
        "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
        "cites": [
         "steps[0].p_yes",
@@ -13225,9 +13235,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 11.7 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -13286,7 +13296,7 @@
           "get": [
            "32"
           ],
-          "text": "Open with P6 (RB) for P32 (QB) (his screen -32%)."
+          "text": "Open with P6 (RB) for P32 (QB) (their screen -32%)."
          },
          "source": "clone.price"
         },
@@ -13333,11 +13343,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +36%)",
-             "counter_with": "the next rung: 3 (his screen +0%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +36%)",
+             "counter_with": "the next rung: 3 (their screen +0%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -13359,10 +13369,10 @@
          "value": {
           "case_for": "If Team 4 says yes you move 5.0 pts of title odds.",
           "his_side": "Team 4's roster read lists WR as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 30%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 3 (his screen +0%).",
+          "confidence": "Chance they say yes is 30%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 3 (their screen +0%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -13403,9 +13413,9 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 16.6 pts of title odds; across yes and no outcomes that is 6.9 pts of title odds expected, and the path completes 16% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -13530,9 +13540,9 @@
          "value": {
           "case_for": "If Team 3 says yes you move 11.6 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
           "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
           "cites": [
            "steps[0].p_yes",
@@ -13634,9 +13644,9 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 16.6 pts of title odds; across yes and no outcomes that is 6.9 pts of title odds expected, and the path completes 16% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "Chance they say yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
         "cites": [
          "steps[0].p_yes",
@@ -13699,7 +13709,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (his screen +12%)."
+          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (their screen +12%)."
          },
          "source": "clone.price"
         },
@@ -13755,11 +13765,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +12%)",
              "counter_with": "repeat the opening once, then hold",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -13781,10 +13791,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 12.2 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with repeat the opening once, then hold.",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with repeat the opening once, then hold.",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -13885,10 +13895,10 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 17.1 pts of title odds; across yes and no outcomes that is 6.6 pts of title odds expected, and the path completes 14% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with repeat the opening once, then hold.",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with repeat the opening once, then hold.",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -13950,7 +13960,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (his screen +4%)."
+          "text": "Open with P4 (WR) + P7 (WR) for P21 (WR) (their screen +4%)."
          },
          "source": "clone.price"
         },
@@ -14006,11 +14016,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
-             "counter_with": "the next rung: 4 + 5 (his screen +12%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +12%)",
+             "counter_with": "the next rung: 4 + 5 (their screen +12%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -14032,10 +14042,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 12.1 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 4 + 5 (his screen +12%).",
+          "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 4 + 5 (their screen +12%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -14136,10 +14146,10 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 17.0 pts of title odds; across yes and no outcomes that is 6.5 pts of title odds expected, and the path completes 14% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 4 + 5 (his screen +12%).",
+        "confidence": "Chance they say yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 4 + 5 (their screen +12%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -14200,7 +14210,7 @@
           "get": [
            "21"
           ],
-          "text": "Open with P3 (RB) for P21 (WR) (his screen -15%)."
+          "text": "Open with P3 (RB) for P21 (WR) (their screen -15%)."
          },
          "source": "clone.price"
         },
@@ -14249,11 +14259,11 @@
           "counter": {
            "status": "ok",
            "value": {
-            "do": "Check his ask against the walk-away.",
+            "do": "Check their ask against the walk-away.",
             "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +42%)",
-             "counter_with": "the next rung: 4 + 7 (his screen +4%)",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+             "accept_if": "their ask is no richer than the walk-away package (walk_away_give; their screen +42%)",
+             "counter_with": "the next rung: 4 + 7 (their screen +4%)",
+             "walk_away_if": "their ask is richer than the walk-away package: your backup plan is worth more"
             }
            },
            "source": "plan.path"
@@ -14275,10 +14285,10 @@
          "value": {
           "case_for": "If Team 3 says yes you move 9.3 pts of title odds.",
           "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
           "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with the next rung: 4 + 7 (his screen +4%).",
+          "confidence": "Chance they say yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If they counter, counter with the next rung: 4 + 7 (their screen +4%).",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -14379,10 +14389,10 @@
        "value": {
         "case_for": "If all 2 step(s) land you gain 14.3 pts of title odds; across yes and no outcomes that is 6.2 pts of title odds expected, and the path completes 17% of the time.",
         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether they say yes.",
         "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "If he counters, counter with the next rung: 4 + 7 (his screen +4%).",
+        "confidence": "Chance they say yes is 57%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If they counter, counter with the next rung: 4 + 7 (their screen +4%).",
         "cites": [
          "steps[0].p_yes",
          "steps[0].title_odds_delta"
@@ -15420,7 +15430,7 @@
      "checks": [
       {
        "id": "E1",
-       "name": "Chance he says yes is calibrated",
+       "name": "Chance they say yes is calibrated",
        "bar": "slope within 0.8-1.2",
        "status": "failing",
        "result": "calibration_slope 0.41 (95% CI 0.22 to 0.6)",
@@ -15483,8 +15493,8 @@
       }
      ],
      "blocks": [
-      "E1 Chance he says yes is calibrated is failing",
-      "Until E1 passes, every \"chance he says yes\" is a guess."
+      "E1 Chance they say yes is calibrated is failing",
+      "Until E1 passes, every \"chance they say yes\" is a guess."
      ]
     },
     "source": "eval.check",

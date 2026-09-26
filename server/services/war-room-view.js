@@ -36,8 +36,8 @@ import { currentLastGood } from './campaign/last-good.js';
 /** Labels for every contract SourceId (WAR-ROOM-UI.md 2.3). Only the market value is calibrated today. */
 const SOURCE_LABELS = {
   'sim.title': ['Season sim, 1,200 runs', false],
-  'clone.accept': ['Trade model: chance he says yes', false],
-  'clone.price': ['His price (from his moves)', false],
+  'clone.accept': ['Trade model: chance they say yes', false],
+  'clone.price': ['Their price (from their moves)', false],
   'market.fc': ['FantasyCalc market value', true],
   'plan.path': ['Planner, paths searched', false],
   'coach.text': ['Written by Coach, facts checked', false],
@@ -247,7 +247,7 @@ function guardAttention(view) {
   if (problem) view.attention = hidden('failed', `The attention rank is hidden: ${problem}.`, a.source ?? 'campaign.plan');
 }
 
-/** A target mark that means "on his untouchable list": true, a Field that is ok and true, or { label }. */
+/** A target mark that means "on their untouchable list": true, a Field that is ok and true, or { label }. */
 function untouchableMark(t) {
   const m = t?.untouchable ?? t?.on_untouchable_list;
   if (m === true) return typeof t.untouchable_label === 'string' ? t.untouchable_label : '';
@@ -283,7 +283,7 @@ function hideUntouchableTargets(view, entry) {
     let label = untouchableMark(t);
     if (label == null && lists?.get(String(t?.owner))?.has(String(t?.player))) label = '';
     if (label == null) return true;
-    hiddenRows.push({ player: String(t.player), owner: String(t.owner ?? ''), label: label || 'on his untouchable list' });
+    hiddenRows.push({ player: String(t.player), owner: String(t.owner ?? ''), label: label || 'on their untouchable list' });
     return false;
   });
   if (hiddenRows.length) f.hidden_untouchable = hiddenRows;

@@ -336,7 +336,7 @@ export function targetTilt(cps, owner, pid, myIds) {
       const m = 1 + WANTS_TARGET_TILT * (w.lift / WANTS_PRIOR_LOG_LIFT);
       tilt *= m;
       features.push(feat('wants_player', owner, { player: String(w.player), effect: 'multiplier', value: m, n: w.n,
-        basis: `he wants a player you have (lift ${w.lift.toFixed(2)} of ${WANTS_PRIOR_LOG_LIFT})` }));
+        basis: `they want a player you have (lift ${w.lift.toFixed(2)} of ${WANTS_PRIOR_LOG_LIFT})` }));
     }
   }
   return { tilt, exclude: false, features };
@@ -367,7 +367,7 @@ export function respondsAdjust(pr, cp, myIds, { baseAnchor }) {
     if (w) {
       p = clamp(sigmoid(logit(p) + w.lift), 0, 0.95);
       features.push(feat('wants_player', cp.team, { player: String(w.player), effect: 'log_odds', value: w.lift, n: w.n,
-        basis: 'he wants a player you have' }));
+        basis: 'they want a player you have' }));
     }
   }
   return { p, features };
@@ -377,7 +377,7 @@ export function respondsAdjust(pr, cp, myIds, { baseAnchor }) {
 export function priceCap(cp) {
   return cp?.override?.toughen ? { max_his_pct: OVERRIDE_TOUGH_CAP_PCT,
     feature: feat('nick_override', cp.team, { effect: 'price_cap', value: OVERRIDE_TOUGH_CAP_PCT,
-      basis: `${cp.override.basis}: never above fair on his screen` }) } : null;
+      basis: `${cp.override.basis}: never above fair on their screen` }) } : null;
 }
 
 /** A JSON-safe summary of one model (Maps -> arrays) for the plans file. No names, no note text. */

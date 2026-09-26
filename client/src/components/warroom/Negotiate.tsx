@@ -3,6 +3,7 @@ import type { ReplyKind } from './types';
 import { teamLabel } from './types';
 import { Val, SourceTag } from './FieldState';
 import { pct, pts, isOk } from './format';
+import { CHANCE_THEY_SAY_YES } from './copy';
 import {
   closeNegotiation, counterSent, followedUp, logNegotiationReply, rescoreCounter, type Poster,
 } from './requests';
@@ -82,14 +83,14 @@ export default function Negotiate({ thread, onThread, post, now: fixedNow, initi
           <div className="wr-bar" aria-hidden="true"><i style={{ width: `${Math.round(elapsed(c, now) * 100)}%` }} /></div>
           <div className="wr-hint">
             {c.typical_min != null && c.slow_min != null
-              ? <>He usually answers in {span(c.typical_min)}, slow is {span(c.slow_min)} · </>
+              ? <>They usually answer in {span(c.typical_min)}, slow is {span(c.slow_min)} · </>
               : <>{c.reason} · </>}
             {c.basis} <span className="wr-tag">guess</span>
           </div>
         </div>
       )}
 
-      <div className="wr-cap">His reply → what you do</div>
+      <div className="wr-cap">Their reply → what you do</div>
       <table className="wr-rt" aria-label="Reply branches">
         <tbody>
           {thread.branches.map(b => (
@@ -102,7 +103,7 @@ export default function Negotiate({ thread, onThread, post, now: fixedNow, initi
                 )}
               </td>
               {!closed && (
-                <td><button type="button" className="wr-btn wr-sm" onClick={() => logReply(b.kind)}>He did this</button></td>
+                <td><button type="button" className="wr-btn wr-sm" onClick={() => logReply(b.kind)}>They did this</button></td>
               )}
             </tr>
           ))}
@@ -129,7 +130,7 @@ export default function Negotiate({ thread, onThread, post, now: fixedNow, initi
               <span className="wr-muted">{new Date(e.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</span>{' '}
               {e.kind === 'follow_up' ? 'You followed up'
                 : e.kind === 'counter_sent' ? `You countered: give ${list(e.give)}, get ${list(e.get)}`
-                  : e.give ? `He countered: wants ${list(e.give)}, gives ${list(e.get)}` : `He ${REPLY_TEXT[e.reply ?? 'silence']}`}
+                  : e.give ? `They countered: wants ${list(e.give)}, gives ${list(e.get)}` : `They ${REPLY_TEXT[e.reply ?? 'silence']}`}
             </li>
           ))}
         </ol>
@@ -151,9 +152,9 @@ export default function Negotiate({ thread, onThread, post, now: fixedNow, initi
 }
 
 const CLOSED_TEXT: Record<string, string> = {
-  accepted: 'He accepted. Deal done.', declined: 'He declined.', walked_away: 'You walked away.', undone: '"I sent it" was undone.',
+  accepted: 'They accepted. Deal done.', declined: 'They declined.', walked_away: 'You walked away.', undone: '"I sent it" was undone.',
 };
-const REPLY_TEXT: Record<ReplyKind, string> = { accept: 'accepted', decline: 'declined', counter: 'countered', silence: 'has not replied' };
+const REPLY_TEXT: Record<ReplyKind, string> = { accept: 'accepted', decline: 'declined', counter: 'countered', silence: 'have not replied' };
 
 /**
  * The counter builder: tap players on either side; every edit is rescored by the server
@@ -221,7 +222,7 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
   return (
     <div className="wr-builder" data-testid="counter-builder">
       <div className="wr-row">
-        <b>{mode === 'his_ask' ? 'What did he ask for?' : 'Build your counter'}</b>
+        <b>{mode === 'his_ask' ? 'What did they ask for?' : 'Build your counter'}</b>
         <span className="wr-sp" />
         <span className="wr-hint" data-testid="rescore-ms">
           {busy ? 'rescoring…' : ok && score.ms != null ? `rescored in ${score.ms} ms` : ''}
@@ -244,7 +245,7 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
           </div>
         </div>
         <div className="wr-tile">
-          <div className="wr-l">Chance he says yes</div>
+          <div className="wr-l">{CHANCE_THEY_SAY_YES}</div>
           <div className="wr-v wr-amber"><Val f={his?.p_yes} fmt={v => pct(v)} /></div>
           <div className="wr-s">
             {his?.p_yes?.band ? `${pct(his.p_yes.band.low)}–${pct(his.p_yes.band.high)} · ` : ''}
@@ -252,9 +253,9 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
           </div>
         </div>
         <div className="wr-tile">
-          <div className="wr-l">His yes-point</div>
+          <div className="wr-l">Their yes-point</div>
           <div className="wr-v"><Val f={his?.yes_point} fmt={screen} /></div>
-          <div className="wr-s">package now <Val f={his?.screen} fmt={screen} /> on his screen</div>
+          <div className="wr-s">package now <Val f={his?.screen} fmt={screen} /> on their screen</div>
         </div>
       </div>
 
@@ -264,7 +265,7 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
       <div className="wr-acts">
         {mode === 'his_ask' ? (
           <button type="button" className="wr-btn wr-primary" disabled={samePkg(pkg, sent)}
-            onClick={() => onDone(logNegotiationReply(L, thread.id, 'counter', pkg, post))}>Log this as his counter</button>
+            onClick={() => onDone(logNegotiationReply(L, thread.id, 'counter', pkg, post))}>Log this as their counter</button>
         ) : (
           <button type="button" className="wr-btn wr-primary" disabled={samePkg(pkg, sent)}
             onClick={() => onDone(counterSent(L, thread.id, pkg, post))}>I sent this counter</button>
@@ -289,16 +290,16 @@ function Slider({ axis, his, walkAway }: {
   const walkText = walkAway?.text;
   return (
     <div className="wr-slider" data-testid="screen-slider" role="img"
-      aria-label="Where the package sits on his screen, with his yes-point and your walk-away">
+      aria-label="Where the package sits on their screen, with their yes-point and your walk-away">
       <div className="wr-track">
-        {yes && <span className="wr-mk wr-mk-yes" style={{ left: `${yes.left}%` }} data-testid="yes-point" title="His yes-point" />}
+        {yes && <span className="wr-mk wr-mk-yes" style={{ left: `${yes.left}%` }} data-testid="yes-point" title="Their yes-point" />}
         {walk && <span className="wr-mk wr-mk-walk" style={{ left: `${walk.left}%` }} data-testid="walk-away-line" title="Your walk-away" />}
         {at && <span className="wr-mk wr-mk-at" style={{ left: `${at.left}%` }} data-testid="package-dot" title="This package" />}
       </div>
       <div className="wr-row wr-hint">
-        <span>{screen(axis.low)} he loses value</span>
+        <span>{screen(axis.low)} they lose value</span>
         <span className="wr-sp" />
-        <span>he gains value {screen(axis.high)}</span>
+        <span>they gain value {screen(axis.high)}</span>
       </div>
       <div className="wr-hint">
         {walkAway && isOk(walkAway)

@@ -47,7 +47,10 @@ export function api(p, opts) {
   const SRC = path.join(REPO, 'client', 'src');
   const externals = new Map();
   const external = base => {
-    const file = [`${base}.tsx`, `${base}.ts`, path.join(base, 'index.tsx'), path.join(base, 'index.ts')].find(f => fs.existsSync(f));
+    // WARROOM-LABEL-FIX: a War Room file may import a plain .js file by its full specifier
+    // (server/services/people/neutral.js, the shared pronoun guard) rather than an extension-less
+    // TS-style path, so `base` itself is tried before assuming a .ts/.tsx sibling.
+    const file = [base, `${base}.tsx`, `${base}.ts`, path.join(base, 'index.tsx'), path.join(base, 'index.ts')].find(f => fs.existsSync(f));
     if (!file) throw new Error(`warroom-tsx: cannot resolve ${path.relative(SRC, base)}`);
     for (const [dir, rel] of [[WARROOM_DIR, 'warroom'], [UI_DIR, 'ui']]) {
       if (file.startsWith(dir + path.sep)) return pathToFileURL(path.join(temp, rel, path.relative(dir, file).replace(/\.tsx?$/, '.mjs'))).href;

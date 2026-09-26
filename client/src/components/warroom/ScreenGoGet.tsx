@@ -44,7 +44,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest, someon
   const targets = isOk(field) ? field.value.filter(t => !isUntouchable(t)) : [];
   const hiddenUt = isOk(field) ? [
     ...(view.targets?.hidden_untouchable ?? []),
-    ...field.value.filter(isUntouchable).map(t => ({ player: t.player, owner: t.owner, label: t.untouchable_label ?? 'on his untouchable list' })),
+    ...field.value.filter(isUntouchable).map(t => ({ player: t.player, owner: t.owner, label: t.untouchable_label ?? 'on their untouchable list' })),
   ] : [];
   const moves = isOk(view.alternatives) ? view.alternatives.value : [];
   // Opens on the plan's own target when a move leads to him; otherwise on every plan move.

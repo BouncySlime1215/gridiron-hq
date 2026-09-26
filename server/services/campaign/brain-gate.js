@@ -84,7 +84,7 @@ export function brainReportSection({ report, rule, error = null, requestedMode }
     blocks.push('Testing-tier signals are off.');
   }
   const e1 = rows.find(c => c.check === 'E1');
-  if (!e1 || e1.status !== 'passing' || !current) blocks.push('Until E1 passes, every "chance he says yes" is a guess.');
+  if (!e1 || e1.status !== 'passing' || !current) blocks.push('Until E1 passes, every "chance they say yes" is a guess.');
 
   return { overall, checks, blocks, ...(rule.fell_back ? { fell_back_to: 'balanced' } : {}) };
 }

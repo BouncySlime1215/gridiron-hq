@@ -433,12 +433,14 @@ test('usageSummary prices each model at its own rate, including legacy rows writ
   assert.ok(Array.isArray(summary.budgets));
 });
 
-test('usageSummary "today" is Nick\'s local day — the same day the budgets in the same payload count', () => {
+test('usageSummary "today" is Nick\'s local day — the same day the budgets in the same payload count', async () => {
   // Verifier (2026-09-18): today was the UTC date while budgets use the local
   // day, so from 8 PM to midnight ET (game nights) the Dev Hub's Today and the
   // Coach budget's spent-today disagreed. A call 1 s before local midnight is
   // yesterday for both, even when it shares the UTC date.
-  const start = db.prepare(`SELECT datetime('now', 'localtime', 'start of day', 'utc') AS t`).get().t;
+  // SPEND-SERVER: Nick's day is the New York day, named explicitly, so the test holds on a UTC CI runner too.
+  const { etTodayBounds } = await import('../server/services/et-day.js');
+  const start = etTodayBounds().start;
   const add = (offset, cost) => db.prepare(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens, calls, cost_usd, created_at)
                                             VALUES (date(datetime(?, ?)), 'coach:answer', ?, 0, 0, 1, ?, datetime(?, ?))`)
     .run(start, offset, SONNET, cost, start, offset);

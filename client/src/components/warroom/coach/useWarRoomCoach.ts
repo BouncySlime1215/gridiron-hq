@@ -66,6 +66,8 @@ export interface CoachShape {
   risks: { text: string; cites: string[] }[];
   /** Plan answers: the grounded lines past the format's limits, shown folded. */
   more?: { text: string; cites: string[] }[];
+  /** COACH-V2 unit 4: the lanes' disagreement, one sentence ("Numbers say X; Jev reads Y because Z."). */
+  disagreement?: string | null;
 }
 
 /** An action Coach proposes: a War Room record Nick confirms with a tap (offer.sent, deck.skip). */

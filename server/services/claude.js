@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  PRICING, costOf, costOfUsage, requirePrice, rowCostUsd, estimateCallCostUsd, reserveBudget, listBudgets
+  PRICING, costOf, costOfUsage, requirePrice, estimateCallCostUsd, reserveBudget
 } from './llm-budget.js';
+import { writeUsage, aiSource } from './ai-ledger.js';
+import { spendSummary } from './ai-spend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = path.join(__dirname, '..', '..', '.env');
@@ -87,26 +89,20 @@ export function clearWorkspaceId() {
  * Log one call: tokens (uncached input, output, cache reads, cache writes) and
  * its dollar cost at the model's own rates. Returns the cost.
  */
-export function recordUsage(feature, model, usage) {
+export function recordUsage(feature, model, usage, { real = true } = {}) {
   if (!usage) return null;
   const cost = costOfUsage(model, usage);
-  run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens,
-                             cache_read_input_tokens, cache_creation_input_tokens, cost_usd, calls)
-       VALUES (date('now'), ?, ?, ?, ?, ?, ?, ?, 1)`,
-    feature, model, usage.input_tokens ?? 0, usage.output_tokens ?? 0,
-    usage.cache_read_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0, cost);
+  // SPEND-SERVER: tagged with this process's source; a real call from a DB copy also reaches the shared ledger.
+  writeUsage({ feature, model, usage, cost, real });
   return cost;
 }
 
 /** The API's refusal when the account has no credit left. */
 export const CREDIT_ERROR = /credit balance is too low/i;
 
-/** One refused call, at 0 cost, with its error code (migration 116); skipped on a database without the column. */
-export function recordFailure(feature, model, error) {
-  const hasError = rows('PRAGMA table_info(ai_usage)').some(c => c.name === 'error');
-  if (!hasError) { console.warn(`[ai] ${feature} on ${model} failed (${error}); ai_usage has no error column, so it is not logged`); return; }
-  run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, cost_usd, calls, error)
-       VALUES (date('now'), ?, ?, 0, 0, 0, 0, 0, 1, ?)`, feature, model, error);
+/** One refused call, at 0 cost, with its error code (migration 116), tagged with its source like any call. */
+export function recordFailure(feature, model, error, { real = true } = {}) {
+  writeUsage({ feature, model, usage: {}, cost: 0, error, real });
 }
 
 const USAGE_COLUMNS = ['cost_usd', 'cache_read_input_tokens', 'cache_creation_input_tokens'];
@@ -231,6 +227,7 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   if (!CACHE_TTLS.has(cacheTtl)) throw new Error(`cacheTtl must be '5m' or '1h', not ${String(cacheTtl)}`);
   requirePrice(model);
   assertUsageSchema();
+  aiSource(); // an unknown GRIDIRON_AI_SOURCE is refused before anything is spent
 
   const caching = cacheSystem || cachedPrefix != null || cacheConversation;
   const baseMessages = messages ?? [{ role: 'user', content: prompt }];
@@ -270,13 +267,13 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   try {
     const client = await clientFor(key, workspaceId);
     const msg = await client.messages.create(request);
-    const cost = recordUsage(feature, model, msg.usage);
+    const cost = recordUsage(feature, model, msg.usage, { real: !testClient });
     return { ...msg, cost_usd: cost };
   } catch (e) {
     // COACH-V2 (2026-09-26 outage): an account out of credits is refused before any work. Log it at 0 cost
     // (ai_usage.error = 'credit') so the spend tracker and the hourly check see the outage, and say it plainly.
     if (CREDIT_ERROR.test(e?.message ?? '')) {
-      recordFailure(feature, model, 'credit');
+      recordFailure(feature, model, 'credit', { real: !testClient });
       const err = new Error('The AI account is out of credits, so Coach cannot ask the model right now.');
       err.status = 503;
       err.code = 'ai_credit';
@@ -357,55 +354,11 @@ export function parseJson(msg) {
 }
 
 /**
- * Spend for the Dev Hub. Every row is costed at its own model's rates (the
- * stored cost_usd, or priced by model for rows written without one) — the old
- * version priced the by-feature and today totals at Haiku rates whatever the
- * model. `unpriced_calls` counts rows for a model with no price, which are left
- * out of `cost` rather than guessed. `today` is Nick's local day, the same
- * day the budgets count (llm-budget.js#spentTodayUsd), not the UTC `date`.
+ * Spend for the Dev Hub: SPEND-SERVER's summary (ai-spend.js). New York days, today by
+ * model / feature / source, the total daily budget, the anomaly fields and credit errors.
+ * Every row is costed at its own model's rates (rowCostUsd); a row for a model with no
+ * price is counted in `unpriced_calls`, never guessed.
  */
 export function usageSummary(days = 30) {
-  const logged = rows(`SELECT date, feature, model, input_tokens, output_tokens, cache_read_input_tokens,
-                              cache_creation_input_tokens, calls, cost_usd,
-                              created_at >= datetime('now', 'localtime', 'start of day', 'utc') AS is_today
-                       FROM ai_usage WHERE date >= date('now', ?)`, `-${days} days`);
-  const blank = () => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
-    calls: 0, cost: 0, unpriced_calls: 0 });
-  const add = (acc, r) => {
-    acc.input_tokens += r.input_tokens ?? 0;
-    acc.output_tokens += r.output_tokens ?? 0;
-    acc.cache_read_input_tokens += r.cache_read_input_tokens ?? 0;
-    acc.cache_creation_input_tokens += r.cache_creation_input_tokens ?? 0;
-    acc.calls += r.calls ?? 0;
-    const cost = rowCostUsd(r);
-    if (cost == null) acc.unpriced_calls += r.calls ?? 0;
-    else acc.cost += cost;
-    return acc;
-  };
-  const groupBy = (keyOf, seed) => {
-    const groups = new Map();
-    for (const r of logged) {
-      const k = keyOf(r);
-      if (!groups.has(k)) groups.set(k, { ...seed(r), ...blank() });
-      add(groups.get(k), r);
-    }
-    return [...groups.values()];
-  };
-  const rounded = g => ({ ...g, cost: +g.cost.toFixed(4) });
-
-  const daily = groupBy(r => `${r.date}|${r.model}`, r => ({ date: r.date, model: r.model }))
-    .sort((a, b) => b.date.localeCompare(a.date)).map(rounded);
-  const byFeature = groupBy(r => r.feature, r => ({ feature: r.feature }))
-    .sort((a, b) => b.calls - a.calls).map(rounded);
-  const today = logged.filter(r => r.is_today).reduce(add, blank());
-  const period = logged.reduce(add, blank());
-
-  return {
-    today: rounded(today),
-    period_days: days,
-    period_cost: +period.cost.toFixed(4),
-    daily,
-    by_feature: byFeature,
-    budgets: listBudgets()
-  };
+  return spendSummary(days);
 }

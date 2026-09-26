@@ -143,11 +143,11 @@ const pct = p => `${Math.round(p * 100)}%`;
  */
 export function jevLines(take, cite) {
   const lines = [
-    { text: `Jev: ${pct(take.p_accept)} he takes it as sent (chat read, ungraded).`, cites: [cite('p_accept')] },
-    { text: `Jev: ${take.stance}, mainly on ${BASIS_WORDS[take.basis]} (chat read, ungraded).`, cites: [cite('stance'), cite('basis')] },
+    { text: `Jev: ${pct(take.p_accept)} they take it as sent (from chat, unverified).`, cites: [cite('p_accept')] },
+    { text: `Jev: ${take.stance}, mainly on ${BASIS_WORDS[take.basis]} (from chat, unverified).`, cites: [cite('stance'), cite('basis')] },
     { text: take.claude_call_right >= 0.5
-      ? `Jev backs Claude's call, ${pct(take.claude_call_right)} (chat read, ungraded).`
-      : `Jev doubts Claude's call: only ${pct(take.claude_call_right)} that it is right for him (chat read, ungraded).`,
+      ? `Jev backs Claude's call, ${pct(take.claude_call_right)} (from chat, unverified).`
+      : `Jev doubts Claude's call: only ${pct(take.claude_call_right)} that it is right for them (from chat, unverified).`,
     cites: [cite('claude_call_right')] }
   ];
   return lines;

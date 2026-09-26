@@ -93,6 +93,34 @@ function fakeJev() {
 
 const entry4 = () => JSON.parse(fs.readFileSync(PLANS_FILE, 'utf8')).leagues.find(e => e.league === 4);
 
+test('best first: the seven bands, then the odds gain if landed, then the chance of a deal', async () => {
+  const { bestFirst, rankOf, bandOf } = await import('../server/services/numbers-people/order.js');
+  const card = (name, claude, jev, facts = {}) => ({ name, claude, jev, facts, order: 0 });
+  const shuffled = [
+    card('avoid-avoid', 'avoid', 'avoid'), card('noread-avoid', 'avoid', null), card('wait-avoid', 'wait', 'avoid'),
+    card('go-avoid', 'go', 'avoid'), card('avoid-go', 'avoid', 'go'), card('noread-wait', 'wait', null), card('wait-wait', 'wait', 'wait'),
+    card('wait-go', 'wait', 'go'), card('go-wait', 'go', 'wait'), card('noread-go', 'go', null),
+    card('go-go low gain', 'go', 'go', { gain_if_landed: 0.05, p_reach: 0.9 }),
+    card('go-go high gain', 'go', 'go', { gain_if_landed: 0.2, p_reach: 0.1 }),
+    card('go-go high gain, better deal', 'go', 'go', { gain_if_landed: 0.2, p_reach: 0.3 })
+  ];
+  assert.deepEqual(bestFirst(shuffled).map(c => c.name), [
+    'go-go high gain, better deal', 'go-go high gain', 'go-go low gain',   // 1 both go; gain, then chance of a deal
+    'noread-go',                                                            // 7 below both go
+    'wait-go', 'go-wait',                                                   // 2 one go, one wait (either lane)
+    'wait-wait', 'noread-wait',                                             // 3 both wait, then no read on wait
+    'go-avoid', 'avoid-go',                                                 // 4 a real split (either lane; ties keep the producer's order)
+    'wait-avoid',                                                           // 5
+    'avoid-avoid', 'noread-avoid'                                           // 6 both avoid, then no read on avoid
+  ]);
+  assert.equal(rankOf('go', 'wait'), rankOf('wait', 'go'), 'either lane');
+  assert.deepEqual(['go|go', 'go|avoid', 'avoid|avoid', 'wait|wait', 'go|'].map(k => bandOf(...k.split('|').map(x => x || null))),
+    ['go', 'split', 'avoid', 'wait', 'no_read']);
+  // A move ties on its full-move gain; a league-mate on the edge; the chance of a deal next.
+  assert.deepEqual(bestFirst([card('m1', 'go', 'go', { title_gain_if_complete: 0.1, p_complete: 0.2 }),
+    card('m2', 'go', 'go', { title_gain_if_complete: 0.1, p_complete: 0.5 })]).map(c => c.name), ['m2', 'm1']);
+});
+
 test('the comparison step', () => {
   assert.equal(verdictOf({ stance: 'go', basis: 'price' }, { stance: 'wait', basis: 'price' }), 'differ');
   assert.equal(verdictOf({ stance: 'go', basis: 'price' }, { stance: 'go', basis: 'price' }), 'agree');
@@ -189,8 +217,13 @@ test('caching: no second call in the window; a plan change and Refresh run again
   const view = numbersPeopleView({ leagueId: 4, entry: entry4() });
   const move = view.items.find(i => i.key === 'move:L4-1dhntz0');
   assert.deepEqual(move.history.map(h => h.week), [2, 3]);
-  assert.equal(view.items[0].verdict, 'differ', 'DIFFER first');
-  assert.deepEqual(view.summary, { agree: 1, differ: 1, same_but: view.summary.same_but, no_people_read: view.summary.no_people_read });
+  // Best first: Claude says go on everything; Jev says go on all of roster 3's items but avoid on one move.
+  const ranks = view.items.map(i => [i.numbers.stance, i.people.stance ?? null]);
+  const firstNoRead = ranks.findIndex(([, j]) => j == null);
+  assert.ok(ranks.slice(0, firstNoRead).every(([c, j]) => c === 'go' && j === 'go'), 'both say go on top');
+  assert.ok(ranks.slice(firstNoRead, -1).every(([, j]) => j == null), 'then Claude-go with no chat read');
+  assert.deepEqual(ranks.at(-1), ['go', 'avoid'], 'the go/avoid split is last here');
+  assert.deepEqual([view.summary.both_go, view.summary.split, view.summary.both_avoid], [4, 1, 0]);
 });
 
 test('GRIDIRON_NUMBERS_PEOPLE=0 turns the producer off; nothing is asked', async () => {
@@ -304,7 +337,8 @@ test('copy: league-mates are "they" (labels, whys), and no label is long enough 
   for (const stance of ['go', 'wait', 'avoid']) for (const backs of [0.2, 0.8]) for (const accept of [0.2, 0.8]) {
     assert.doesNotMatch(jevWhy({ stance, claude: { stance: 'go' }, backs, accept }), GENDERED);
   }
-  assert.equal(neutral("He rarely accepts; his roster is thin and he's shopping."), null, 'an unswappable "he" is withheld');
+  assert.equal(neutral("He rarely accepts; his roster is thin and he's shopping."), "They rarely accept; their roster is thin and they're shopping.", 'an adverb between "he" and the verb swaps');
+  assert.equal(neutral('He, of all managers, sells late.'), null, 'an unswappable "he" is withheld');
   assert.equal(neutral("His roster is thin and he's shopping."), "Their roster is thin and they're shopping.");
   // Every static string in the view and the client components.
   const srcs = ['server/services/numbers-people/view.js', 'client/src/components/trade/NumbersPeople.tsx',

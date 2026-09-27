@@ -47,3 +47,22 @@ This is a RESEARCH job first: parallel web research plus a Fable design. Build n
 
 ## Budget and privacy
 Run 5-6 parallel web-research agents, one per question, plus one Fable synthesis. Keep league-mate names out of anything committed.
+
+## Addendum (Nick 9/27): comparative statics everywhere, plus missing ideas
+**Comparative statics (a MUST, across the whole model).** Every recommendation ships with its sensitivity:
+- how the decision and Δ playoff odds change as each key input moves;
+- the BREAK-EVEN points, e.g. "worth it if Amon-Ra ≥ 24 ppg", "flips if P(yes) < 12%", "flips if Nico misses 3+ weeks";
+- a tornado chart of the top 5 drivers.
+Use paired-seed re-sims per input shift. Surface it in Coach and the trade story page. If a recommendation flips on a plausible input, say so.
+
+**Other gaps to research and design:**
+1. Luck regression: shrink hot and cold starts (TD rate, YPC, target share) toward priors before valuing a player.
+2. Value of information and timing: an optimal-stopping rule for "act now vs wait". The lookahead's wait branch should be explicit and costed in lost games.
+3. Game theory / the league as a market: who else chases the same player; what league-mates' likely trades do to our odds; bidding competition.
+4. Correlation: QB-WR stacks and same-game exposure raise variance, which helps an underdog. Correlated injuries and byes.
+5. Playoff-week matchups and bye clusters, weighted into player value.
+6. Market timing: value trajectories (buy low before news, sell high after spikes), from the value-over-time research.
+7. Portfolio view: diversification across NFL teams and byes; downside protection.
+8. Negotiation: anchoring, multi-offer packages, counter ladders, and screen-gap offers (how their calculators see it).
+9. Tiebreakers: points-for affects seeding. Value points, not only wins.
+10. Calibration loop: log every prediction (P(yes), Δ odds, weekly win prob) and grade it weekly, so the model learns where it's overconfident.

@@ -191,3 +191,10 @@ Architecture: context-gated stacking, a mixture of experts.
   - **Ablation gate:** an expert is added only if the stack's held-out error or decision value improves.
   - **Decision-level evaluation.** Trust is graded on start/sit and trade outcomes (did trusting it win more), not only MAE.
 - **Build order:** 1 wire the existing experts plus an equal-weight baseline; 2 context-weighted stacking; 3 the online Hedge layer; 4 scorecards in Coach; 5 add experts from Addendum 7, one per unit.
+
+## Addendum 9 (Nick 9/27): "a model could have the keys one week; if it's not allowed to be listened to, why have it?" TRUST THE REASON, NOT JUST THE MODEL
+- **Credibility is scored per DRIVER, not only per model.** When an expert disagrees with the consensus, record WHY (its top drivers via SHAP, or the event it reacted to: starter ruled out, route growth, weather, coach change). Keep a track record per driver type across all models and seasons, e.g. "RB2 projected up because the RB1 was ruled out: right 71% of the time, n=240". A rarely-firing model gets trusted strongly WHEN its proven driver fires, even if its overall record is average.
+- **Never zero.** Weights are Bayesian (partial pooling). A new or rare expert gets small-but-nonzero trust that grows with evidence, and Hedge weights have a floor. Nothing is silenced.
+- **Disagreement is an event.** A large, reason-backed disagreement triggers a flag in Coach: "Model X says +6 on Warren because Dowdle is out; that reason has hit 71%". Nick sees it and can act, even before the gate fully trusts it.
+- **Act on expected value.** Follow an outlier when (driver hit-rate × gain) − (miss-rate × loss) > 0 for THIS decision, with comparative statics shown ("follow if you believe ≥ 45%").
+- **This generalises the O1 radar's event-effects table** (18 event types with n and CIs) to every model's disagreement reasons.

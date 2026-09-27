@@ -66,3 +66,14 @@ Use paired-seed re-sims per input shift. Surface it in Coach and the trade story
 8. Negotiation: anchoring, multi-offer packages, counter ladders, and screen-gap offers (how their calculators see it).
 9. Tiebreakers: points-for affects seeding. Value points, not only wins.
 10. Calibration loop: log every prediction (P(yes), Δ odds, weekly win prob) and grade it weekly, so the model learns where it's overconfident.
+
+## Addendum 2 (Nick 9/27): "our model is a dud; we need to beat FantasyPros and ESPN; what's a model worth if it regurgitates"
+EDGE-PLAN. Research it and pre-register it; no claims without held-out proof.
+1. **Projection stack.** Ensemble ESPN + FantasyPros (internal only, never displayed) + E-XGB + usage features, weighted per position by rolling accuracy (stacking or Bayesian model averaging). Pre-register: beat ESPN AND FantasyPros on MAE over held-out weeks with a paired CI. The E-XGB shadow alone lost to ESPN, but ensembles usually beat any single source. Report the PROJ-DUEL scoreboard weekly.
+2. **Structural edges ESPN and FantasyPros can't have:**
+   - (a) our league's scoring, schedule and playoff format;
+   - (b) league-mates' behaviour (Jev, reply clock, screen-gap vs their calculators);
+   - (c) speed on news and usage inflections (the O1 radar);
+   - (d) decision quality (the chain lookahead, comparative statics, the cost of waiting).
+3. **Proven signal first:** BUY-LOW (+1.98 pts/game held out) goes into player value, not only as a tie-breaker. Look for more "usage up, points down" style signals with pre-registered tests.
+4. **Honesty rule:** public-data projection edges are usually near zero (see the 9/17 betting work). Aim the model at league-specific decisions, where the edge is real, and show the scoreboard, never marketing.

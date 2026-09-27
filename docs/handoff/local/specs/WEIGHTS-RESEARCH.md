@@ -174,3 +174,20 @@ Data we have: nflverse PBP/usage, FTN charting (routes, coverage), ffopportunity
 - **Weather:** the nfl_game_weather and nfl_game_weather_forecast_history tables, plus football-context.js#weatherPicture (dome/wind). Used by Coach context and fantasy-coordinator, NOT by served projections.
 - **Also existing:** xFP (ffopportunity); BUY-LOW; the O1 radar (18 events, 3 pass); role-changepoint; avail.p_play; E-XGB features (target/air-yards share, WOPR, rz_share, Vegas implied, opponent allowed); O1C-WIRE (flagged off).
 - **The STACK's first unit is WIRING,** not modelling: feed these as base learners and features into the blender, then add new learners one at a time.
+
+## Addendum 8 (Nick 9/27): TRUST ENGINE, "200 models, learn WHEN to trust each, and trust for the right reasons"
+Architecture: context-gated stacking, a mixture of experts.
+- **Experts:** N base models (target 50-200 over time), each emitting a distribution (mean, quantiles) per player-week.
+- **Gate:** learns weights w_i(context), where context = position, week-of-season, role-change flag, injury-replacement flag, low-buzz flag, Vegas total/spread band, weather, home/away, rookie flag, sample size. Methods, in order:
+  - (1) feature-weighted linear stacking (Netflix-prize style: weights are linear in context);
+  - (2) online exponential weights (Hedge / multiplicative weights) for fast in-season adaptation, with regret bounds;
+  - (3) a small gradient-boosted gate only if (1) and (2) are beaten out of sample.
+- **Guards, so trust comes from the right reasons:**
+  - **Walk-forward only.** Train on weeks < t and grade week t. Never pool the future.
+  - **Shrink toward equal weights.** The "forecast combination puzzle": simple averages are hard to beat, so the gate must earn deviations.
+  - **Multiple-comparisons control.** With 200 models, some look great by luck. Use a hold-out season plus false-discovery control; an expert keeps weight only with repeatable skill across seasons.
+  - **Per-expert scorecard:** where it's trusted (context), how often it's right there, and its calibration (PIT/coverage). Coach can cite "trusted here because X has been right 64% on low-buzz WRs over 3 seasons".
+  - **Stability:** weights can't swing wildly week to week (a smoothness penalty). Drift alarms go into CAL-MON.
+  - **Ablation gate:** an expert is added only if the stack's held-out error or decision value improves.
+  - **Decision-level evaluation.** Trust is graded on start/sit and trade outcomes (did trusting it win more), not only MAE.
+- **Build order:** 1 wire the existing experts plus an equal-weight baseline; 2 context-weighted stacking; 3 the online Hedge layer; 4 scorecards in Coach; 5 add experts from Addendum 7, one per unit.

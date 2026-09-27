@@ -40,6 +40,7 @@ Raw projection accuracy is table stakes; the goal there is to match the best ble
 ## Build order: phases with acceptance bars
 
 **Phase A, NOW (this week, for the playoff push)**
+0. SNAPSHOT-HISTORY (tier 1/2 prerequisite): append-only history twins for every mutable source table (captured_at, source, version); the data-availability calendar at hour resolution; data contracts per source. BAR: no source overwrites without a history row; the leakage test passes.
 1. HARNESS-HEALTH, then CLEANUP (tier 0).
 2. CONTENTION-MODE rules (tier 8), then send Nick the top 5 trades from the chain (tier 9). BAR: 0 rule breaks; each trade shows Δ playoff odds with SE, P(yes) and the Claude/Jev read.
 3. STAR-SHRINK + luck regression applied to values used in trades (tier 5). BAR: calibration slope on a 2019-2025 backfill closer to 1.0 than raw ESPN.
@@ -60,6 +61,9 @@ Raw projection accuracy is table stakes; the goal there is to match the best ble
 14. Kill switches, registry, counterfactual grading (tier 11).
 15. New expert families, one per unit, each through the ablation gate (tier 5): info timing, matchups, scheme, team health, crowd.
 16. TEAMS-V2, NAV-SHELL, TWO-SCREEN (UI).
+
+## Ideas backlog
+See IDEAS-BACKLOG.md (20 buildable ideas, each tied to a tier). Pull from it after Phase A, through the same bars.
 
 ## Standing rules
 - Hard trade rules live in never-give.js only.

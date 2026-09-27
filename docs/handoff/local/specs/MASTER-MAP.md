@@ -71,3 +71,39 @@ Raw projection accuracy is table stakes; the goal there is to match the best ble
 - Pre-register every model test.
 - Walk-forward only.
 - Every unit names its tier and box.
+
+## Fable review (9/27): what each phase is missing, going down the tiers and back up the loop
+
+### The 5 biggest gaps, in order
+1. **Snapshot-on-write for every mutable source.** Tables like espn_player_market are keyed by player and OVERWRITE on fetch (one fetched_at, no history). Anything that overwrites destroys point-in-time truth, so tiers 2, 4, 6 and 7 would be built on sand. Rule: every source table gets an append-only history twin (captured_at, source, version). This is a Phase A prerequisite, not Phase B.
+2. **A data-availability calendar at hour resolution.** What is known when: Tuesday usage, Wednesday practice, Friday designations, Sunday 90-minute inactives, line moves all week. Every expert and every replay must declare its cutoff hour, not just its week. The timing edge is unmeasurable without this.
+3. **Hierarchical coherence.** Player projections must reconcile to team implied totals (team → position group → player), with a MinT-style reconciliation. Today nothing forces 11 receivers to sum to one offense.
+4. **A decision-weighted loss.** The trust gate should be graded on the errors that change Nick's decisions (his starters, his targets, the flex bubble), not on the league-wide MAE. A 3-point miss on his RB2 matters more than a 10-point miss on a backup TE he never sees.
+5. **A multi-league portfolio objective.** Five leagues, with the same players in several of them. All-in in all five doubles the same bets; the objective tier must hold a portfolio view with correlation across leagues.
+
+### Phase A (now): missing
+- Data: append-only history twins (gap 1); FantasyPros weekly projection capture (internal); daily FantasyCalc value history; practice-report rows WITH publish timestamps; the inactives feed with timestamps; a coaching-staff table with change dates.
+- Harness: a data contract per source (schema, freshness SLA, row-count sanity) that HARNESS-HEALTH checks; a per-expert compute and API cost meter.
+- Objective: contention mode with an auto-revert date, editable in Settings; a regret tolerance setting.
+- Decision: a cache and an incremental sim, so the chain answers in under 10 s, not 60.
+
+### Phase B (foundation): missing
+- History: multi-source projection archives (FFA has CBS, NFL, FFToday, Yahoo; the aggregation edge is free); nflverse historical injuries and depth charts; DFS salary archives as implied projections; Nick's league trade history with timestamps.
+- Feature store: automated leakage tests (any feature timestamped after the cutoff fails CI); feature versioning; the availability calendar (gap 2).
+- Replay lab: hour-level cutoffs; fixtures for odd weeks (byes, Thursday and Thanksgiving, week 18); 2025 stays a sealed hold-out; replaying DECISIONS (what the planner would have offered), not only projections.
+- Experts: an expert interface contract (input schema; output = distribution + typed reason + lead time + coverage + cost); D/ST and K experts; a consensus-residual expert (model only the delta vs ESPN); hierarchical coherence (gap 3).
+- Ledger: Shapley-style attribution when several reasons fire at once; a half-life per reason; lead-time credit even when the outcome is noisy (the consensus moved toward us = a hit).
+
+### Phase C (edge): missing
+- Trust gate: the decision-weighted loss (gap 4); a cold-start shadow period for new experts; uncertainty on the weights themselves; a same-game correlation model (copula) for lineup variance.
+- Decision: waiver bid model (FAAB or priority); opponent-aware weekly lineups (variance choice depends on the opponent's projected total); stacks; multi-team trade construction (#459 exists); negotiation ladders as sequences.
+- Coach: proactive push when a flip trigger fires (#293 is flagged); a weekly "what did I miss" review; a belief-capture UI whose entries become the Nick expert's forecasts.
+- Grading: the platform's own KPI, a DECISION SCOREBOARD: Nick's decisions vs doing nothing vs ESPN-only vs the league average, weekly; luck vs decision attribution (AUTOPSY #295); drift alerts; a privacy audit of every payload that leaves the Mac; a backup-restore drill.
+
+### Back up the loop (what outcomes change upstream)
+- Ledger → data: reasons with small n mark which sources to ingest next (active learning). The ledger drives the ingestion queue.
+- Trust gate → experts: contexts where every expert is bad reveal missing families; build there next.
+- Nick's overrides → the Nick expert and a new reason type when he was right for a reason no model had.
+- Decision scoreboard → objective: if decisions beat ESPN-only but lose to doing nothing, the risk setting is wrong, not the models.
+- Registry → replay: every served number replays bit-for-bit, or the harness fails.
+- A quarterly map review: change the map before the code.

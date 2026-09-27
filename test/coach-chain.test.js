@@ -118,6 +118,27 @@ test('a hole is detected: the slot Nick ranks lowest in against the league, with
   }
 });
 
+test('consolidation: a 3-for-1 into a star shows the real lineup cost, slot by slot, with what free agents would add', () => {
+  const a = makeAdapter();
+  const fa = [{ id: 41, name: 'P41', position: 'WR', ros_ppg: 9.5 }, { id: 43, name: 'P43', position: 'RB', ros_ppg: 6 }];
+  // Nick gives three starters (RB 2, RB 3, TE 5) for Team 2's star WR 11: the RB and TE slots empty out.
+  const res = chain(a, [{ team: '2', give: [2, 3, 5], get: [11] }], { rules: fixtureRules(a), slots: SLOTS, flex: FLEX_ELIGIBLE,
+    objective: PLAYOFFS, freeAgents: fa, extend: false, lookahead: false });
+  const before = res.nothing.lineup_slots, after = res.steps[0].lineup_slots;
+  assert.deepEqual(before.map(r => r.label), ['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'TE', 'FLEX']);
+  assert.equal(after.find(r => r.label === 'TE').player, null, 'the TE slot is empty after the trade');
+  assert.equal(after.find(r => r.label === 'TE').ppg, 0);
+  assert.equal(after.find(r => r.label === 'WR1').player, '11');
+  // The slot-by-slot cost: the star does not cover three starters (the fixture world scores a top five, not
+  // slots, so the table is the check here; on a real league the sim's lineup points carry the same slots).
+  const sum = t => t.reduce((x, r) => x + r.ppg, 0);
+  assert.ok(sum(after) < sum(before), `starters fall from ${sum(before)} to ${sum(after)} pts a game`);
+  // A free agent who would start is shown, never silently counted.
+  const rb2 = after.find(r => r.label === 'RB2');
+  assert.equal(rb2.fa_would_start, rb2.ppg < 6);
+  assert.equal(res.steps[0].roster.size, res.steps[0].roster.before - 2, 'a 3-for-1 opens two roster spots');
+});
+
 test('flip claims fill a hole only when the world simulates free agents: claim, then flip him on (never kept)', () => {
   const a = makeAdapter();
   a.players.set(41, { id: 41, name: 'P41', position: 'WR', value: 1600, power: 9.5, ros_ppg: 9.5, injury: 0, bye: null, trend_kind: null });

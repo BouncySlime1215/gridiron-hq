@@ -1,6 +1,6 @@
 # COACH-CHAIN: after this move, what fills the hole
 
-RED `c04a7884` · GREEN follows · `test/coach-chain.test.js`, 10 cases.
+RED `c04a7884` · GREEN follows · `test/coach-chain.test.js`, 11 cases.
 
 ## What it is
 
@@ -33,4 +33,5 @@ this player to fill this hole", then: "a trade is only as good as its next steps
 7. question parsing, name resolution, ambiguous names asked about;
 8. the $0 answer cites only `chain_read` cells;
 9. a recorded narration ships only its grounded lines; an invented number never ships;
-10. the flag: default off, on with its own flag or preview, `0` vetoes preview.
+10. the flag: default off, on with its own flag or preview, `0` vetoes preview;
+11. consolidation: a 3-for-1 into a star shows every slot before and after (both FLEX), an emptied slot at 0, and the best free agent who would start.

@@ -102,6 +102,25 @@ export function findHole({ rosters, players, me, slots, flex, freeAgents = [], p
   return { ...worst, slots: rows };
 }
 
+/**
+ * Nick's starting lineup slot by slot, with the best free agent who could start in each slot beside it
+ * (each free agent used once, best slot first). `fa_would_start`: that free agent out-scores the starter,
+ * so the season sim (which starts only rostered players) under-counts that slot by `fa_gain`. An empty
+ * slot shows player null and ppg 0. -> [{ label, slot, player, position, ppg, fa: { player, ppg } | null, fa_would_start, fa_gain }]
+ */
+export function lineupTable(ids, players, slots, flex, freeAgents = []) {
+  const rows = slotLineup(ids.map(id => players.get(id)).filter(Boolean), slots, flex);
+  const used = new Set();
+  return rows.map(r => {
+    const fa = freeAgents.filter(f => r.positions.includes(f.position) && !used.has(S(f.id)) && num(f.ros_ppg) != null)
+      .sort((a, b) => b.ros_ppg - a.ros_ppg)[0] ?? null;
+    const starts = !!fa && num(fa.ros_ppg) > r.ppg;
+    if (starts) used.add(S(fa.id));
+    return { label: r.label, slot: r.slot, player: r.id == null ? null : S(r.id), position: r.position, ppg: r.ppg,
+      fa: fa ? { player: S(fa.id), ppg: num(fa.ros_ppg) } : null, fa_would_start: starts, fa_gain: starts ? num(fa.ros_ppg) - r.ppg : 0 };
+  });
+}
+
 /** A move as the chain reads it: a trade { team, give, get } or a claim { claim: true, give: [drop], get: [add] }. */
 function normMove(m) {
   const ids = xs => (Array.isArray(xs) ? xs : xs == null ? [] : [xs]).map(S);
@@ -203,6 +222,9 @@ export function chain(adapter, moves, ctx) {
     prev = now;
     const rostersAfter = new Map([...A.rosters].map(([t, ids]) => [t, state.get(t) ?? ids]));
     step.hole = findHole({ rosters: rostersAfter, players: A.players, me, slots, flex, freeAgents, prefer: ctx.prefer ?? null });
+    // The whole lineup after the step, slot by slot (both FLEX spots), with what the free-agent pool would add.
+    step.lineup_slots = lineupTable(rostersAfter.get(meKey) ?? [], A.players, slots, flex, freeAgents);
+    step.roster = { size: (rostersAfter.get(meKey) ?? []).length, before: (A.rosters.get(meKey) ?? []).length };
     if (k + 1 >= maxSteps) { step.fills = []; step.fills_status = `the chain stops at ${maxSteps} steps`; }
     else if (!step.hole) { step.fills = []; step.fills_status = 'no lineup to read a hole from'; }
     else {
@@ -217,7 +239,8 @@ export function chain(adapter, moves, ctx) {
   return {
     league: S(A.league.id), me, seed: A.seed, goal: objective.goal ?? null, metric: metricKeyOf(objective),
     nothing: { lineup: nothing.lineup, playoff: nothing.playoff, title: nothing.title,
-      hole: findHole({ rosters: A.rosters, players: A.players, me, slots, flex, freeAgents }) },
+      hole: findHole({ rosters: A.rosters, players: A.players, me, slots, flex, freeAgents }),
+      lineup_slots: lineupTable(A.rosters.get(meKey) ?? [], A.players, slots, flex, freeAgents) },
     steps,
     totals: last ? { steps: steps.filter(s => !s.error).length,
       lineup: { nothing: nothing.lineup, after: last.lineup.after, delta: last.lineup.total_delta, se: last.lineup.total_se },

@@ -99,3 +99,14 @@ EDGE-PLAN. Research it and pre-register it; no claims without held-out proof.
 - **(e) Fix bye/out handling first,** as data hygiene.
 - **(f) Richer context features:** coaching changes, contract years, team pace.
 - **(g) Never claim an edge from one week.**
+
+## Addendum 4 (Nick 9/27): DEEP RESEARCH, "how do we beat ESPN AND FantasyPros by a CLEAR margin"
+Run this first in the new account: 6 parallel web-research agents, then a Fable synthesis. Test these hypotheses with the literature and our data. The margin is likely NOT on overall MAE; it's on subsets and decisions.
+1. **News timing.** Friday practice reports, Sunday 90-minute inactives and late scratches. Consensus projections update slowly; an instant re-project of affected players (backups, target redistribution) is a large edge on a small set of players.
+2. **Live Vegas.** Team totals and spreads as they move through the week, feeding the top-down volume model.
+3. **Routes-based opportunity.** Routes run, targets per route run and air-yard share from FTN charting (in our DB) are more predictive than raw targets.
+4. **Distributions, not points.** Boom/bust probabilities and per-matchup win probability. Decisions scored by win-prob gain.
+5. **Contextual ensemble weights.** Per position, per situation (injury, role change, low-buzz), learned from rolling accuracy. FFA-weighted beating single sources is the baseline to exceed.
+6. **The subset metric.** Measure the edge where the consensus is thin (low-buzz players, role changes, injury replacements). A "clear margin" there is realistic even if overall MAE is a near-tie.
+7. **Decision backtest.** Start/sit and waiver picks made with our model vs picks made with ESPN or FantasyPros alone, graded on realised points over past seasons (SEASON-REPLAY).
+Deliverable: a ranked list of edges, each with expected size, evidence, the data we have and a build cost, plus a pre-registered bar per edge.

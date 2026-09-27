@@ -77,3 +77,11 @@ Nick, 9/27: "expand the families way more; add categories only if genuinely uniq
 8. **Kill switches:** per-expert health checks, automatic demotion, fallback to ESPN / LAST-GOOD.
 9. **Model registry:** version, weights and seed per recommendation; replay and roll back.
 10. **All decision types:** lineups (D/ST, K), waivers and flip claims, value over time (keepers, picks), trades and chains.
+
+## HISTORY-ARCHIVE unit 1 + findings (9/27; source: FFA "12 seasons of projections", 2014-2025)
+- **Backfill ESPN weekly projected vs actual points** from Nick's OWN leagues' past seasons (the ESPN league API box scores carry per-player projected and actual points per week, about 2019+). This is the point-in-time ESPN history the trust gate needs. Internal only.
+- **Also pull** the FFA historical projection downloads and the Fantasy Football Data Pros weekly archive (1999+; ESPN projections for 2019). Check licenses; nothing gets committed.
+- **FFA findings to encode:**
+  - (a) Aggregation beats single sources in 69% of matchups, and equal weights are as good as weighted, because source skill doesn't persist year to year. So trust must come from reason and context, not source identity.
+  - (b) R² is only 0.14-0.26, so aim at situational edges.
+  - (c) Elite players are over-projected by +21.6 pts/season (QB +46.5 recently); calibration slopes are 0.67 (QB) to 0.85 (WR). Add a STAR-SHRINK correction and a trade-market rule: stars are overpriced and depth underpriced.

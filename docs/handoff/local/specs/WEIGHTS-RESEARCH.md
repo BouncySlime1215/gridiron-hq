@@ -144,3 +144,27 @@ Deliverable: a ranked list of edges, each with expected size, evidence, the data
 - Pre-registered bar: beat ESPN and FantasyPros on held-out-week MAE AND on tail and boom calibration, with a paired CI. Otherwise it stays shadow.
 - Only add a new base model if it lowers stack error on held-out weeks (ablation). Check the license before copying any repo code; prefer re-implementing ideas.
 - Watch out for: models trained on the same nflverse data make correlated errors (little gain); the blender overfits with about 3 seasons of weekly data; leakage from post-game stats; 8 GB Mac compute.
+
+## Addendum 7 (9/27): 20 more candidate base learners for the STACK
+Each must pass the ablation (it lowers held-out stack error) to stay.
+8. CB matchup model: WR vs shadow corner, coverage type (man/zone rates from FTN charting).
+9. O-line vs D-line model: run-block and pass-block win rates vs the defensive front, into RB YPC and QB time.
+10. Game-script simulator: play-by-play Monte Carlo from the spread and total, giving pass/run volume per script (trailing = pass).
+11. Weather model: wind, precipitation and temperature on pass efficiency and kicking.
+12. Coaching/play-caller tendency model: PROE (pass rate over expected), tempo, red-zone play-calling by coordinator, with coach-change shocks.
+13. Red-zone and goal-line share model: inside-10 and inside-5 carries and targets into TD probability.
+14. Air-yards / aDOT model: WOPR, deep-target share into boom probability.
+15. Snap-share trajectory model: changepoint detection on snap%, routes% and RB route participation.
+16. Injury-return model: first games back from specific injury types (hamstring, high-ankle) predict reduced snaps.
+17. Teammate-injury redistribution model: vacated targets and carries, and who absorbs them (O1 radar events, quantified).
+18. Rookie development curve: week-by-week usage growth for rookies and 2nd-years vs historical comps.
+19. Age/aging-curve prior: position-specific decline by age and workload.
+20. Similarity/comps (k-NN) model: find the closest historical player-seasons, then use their next-week distribution.
+21. QB-quality-to-receiver model: the pass-catcher's value conditional on the starting QB (backup QB downgrade).
+22. Pace model: seconds per play and no-huddle rates into total plays.
+23. Defense-vs-position adjusted for opponent strength (not raw points allowed).
+24. Market-movement model: prop lines (receiving yards, anytime TD) as a sharp external signal where liquid.
+25. News/sentiment NLP model: beat-reporter language ("expanded role", "limited") into a usage prior (Claude-extracted, numbers from producers).
+26. Bayesian hierarchical player model: partial pooling of efficiency toward position/team priors, giving shrinkage with honest uncertainty.
+27. Quantile gradient-boosting model: direct p10/p50/p90 and boom prediction (tail specialist).
+Data we have: nflverse PBP/usage, FTN charting (routes, coverage), ffopportunity, odds/lines, injuries, depth charts, news. Missing: weather (needs ingestion), O-line win rates (limited public), props (thin liquidity per 9/17 findings).

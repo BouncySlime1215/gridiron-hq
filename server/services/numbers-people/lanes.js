@@ -171,7 +171,7 @@ async function inBatches(list, n, fn) {
  * A Claude call that throws (budget, network) rejects the whole run: half a comparison is not
  * stored as if it were one. A Jev call that fails leaves that item without a people read, said so.
  */
-export async function readBothLanes(items, { signalsFor, jevLane = createJevLane() }) {
+export async function readBothLanes(items, { signalsFor, jevLane = createJevLane(), leagueId = null }) {
   const { blocks } = peopleBlocks(items, signalsFor);
   const prompts = { numbers: numbersPrompt(items), jev: [] };
   const a = await ask({ feature: NP_FEATURES.claude, system: NUMBERS_SYSTEM, prompt: prompts.numbers, model: LANE_MODELS.numbers });
@@ -180,9 +180,14 @@ export async function readBothLanes(items, { signalsFor, jevLane = createJevLane
   const takes = await inBatches(toJev, JEV_CONCURRENCY, async item => {
     const k = itemKey(item);
     const claude = laneA.get(k);
-    const input = { item: { key: k, kind: item.item_type, move_id: item.item_type === 'move' ? item.item_id : null, players: item.players }, facts: factsFor(item),
+    const input = { leagueId, item: { key: k, kind: item.item_type, move_id: item.item_type === 'move' ? item.item_id : null, players: item.players, partner: item.partner ?? null }, facts: factsFor(item),
       claude: { stance: claude.stance, basis: claude.basis, why: claude.why }, signals: blocks.get(k) };
-    const take = await jevLane(input);
+    // JEV-SINK-FIX: one item's Jev failure skips that item's people read; Claude's reads (already paid) still save.
+    let take;
+    try { take = await jevLane(input); } catch (e) {
+      console.warn(`[numbers-people] Jev lane threw for ${k}: ${e?.message ?? e}`);
+      take = { skipped: 'jev_failed', reason: String(e?.message ?? e).slice(0, 200) };
+    }
     prompts.jev.push({ key: k, input });
     return [k, take];
   });

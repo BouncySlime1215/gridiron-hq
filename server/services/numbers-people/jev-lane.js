@@ -41,7 +41,8 @@ export function createJevLane({ ask = undefined } = {}) {
       question: `What should Nick do about this ${input.item.kind} right now?`,
       laneOne: laneOneOf(input),
       signals: { rows: input.signals.map(({ ref, ...r }) => r) },
-      focus: { move_id: input.item.move_id ?? null, players: input.item.players ?? [] }
+      focus: { move_id: input.item.move_id ?? null, players: input.item.players ?? [], partner: input.item.partner ?? null },
+      leagueId: input.leagueId ?? null
     }, ask ? { ask } : {});
     if (res.status !== 'ok') {
       if (res.status === 'failed') console.warn(`[numbers-people] Jev did not answer for ${input.item.key}: ${res.reason}`);

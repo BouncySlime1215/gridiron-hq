@@ -29,6 +29,7 @@
  * Tests (and COACH-V2) inject `ask` instead.
  */
 
+import { leagueMateMasks, pseudonymise } from '../people/pseudonymise.js';
 export const JEV_TAKE_VERSION = 1;
 export const STANCES = Object.freeze(['go', 'wait', 'avoid']);
 export const BASES = Object.freeze(['willingness', 'price', 'timing', 'roster_fit', 'risk']);
@@ -83,10 +84,12 @@ export function readTake(answers) {
 }
 
 /** The state Jev reads: Claude's verified lines, the ids in focus, the stored labels. No chat text, no names, no roster id. */
-export function jevState({ question, laneOne, signals, focus = {} }) {
-  const lines = (laneOne?.claims ?? []).map(c => `- ${c.text}`);
+export function jevState({ question, laneOne, signals, focus = {}, masks = [] }) {
+  // JEV-SINK-FIX: lane 1's lines and the question can carry a league-mate's name; Jev reads the alias.
+  const anon = t => pseudonymise(t, masks, { focusRoster: focus.partner ?? null, alias: MANAGER_ALIAS });
+  const lines = (laneOne?.claims ?? []).map(c => `- ${anon(c.text)}`);
   return [
-    `QUESTION NICK ASKED: ${question}`,
+    `QUESTION NICK ASKED: ${anon(question)}`,
     `NUMBERS READ (Claude, every number checked against the plan):\n${lines.length ? lines.join('\n') : '- (no verified line)'}`,
     `IN FOCUS: ${MANAGER_ALIAS}; players ${(focus.players ?? []).join(', ') || 'none'}; move ${focus.move_id ?? 'none'}.`,
     `STORED PEOPLE SIGNALS ABOUT ${MANAGER_ALIAS} (labels and counts only):\n${JSON.stringify((signals?.rows ?? []).map(({ roster_id, ...r }) => r))}`
@@ -123,9 +126,15 @@ let askOverride = null;
 /** Swap the Jev client (tests, and the JEV LANE unit's wiring); null restores the default. */
 export function setJevAsk(fn) { askOverride = fn ?? null; }
 
-export async function jevLane({ question, laneOne, signals, focus = {} }, { ask = askOverride ?? defaultJevAsk } = {}) {
-  const state = jevState({ question, laneOne, signals, focus });
-  const res = await ask({ state, questions: JEV_TAKE_QUESTIONS });
+export async function jevLane({ question, laneOne, signals, focus = {}, leagueId = null }, { ask = askOverride ?? defaultJevAsk } = {}) {
+  const masks = leagueId != null ? leagueMateMasks(leagueId) : [];
+  const state = jevState({ question, laneOne, signals, focus, masks });
+  let res;
+  // JEV-SINK-FIX: a throw here (the client, its logging) fails lane 2 alone; lane 1's answer still ships.
+  try { res = await ask({ state, questions: JEV_TAKE_QUESTIONS }); } catch (e) {
+    console.warn(`[coach] Jev lane threw: ${e?.message ?? e}`);
+    return { status: 'failed', reason: `Jev call failed: ${String(e?.message ?? e).slice(0, 200)}` };
+  }
   if (res?.unavailable) return { status: 'unavailable', reason: res.unavailable };
   if (!res?.ok) return { status: 'failed', reason: `Jev did not answer (${res?.error ?? 'no reason given'})` };
   let take;

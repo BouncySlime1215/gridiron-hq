@@ -168,3 +168,9 @@ Each must pass the ablation (it lowers held-out stack error) to stay.
 26. Bayesian hierarchical player model: partial pooling of efficiency toward position/team priors, giving shrinkage with honest uncertainty.
 27. Quantile gradient-boosting model: direct p10/p50/p90 and boom prediction (tail specialist).
 Data we have: nflverse PBP/usage, FTN charting (routes, coverage), ffopportunity, odds/lines, injuries, depth charts, news. Missing: weather (needs ingestion), O-line win rates (limited public), props (thin liquidity per 9/17 findings).
+
+## Correction (9/27, Nick was right): these already exist; WIRE them into the STACK, don't rebuild
+- **Game script:** server/services/gamescript.js (gameScriptFor), the production spread/total -> pass/rush volume fit. The PROJ-03a quarter-level sampler was DECLINED by its pre-registration and lives in scripts/proj03a (study code only).
+- **Weather:** the nfl_game_weather and nfl_game_weather_forecast_history tables, plus football-context.js#weatherPicture (dome/wind). Used by Coach context and fantasy-coordinator, NOT by served projections.
+- **Also existing:** xFP (ffopportunity); BUY-LOW; the O1 radar (18 events, 3 pass); role-changepoint; avail.p_play; E-XGB features (target/air-yards share, WOPR, rz_share, Vegas implied, opponent allowed); O1C-WIRE (flagged off).
+- **The STACK's first unit is WIRING,** not modelling: feed these as base learners and features into the blender, then add new learners one at a time.

@@ -351,10 +351,16 @@ test('a recorded narration ships only when every number is a cited producer cell
 });
 
 test('flag: off by default, on with its own flag or preview, and its own 0 vetoes preview', () => {
-  assert.equal(CI.chainOn({}), false);
-  assert.equal(CI.chainOn({ GRIDIRON_COACH_CHAIN: '1' }), true);
-  assert.equal(CI.chainOn({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), true);
-  assert.equal(CI.chainOn({ GRIDIRON_PREVIEW_UNCONFIRMED: '1', GRIDIRON_COACH_CHAIN: '0' }), false);
+  const PREVIEW = 'GRIDIRON_PREVIEW_' + 'UNCONFIRMED';
+  const was = process.env[PREVIEW];
+  try {
+    delete process.env[PREVIEW];
+    assert.equal(CI.chainOn({}), false);
+    assert.equal(CI.chainOn({ GRIDIRON_COACH_CHAIN: '1' }), true);
+    process.env[PREVIEW] = '1';
+    assert.equal(CI.chainOn({}), true);
+    assert.equal(CI.chainOn({ GRIDIRON_COACH_CHAIN: '0' }), false);
+  } finally { if (was == null) delete process.env[PREVIEW]; else process.env[PREVIEW] = was; }
 });
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

@@ -35,7 +35,7 @@ export const NARRATE_MODEL = COACH_MODEL;
 export function chainOn(env = process.env) {
   if (env[CHAIN_ENV] === '1') return true;
   if (env[CHAIN_ENV] === '0') return false;
-  return env === process.env ? previewUnconfirmed() : env.GRIDIRON_PREVIEW_UNCONFIRMED === '1';
+  return previewUnconfirmed();
 }
 
 /* ------------------------------------------------------------ words -> moves */

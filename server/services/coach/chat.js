@@ -34,7 +34,7 @@ import { holdToRules, coachRules, hiddenFlipsLine } from './rules-check.js';
 import { LlmBudgetError } from '../llm-budget.js';
 import { readForFocus } from '../numbers-people/view.js';
 import { routeQuestion, ruleIntent } from './router.js';
-import { explainTerm, chatReply } from './explain.js';
+import { explainTerm, chatReply, hasTerm } from './explain.js';
 import { shapeDeterministic, stripDevText, neutralAnswer, neutralLine, neutralLanes, neutralCard } from './answer-shape.js';
 
 /** Models per message (COACH-CHAT model routing). All three are priced in llm-budget.js. */
@@ -179,16 +179,20 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
 
   let result;
   const refuseSend = routeIntent(asked)?.refuse;
-  const follow = !refuseSend && entry ? followupIntent(asked, { focus, entry, identities }) : null;
+  let follow = !refuseSend && entry ? followupIntent(asked, { focus, entry, identities }) : null;
   // A starter question ("is it safe to send?") keeps its own answer; a follow-up wins only over free text.
   const starter = starterIntent(asked);
   const plan = [];
   const emit = e => { plan.push(e); onEvent(e); };
   const byRule = ruleIntent(asked);
-  const defining = /^(what('?s| is| are| does| do)|explain|define)\b/i.test(asked);
-  const quick = follow || starter || refuseSend ? null
-    : byRule === 'CHAT' ? chatReply({ question: asked })
-      : (byRule === 'EXPLAIN' || defining) && entry ? await explainTerm({ question: asked, leagueId }) : null;
+  // COACH-SHAPE-2: a definition question, not one about Nick's own numbers ("what is MY lineup floor" goes to the model).
+  const defining = /^(what('?s| is| are| does| do)|explain|define)\b/i.test(asked) && !/\b(my|mine|our)\b/i.test(asked);
+  // A question about a served term's meaning ("why is it marked as a guess?") gets the term's answer, not the stock follow-up.
+  const termFirst = !refuseSend && entry && /\bguess\b|\bclears? the noise\b|\bmean(s|ing)?\b/i.test(asked) && hasTerm(asked);
+  if (termFirst) follow = null;
+  const quick = follow || (starter && !termFirst) || refuseSend ? null
+    : byRule === 'CHAT' ? await chatReply({ question: asked, leagueId: entry ? leagueId : null })
+      : (byRule === 'EXPLAIN' || defining || termFirst) && entry ? await explainTerm({ question: asked, leagueId }) : null;
   if (follow && !(starter && follow.intent !== 'partner_switch' && follow.intent !== 'other_one')) {
     emit({ t: 'understood', question: asked });
     const out = followupAnswer({ question: asked, ...follow, entry, file: read.file, focus, identities });

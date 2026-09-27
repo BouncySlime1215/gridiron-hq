@@ -153,7 +153,7 @@ test('"gimme a trade to send to <manager>" answers with the served plan through 
   assert.doesNotMatch(t, /never sends/i);
   assert.match(t, /Quincy Marlowe \(Marlowe Mariners\)/);
   assert.match(t, /P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)/);
-  assert.match(t, /Chance he says yes: 53%, a guess/);
+  assert.match(t, /Chance they say yes: 53% \(a guess/);
   assert.match(t, /\+11\.6 pts/);
   grounded(body);
   assert.equal(modelCalls, 0);
@@ -267,7 +267,7 @@ test('"what else u got" with the card the War Room shows: the card after it, in 
   assert.deepEqual(body.answer.refusals, []);
   assert.match(t, /P4 \(WR\) \+ P5 \(TE\) for P21 \(WR\)/, 'card 2, not the next move again');
   assert.match(t, /Card 2 of 5 in the deck/);
-  assert.match(t, /Chance he says yes: 53%/);
+  assert.match(t, /Chance they say yes: 53%/);
   assert.deepEqual(body.actions.map(a => a.type), ['next']);
   grounded(body);
   const again = await ask('next one', 4, { deck_index: 1 });

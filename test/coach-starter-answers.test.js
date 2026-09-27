@@ -162,9 +162,9 @@ test('next move: partner, give, get, chance with its guess label, title-odds cha
   const body = await (await ask("What's my next move and why?")).json();
   const t = texts(body);
   assert.match(t, /Offer Team 3 P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)\./);
-  assert.match(t, /Chance he says yes: 53%, a guess/);
+  assert.match(t, /Chance they say yes: 53% \(a guess/);
   assert.match(t, /title odds move \+11\.6 pts to 54%/);
-  assert.match(t, /Step 1 of 1 toward/);
+  assert.doesNotMatch(t, /Step 1 of 1/, 'COACH-SHAPE-2: no filler step line on a one-step move');
   assert.match(t, /When: Now/);
   assert.deepEqual(body.actions.map(a => a.type), ['focus_panel', 'plug_in']);
   assert.equal(body.actions[0].panel, 'next_move');
@@ -237,7 +237,7 @@ test('mutation: a changed plan number changes the claim', async () => {
   writePlans(file);
   try {
     const body = await (await ask("What's my next move and why?")).json();
-    assert.match(texts(body), /Chance he says yes: 61%/);
+    assert.match(texts(body), /Chance they say yes: 61%/);
     assert.equal(body.verification.ok, true);
   } finally { writePlans(plans()); }
 });

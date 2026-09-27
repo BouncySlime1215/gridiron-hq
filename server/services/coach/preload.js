@@ -171,7 +171,10 @@ export async function preloadContext({ leagueId, focus = {}, ledger, plansPath =
   const parts = [];
   parts.push(rec('plan_summary', [{
     plans_generated_at: file.generated_at ?? null, goal: val(d.goal)?.label ?? null, risk_mode: val(d.risk_mode)?.mode ?? null,
-    title_odds_now: val(d.title_now), title_odds_now_se: se(d.title_now), title_odds_planned: val(d.title_planned_now),
+    title_odds_now: val(d.title_now), title_odds_now_se: val(d.title_now) === 0 ? null : se(d.title_now), title_odds_planned: val(d.title_planned_now),
+    // COACH-SHAPE-2: 0 is "no title in any simulated season" (never a certain 0.00%); the producer serves the run count and upper bound.
+    title_odds_zero: val(d.title_now) === 0, title_odds_upper_95: d.title_now?.upper_95 ?? null, sim_runs: d.title_now?.n ?? null,
+    metric_label: val(d.goal)?.metric_label ?? 'Title odds',
     eta_week: val(d.eta_week), next_move: ok(nm) ? 'served' : 'none', no_move_reason: ok(nm) ? null : (nm?.reason ?? null),
     playoff_odds: null, playoff_odds_reason: 'the plan is priced on title odds; no playoff-odds number is served'
   }], ''));

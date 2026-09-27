@@ -93,9 +93,12 @@ for (const [n, it] of todo.entries()) {
   let error = null;
   try {
     out = await chatTurn({ userId, leagueId: it.league, question: it.question, hasModel: true,
-      context: { surface: 'app', league: it.league }, onEvent: e => events.push(e) });
+      context: { surface: 'app', league: it.league }, onEvent: e => events.push({ ...e, at_ms: Date.now() - t0 }) });
   } catch (e) { error = `${e.status ?? ''} ${e.message}`.trim(); }
   const ms = Date.now() - t0;
+  // COACH-SHAPE-2: the first answer Nick sees. On a two-lane turn that is lane 1 (the drawer shows it while Jev reads).
+  const firstAt = events.find(e => e.t === 'lane1')?.at_ms ?? null;
+  const first_answer_ms = firstAt ?? ms;
   const plan = out?.plan ?? events;
   const tools = plan.filter(e => e.t === 'planning').flatMap(e => e.tools ?? []);
   const text = out ? rendered(out) : '';
@@ -107,7 +110,7 @@ for (const [n, it] of todo.entries()) {
       break;
     }
   }
-  const r = { ...it, ms, error, cost_usd: out?.cost_usd ?? 0, path: out ? (out.cost_usd > 0 ? 'model' : 'plan') : 'error',
+  const r = { ...it, ms, first_answer_ms, error, cost_usd: out?.cost_usd ?? 0, path: out ? (out.cost_usd > 0 ? 'model' : 'plan') : 'error',
     route: out?.route?.intent ?? null, verified: out?.verification?.ok ?? false,
     claims: out?.answer?.claims?.length ?? 0, refusals: out?.answer?.refusals?.length ?? 0,
     catalog_lookups: tools.filter(t => t === 'catalog_lookup').length, tool_calls: tools.length,
@@ -127,6 +130,7 @@ const summary = {
   catalog_lookups_median_model_turn: median(model.map(r => r.catalog_lookups)),
   catalog_lookups_mean_model_turn: model.length ? +(model.reduce((n, r) => n + r.catalog_lookups, 0) / model.length).toFixed(2) : null,
   p50_latency_ms_model_turn: median(model.map(r => r.ms)),
+  p50_first_answer_ms_model_turn: median(model.map(r => r.first_answer_ms ?? r.ms)),
   cost_per_question_usd: +(results.reduce((n, r) => n + r.cost_usd, 0) / Math.max(1, results.length)).toFixed(4),
   cost_per_do_usd_median: +(median(results.filter(r => r.intent === 'DO').map(r => r.cost_usd)) ?? 0).toFixed(4),
   cost_per_do_usd_mean: +(results.filter(r => r.intent === 'DO').reduce((n, r) => n + r.cost_usd, 0) / Math.max(1, results.filter(r => r.intent === 'DO').length)).toFixed(4),

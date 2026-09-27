@@ -149,12 +149,13 @@ test('a chat turn carries the conversation, is routed, answers in the shaped for
   assert.deepEqual(logged, [`coach:chat|${COACH_MODEL}`, 'coach:route|claude-haiku-4-5-20251001']);
 });
 
-test('a trade DO question goes to the strongest model with no routing call; a plain question to the Coach model', async () => {
+test('a trade DO question goes to the Coach model (thinking off) with no routing call; a plain question is routed first', async () => {
   const client = scripted(shaped('No move clears.'), routed('ABOUT'), shaped('Coach does not read that.'));
   setAnthropicClientForTesting(client);
   await chatTurn({ userId: 9801, leagueId: 4, question: 'should I trade for a running back this week?', hasModel: true, context: { league: 4 } });
   await chatTurn({ userId: 9801, leagueId: 4, question: 'which of my league-mates has the deepest bench at running back right now?', hasModel: true, context: { league: 4 } });
-  assert.equal(client.sent[0].model, 'claude-opus-5-5', 'DO on a trade: Opus, routed by rule ($0)');
+  assert.equal(client.sent[0].model, COACH_MODEL, 'DO on a trade: Sonnet, routed by rule ($0)');
+  assert.deepEqual(client.sent[0].thinking, { type: 'disabled' }, 'thinking off on a shaped, preloaded turn');
   assert.equal(client.sent[1].model, 'claude-haiku-4-5-20251001', 'no rule: the cheap router');
   assert.equal(client.sent[2].model, COACH_MODEL);
 });

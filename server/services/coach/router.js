@@ -27,7 +27,6 @@ export const ROUTE_MODEL = 'claude-haiku-4-5-20251001';
 export const MODELS = Object.freeze({ cheap: 'claude-haiku-4-5-20251001', normal: COACH_MODEL, strong: 'claude-opus-5-5' });
 
 const norm = q => String(q ?? '').toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim();
-const TRADE = /\b(trades?|offers?|deals?|packages?|swap|flip|send|sell|buy|acquire|get)\b/;
 
 /** Ordered: the first intent whose rule matches wins. */
 const RULES = [
@@ -76,7 +75,6 @@ async function modelIntent(question) {
  */
 const FAST = { type: 'disabled' };
 export function planFor(intent, question) {
-  const trade = TRADE.test(norm(question));
   const sonnet = (effort, toolRounds) => ({ model: MODELS.normal, effort, toolRounds, thinking: FAST });
   switch (intent) {
     case 'CHAT': return { model: MODELS.cheap, effort: null, toolRounds: 0, thinking: null };
@@ -84,10 +82,12 @@ export function planFor(intent, question) {
     case 'WHY': return sonnet('low', 1);
     case 'WHAT_IF': return sonnet('low', 1);
     case 'CHANGE': return sonnet('low', 1);
-    // COACH-V2: Sonnet for lane 1; Opus when a DO or ABOUT question is about a trade.
-    case 'DO': return trade ? { model: MODELS.strong, effort: 'low', toolRounds: 2, thinking: null } : sonnet('low', 2);
+    // COACH-SHAPE-2: every shaped, preloaded turn is Sonnet with thinking off at low effort, trade questions too.
+    // The bundle already holds the served numbers; Opus (which cannot turn thinking off) ran 2 rounds at ~11 s
+    // on the 9/26 judge. Opus stays for RECONCILE on a DIFFER trade question (reconcile.js), where lanes disagree.
+    case 'DO': return sonnet('low', 2);
     case 'ABOUT':
-    default: return trade ? { model: MODELS.strong, effort: 'low', toolRounds: 2, thinking: null } : sonnet('low', 2);
+    default: return sonnet('low', 2);
   }
 }
 

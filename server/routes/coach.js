@@ -118,7 +118,7 @@ const shownMessage = m => {
   const shown = neutralStored(m.payload);
   return { id: m.id, who: 'coach', text: neutralLine(m.text) ?? shown.shape?.verdict?.text ?? '', intent: m.intent, at: m.created_at,
     claims: shown.claims, refusals: shown.refusals, ledger: m.payload.ledger ?? null, followups: shown.followups, proposals: m.payload.proposals ?? [],
-    lanes: shown.lanes, shape: shown.shape, numbers_people: shown.numbers_people };
+    lanes: shown.lanes, shape: shown.shape, numbers_people: shown.numbers_people, ...(m.payload.chain ? { chain: m.payload.chain } : {}) };
 };
 
 function threadView(userId, leagueId, thread) {

@@ -66,6 +66,7 @@ import { validateAction } from '../warroom-actions/schema.js';
 import { planRead, plansPath } from './brain-tools.js';
 import { verifyAnswer, groundAnswer } from './verify.js';
 import { newLedger } from './ledger.js';
+import { CHAIN_MODULE_URL } from './chain-engine.js';
 
 export const NEGOTIATE_ENV = 'GRIDIRON_COACH_NEGOTIATE';
 
@@ -111,7 +112,7 @@ export const ENGINE_CALL_MS = 8000;
 /** The worker's body (eval'd, CommonJS): builds adapters and answers rescore / price calls. */
 const WORKER_SRC = `
 const { parentPort, workerData } = require('node:worker_threads');
-const { reply, signal, module: modUrl } = workerData;
+const { reply, signal, module: modUrl, chainModule } = workerData;
 const flag = new Int32Array(signal);
 const built = new Map();
 let mod = null, svc = null;
@@ -120,6 +121,24 @@ ready.catch(() => {});
 const answer = (id, body) => { reply.postMessage({ id, ...body }); Atomics.add(flag, 0, 1); Atomics.notify(flag, 0); };
 const clean = v => (v == null ? null : JSON.parse(JSON.stringify(v)));
 parentPort.on('message', async msg => {
+  // COACH-CHAIN: one chain on this league's adapter (built here if it is not yet), answered asynchronously.
+  if (msg.op === 'chain') {
+    try {
+      await ready;
+      let a = built.get(msg.key);
+      if (!a) {
+        for (const k of [...built.keys()]) if (k.startsWith(msg.leagueId + ':')) built.delete(k);
+        a = mod.buildAdapter(svc, msg.leagueId, { finder: false });
+        if (!a || a.fail) throw new Error('the engine could not build this league');
+        built.set(msg.key, a);
+        parentPort.postMessage({ op: 'built', key: msg.key, me: String(a.league && a.league.me), seed: a.seed, rosters: a.rosters });
+      }
+      const ch = await import(chainModule);
+      const value = await ch.runChain({ svc, mod, adapter: a, leagueId: msg.leagueId, moves: msg.moves, opts: msg.opts });
+      parentPort.postMessage({ op: 'chained', id: msg.id, value: clean(value) });
+    } catch (e) { parentPort.postMessage({ op: 'chained', id: msg.id, error: String(e && e.message || e) }); }
+    return;
+  }
   if (msg.op === 'build') {
     try {
       await ready;
@@ -147,6 +166,8 @@ parentPort.on('message', async msg => {
 `;
 
 const DEFAULT_ENGINE_MODULE = new URL('../../../scripts/campaign/league-adapter.mjs', import.meta.url).href;
+/** COACH-CHAIN: the worker-side chain runner (chain-engine.js#runChain), imported by the worker from this URL. */
+const CHAIN_MODULE = CHAIN_MODULE_URL;
 let engineModule = DEFAULT_ENGINE_MODULE;
 let eng = null;
 const engineWhy = new Map();
@@ -156,15 +177,24 @@ function engineWorker() {
   if (eng) return eng;
   const { port1, port2 } = new MessageChannel();
   const signal = new SharedArrayBuffer(4);
-  const worker = new Worker(WORKER_SRC, { eval: true, workerData: { reply: port2, signal, module: engineModule }, transferList: [port2] });
-  const state = { worker, port: port1, flag: new Int32Array(signal), seq: 0, ready: new Map(), building: new Set() };
+  const worker = new Worker(WORKER_SRC, { eval: true, workerData: { reply: port2, signal, module: engineModule, chainModule: CHAIN_MODULE }, transferList: [port2] });
+  const state = { worker, port: port1, flag: new Int32Array(signal), seq: 0, ready: new Map(), building: new Set(), chains: new Map() };
   worker.on('message', msg => {
+    if (msg?.op === 'chained') {
+      const wait = state.chains.get(msg.id);
+      if (!wait) return;
+      state.chains.delete(msg.id);
+      clearTimeout(wait.timer);
+      if (msg.error) wait.reject(new Error(msg.error)); else wait.resolve(msg.value);
+      return;
+    }
     if (msg?.op !== 'built') return;
     state.building.delete(msg.key);
     state.ready.set(msg.key, msg.fail ? { fail: msg.fail } : { me: msg.me, seed: msg.seed, rosters: msg.rosters });
   });
-  worker.on('error', () => { if (eng === state) eng = null; });
-  worker.on('exit', () => { if (eng === state) eng = null; });
+  const failChains = why => { for (const w of state.chains.values()) { clearTimeout(w.timer); w.reject(new Error(why)); } state.chains.clear(); };
+  worker.on('error', e => { failChains(`the engine worker failed (${e?.message ?? e})`); if (eng === state) eng = null; });
+  worker.on('exit', () => { failChains('the engine worker stopped'); if (eng === state) eng = null; });
   // After the listeners: attaching a 'message' listener re-refs the worker's port, and a
   // warm worker must never keep a short-lived process (a test, a script) from exiting.
   worker.unref();
@@ -202,6 +232,28 @@ function workerAdapter(state, key, info) {
     world: seed => ({ rescore: (st, a, b) => callEngine(state, { op: 'rescore', key, seed, state: st, a, b }) }),
     priceStep: (team, theyGive, theyGet) => callEngine(state, { op: 'price', key, team, theyGive, theyGet })
   };
+}
+
+/** COACH-CHAIN: how long one chain may take in the worker (a league build ~10-15 s, the lookahead capped at 60 s). */
+export const CHAIN_CALL_MS = 150_000;
+
+/**
+ * COACH-CHAIN: run chain-engine.js#runChain for a league in the one engine worker (off the request
+ * thread; awaited, never Atomics.wait). moves: [{ give, get, team? }] with names or ids.
+ * -> the runner's result. Throws when the league is unknown, the worker cannot start or it times out.
+ */
+export function engineChain(leagueId, moves, { timeoutMs = CHAIN_CALL_MS, prefer = null } = {}) {
+  const lg = row('SELECT fetched_at FROM leagues WHERE id = ?', leagueId);
+  if (!lg) return Promise.reject(new Error('the league is not in the database'));
+  const key = `${leagueId}:${lg.fetched_at ?? ''}`;
+  const state = engineWorker();
+  const id = ++state.seq;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { state.chains.delete(id); reject(new Error(`the chain took longer than ${Math.round(timeoutMs / 1000)} s`)); }, timeoutMs);
+    // The timer stays referenced while the chain is pending, so a caller awaiting it (a script, a test) is not cut off.
+    state.chains.set(id, { resolve, reject, timer });
+    state.worker.postMessage({ op: 'chain', id, key, leagueId, moves, opts: { prefer } });
+  });
 }
 
 /** Start the engine worker in the background (called when the tool is offered). Never builds on this thread. */

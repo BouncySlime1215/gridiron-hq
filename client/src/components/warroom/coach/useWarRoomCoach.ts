@@ -24,6 +24,7 @@ import {
 } from './warroomCoach';
 
 import type { NPItem } from '../../trade/NumbersPeopleCard';
+import type { ChainData } from '../../coach/ChainView';
 
 export interface CoachMessage {
   who: 'nick' | 'coach';
@@ -51,6 +52,8 @@ export interface CoachMessage {
   numbersPeople?: NPItem | null;
   /** COACH-V2: the answer in the answer format (verdict, why, risks); claims still carry the cites. */
   shape?: CoachShape | null;
+  /** COACH-CHAIN: the chain this answer priced (the Chain card, compact). */
+  chain?: ChainData | null;
 }
 
 export interface CoachLanes {
@@ -91,13 +94,14 @@ interface StoredMessage {
   who: 'nick' | 'coach'; text: string; claims?: CoachMessage['claims']; refusals?: string[];
   ledger?: CoachMessage['ledger'] | null; followups?: string[]; proposals?: CoachProposal[]; lanes?: CoachLanes | null; shape?: CoachShape | null;
   numbers_people?: NPItem | null;
+  chain?: ChainData | null;
 }
 interface ThreadView { messages: StoredMessage[]; starters: string[] }
 
 const fromStored = (m: StoredMessage, question?: string): CoachMessage => (m.who === 'nick' ? { who: 'nick', text: m.text }
   : { who: 'coach', text: m.text, claims: m.claims ?? [], refusals: m.refusals ?? [], ledger: m.ledger ?? undefined,
     followups: m.followups ?? [], proposals: m.proposals ?? [], lanes: m.lanes ?? null, shape: m.shape ?? null,
-    numbersPeople: m.numbers_people ?? null, question });
+    numbersPeople: m.numbers_people ?? null, chain: m.chain ?? null, question });
 
 interface Options {
   leagueId: number | null;          // the app's league id, for the write routes
@@ -339,7 +343,7 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
         followups: Array.isArray(res.thread?.followups) ? res.thread.followups : [],
         proposals: Array.isArray(res.thread?.proposals) ? res.thread.proposals : [],
         lanes: res.lanes ?? null,
-        shape: res.answer?.shape ?? null, numbersPeople: res.numbers_people ?? null };
+        shape: res.answer?.shape ?? null, numbersPeople: res.numbers_people ?? null, chain: res.chain ?? null };
       say(reply);
       return reply;
     } catch (e) {

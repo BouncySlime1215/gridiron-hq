@@ -53,7 +53,9 @@ export const VIOLATIONS = Object.freeze({
 });
 
 /** The brain read tools (brain-tools.js#BRAIN_TOOLS). Their cites turn on the player check. */
-export const BRAIN_TOOL_NAMES = Object.freeze(['plan_read', 'people_read', 'pulse_read', 'brain_read', 'health_read']);
+// COACH-CHAIN: chain_read (coach/chain-intent.js, the chain producer's rows) is checked the same way:
+// a player a line names must be in a cell that line cites.
+export const BRAIN_TOOL_NAMES = Object.freeze(['plan_read', 'people_read', 'pulse_read', 'brain_read', 'health_read', 'chain_read']);
 
 /** Columns of a brain-tool row that hold player names (a `; `-joined list for the people lists). */
 const NAME_COLUMN = /(?:^|_)(?:name|wants|shopping|untouchable|player)$/;

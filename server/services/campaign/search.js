@@ -384,7 +384,7 @@ export function twoForOneSummary(stats) {
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
   maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null, getOk = null, chainGive = 2,
-  depthPremium = 0, board = null, premiumSink = null, untouchables = null, wide = null } = {}) {
+  depthPremium = 0, board = null, premiumSink = null, untouchables = null, wide = null, maxDepth = 3 } = {}) {
   const me = adapter.league.me;
   // CAP-1C: the premium's ceiling on a depth-only 2-for-1 (never below the plain cap); off with no board.
   const premiumCap = depthPremium > 0 && board ? Math.max(maxOverpay, depthPremium) : maxOverpay;
@@ -499,8 +499,10 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   const byExp = (a, b) => b.e.expected - a.e.expected;
   const byFinal = (a, b) => b.e.delta_final - a.e.delta_final;
   const d1 = direct.map(steps => ({ steps, e: h(steps) }));
-  const d2 = chipLayer([[]], 2).map(finish).filter(Boolean);
-  const d3 = chipLayer(d2.sort(byExp).slice(0, 6).map(c => c.steps.slice(0, 1)), 1).map(finish).filter(Boolean);
+  // COACH-CHAIN: maxDepth 1 searches the direct one-trade paths only (a chain's follow-up is one trade);
+  // the planner leaves it at 3, so its search is unchanged.
+  const d2 = maxDepth >= 2 ? chipLayer([[]], 2).map(finish).filter(Boolean) : [];
+  const d3 = maxDepth >= 3 ? chipLayer(d2.sort(byExp).slice(0, 6).map(c => c.steps.slice(0, 1)), 1).map(finish).filter(Boolean) : [];
   // Two shortlists per depth: by expected (balanced / safe) and by final delta (all-in).
   const pick1 = (list, n) => [...list.sort(byExp).slice(0, n), ...list.sort(byFinal).slice(0, Math.ceil(n / 2))];
   // With the 2-for-1 search on, each arm (1-for-1-only, two-player side) gets its own shortlist,

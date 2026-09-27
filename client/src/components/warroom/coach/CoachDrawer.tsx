@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../ui/DesignSystem';
 import { stageText, STILL_WORKING, STILL_WORKING_MS, type Stage } from './coachStream';
 import Icon from '../icons';
 import NumbersPeopleCard from '../../trade/NumbersPeopleCard';
+import ChainView from '../../coach/ChainView';
 import { BudgetLink } from '../../settings/spendLinks';
 
 /**
@@ -280,6 +281,8 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
       <div className="wr-answer" data-testid="coach-answer">
         <p className="wr-verdict" data-testid="coach-verdict">{shape.verdict.text}</p>
         {shape.why.length > 0 && <ul className="wr-why" data-testid="coach-why">{shape.why.map((w, i) => <li key={i}>{w.text}</li>)}</ul>}
+        {/* COACH-CHAIN: the chain this answer priced, as the shared card (compact). */}
+        {slot.chain && <div className="mt-2 mb-2" data-testid="coach-chain"><ChainView {...slot.chain} variant="compact" /></div>}
         {/* COACH-V2 unit 4: a disagreement between the lanes is one highlighted sentence, then the one Numbers & People card. */}
         {shape.disagreement && <p className="wr-lanes-dis" data-testid="coach-lanes-disagree">{shape.disagreement}</p>}
         {slot.numbersPeople && <div className="mt-2 mb-2" data-testid="coach-numbers-people"><NumbersPeopleCard item={slot.numbersPeople} variant="compact" /></div>}
@@ -303,6 +306,7 @@ function Answer({ slot, question, onRetry }: { slot: Slot; question?: string; on
         : !slot.claims?.length && slot.text && !extra.length && !slot.refusals?.length ? <p>{slot.text}</p> : null}
       {extra.map((t, i) => <p key={`o${i}`} className="wr-muted">{t}</p>)}
       {slot.refusals?.map((r, i) => <p key={`r${i}`} className="wr-muted">{r}</p>)}
+      {slot.chain && slot.chain.steps.length > 0 && <div className="mt-2" data-testid="coach-chain"><ChainView {...slot.chain} variant="compact" /></div>}
       <SourcesToggle cites={cites} ledger={slot.ledger} testid="coach-answer-sources" />
       {slot.lanes && !slot.numbersPeople && <LanesReveal lanes={slot.lanes} />}
       {/* NUMBERS-PEOPLE: the item this answer is about has a stored read: both lanes, compact (the shared card). */}

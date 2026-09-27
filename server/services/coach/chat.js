@@ -36,6 +36,7 @@ import { readForFocus } from '../numbers-people/view.js';
 import { routeQuestion, ruleIntent } from './router.js';
 import { explainTerm, chatReply } from './explain.js';
 import { shapeDeterministic, stripDevText, neutralAnswer, neutralLine, neutralLanes, neutralCard } from './answer-shape.js';
+import { chainOn, parseChainQuestion, chainAnswer } from './chain-intent.js';
 
 /** Models per message (COACH-CHAT model routing). All three are priced in llm-budget.js. */
 export const CHAT_MODELS = Object.freeze({
@@ -189,7 +190,18 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   const quick = follow || starter || refuseSend ? null
     : byRule === 'CHAT' ? chatReply({ question: asked })
       : (byRule === 'EXPLAIN' || defining) && entry ? await explainTerm({ question: asked, leagueId }) : null;
-  if (follow && !(starter && follow.intent !== 'partner_switch' && follow.intent !== 'other_one')) {
+  // COACH-CHAIN: "what if I get X for A, B and C" / "after that, who fills RB?" (flag GRIDIRON_COACH_CHAIN).
+  const chainAsk = !refuseSend && chainOn() ? parseChainQuestion(asked, { focus }) : null;
+  if (chainAsk) {
+    emit({ t: 'understood', question: asked });
+    const out = await chainAnswer({ question: asked, leagueId, focus, hasModel, parsed: chainAsk });
+    emit({ t: 'answer', claims: out.answer.claims.length, refusals: out.answer.refusals.length, deterministic: out.model === 'none:chain' });
+    const auditId = recordCoachAnswer({ question: asked, route: context?.route ?? null, leagueId, model: out.model,
+      answer: out.answer, ledger: out.ledger, plan, verification: out.verification, costUsd: out.cost_usd });
+    result = { question: asked, answer: out.answer, actions: [], ledger: out.ledger, verification: out.verification, dropped: [],
+      plan, audit_id: auditId, cost_usd: out.cost_usd, dropped_by_rule: 0, intent: 'chain', chain: out.view,
+      nextFocus: { ...focus, chain: out.chain_moves } };
+  } else if (follow && !(starter && follow.intent !== 'partner_switch' && follow.intent !== 'other_one')) {
     emit({ t: 'understood', question: asked });
     const out = followupAnswer({ question: asked, ...follow, entry, file: read.file, focus, identities });
     emit({ t: 'answer', claims: out.answer.claims.length, refusals: out.answer.refusals.length, deterministic: true });
@@ -277,7 +289,7 @@ export async function chatTurn({ userId, leagueId, question, context = null, has
   const reply = { text: replyText, claims: result.answer.claims, refusals: result.answer.refusals, ledger: result.ledger,
     followups, proposals, cost_usd: result.cost_usd ?? 0, ...(result.lanes ? { lanes: result.lanes } : {}),
     ...(result.answer.shape ? { shape: result.answer.shape } : {}), ...(result.route ? { route: result.route.intent } : {}),
-    ...(numbersPeople ? { numbers_people: numbersPeople } : {}) };
+    ...(numbersPeople ? { numbers_people: numbersPeople } : {}), ...(result.chain ? { chain: result.chain } : {}) };
   appendTurn(thread.id, { question: asked, intent, reply, focus: nextFocus }, { limit });
   return { ...result, intent, thread: { id: thread.id, focus: nextFocus, followups, proposals },
     ...(numbersPeople ? { numbers_people: numbersPeople } : {}) };

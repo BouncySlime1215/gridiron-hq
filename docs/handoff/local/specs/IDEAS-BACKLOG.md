@@ -23,3 +23,14 @@ Not commitments. Each needs a pre-registered bar before it counts.
 | 18 | Private model scoreboard | 11 | A page that shows weekly wins vs ESPN and FP, by position and situation; the honesty page | PROJ-DUEL |
 | 19 | Push on flip triggers | 10 | PWA push when a watched trigger fires (#293 exists, flagged) | PWA on |
 | 20 | Portfolio view | 8 | Exposure across the 5 leagues: same-player and same-bye concentration, a risk dial per league | rosters |
+
+## Added 9/27 from "The prompt is 10%, the harness is 90%" (motion-design studio post)
+| # | Idea | Tier | What it does | Data we have? |
+|---|---|---|---|---|
+| 21 | MOTION-RENDER: key moments as our own clips | 10 (TEAMS-V2 unit 5) | Render each player's top plays as short animated diagrams on our own field from play-by-play (down, distance, air yards, YAC, WP swing), via the HTML + Playwright + ffmpeg pipeline with closed-form springs; deterministic seek(t) so every render reproduces; exports 9:16, 1:1, 16:9. Legal: our graphics from data, no NFL video | 2025 pbp CSV on disk; 2026 weekly ingest needed |
+| 22 | Weekly recap film | 10 | "Your week in 30 seconds": matchup swing, best and worst starts, trade impact, playoff odds move; shareable to the league chat | league scores, plans.json |
+| 23 | Trade story animation | 10 | The chain (step → hole → fill) and lineup before/after as a 10-second motion explainer on the Coach trade page | chain producer |
+| 24 | Critique loop for pages | 0, 10 | After every UI build, the model reviews rendered screenshots (375/1440, light/dark) against CLAUDE.md 2b and fixes before the PR; formalises today's UI scan | screenshots |
+| 25 | Director's brief template | 0 | One brief format per tier (goal, metric, bar, files, reference frames, what not to touch, when to stop) for 12-hour autonomous runs | RULES.md section 4 |
+| 26 | Recurring jobs as skills | 0 | Package PR batch review (verifier + skeptic workflow), the judge run, the chain run and the replay as reusable skills, so any account runs them the same way | scripts exist |
+| 27 | Reference-frame rule for UI | 0 | Builders get the Figma frame or a screenshot as the reference, never a description; "named styles beat descriptions" | Figma links exist |

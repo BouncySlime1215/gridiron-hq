@@ -171,7 +171,7 @@ function validate(ev, ingestedAt) {
  * (source, natural_key). All events are validated before any is written.
  */
 export function appendEvents(list, { database = appDb, dispatch = false } = {}) {
-  assertWriteRole('appendEvents');
+  assertWriteRole('appendEvents', { eventTypes: Array.isArray(list) ? list.map(ev => ev?.event_type) : null });
   const ingestedAt = new Date().toISOString();
   const clean = list.map(ev => validate(ev, ingestedAt));
   const latest = database.prepare(`SELECT id, source_key FROM engine_events WHERE source = ? AND natural_key = ?

@@ -60,7 +60,8 @@ export function logWarRoomShown(res, lg, plans) {
   const nm = nextMoveOf(entry, lg);
   const follow = nm.move ? logNextMove(lg, nm.move) : { state: 'not_logged', reason: nm.reason };
   const requestId = entry.error ? null
-    : recordServed(res, 'war_room', lg, { ...entry, plans_version: plans.id });
+    : recordServed(res, 'war_room', lg, { ...entry, plans_version: plans.id }, {},
+      { args: { plans_version: plans.id ?? null, planned_at: entry.planned_at ?? null } });
   return {
     follow_ledger: { state: follow.state, ...(follow.reason ? { reason: follow.reason } : {}) },
     serve_log: requestId ? { request_id: requestId } : { request_id: null, reason: entry.error ? 'the planner failed for this league' : 'nothing servable' },

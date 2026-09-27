@@ -9,15 +9,15 @@
  */
 :root {
   /* Brand: one accent ("signal", a cobalt-violet), tuned cool neutrals. */
-  --c-accent: #4b5bff; --c-accent-hover: #3a49f0; --c-accent-ink: #ffffff;
+  --c-accent: #4a5afc; --c-accent-hover: #3a49f0; --c-accent-ink: #ffffff;
   --c-accent-tint: rgb(75 91 255 / .08); --c-accent-ring: rgb(75 91 255 / .35);
   /* Status: only for status marks (good / warn / bad), never for brand. */
-  --c-green: #12803f; --c-green-tint: rgb(18 128 63 / .09);
+  --c-green: #127f3e; --c-green-tint: rgb(18 128 63 / .09);
   --c-amber: #a15c00; --c-amber-tint: rgb(214 138 0 / .12);
   --c-red: #c2262e; --c-red-tint: rgb(194 38 46 / .08);
   /* Surfaces and ink. */
   --c-bg: #f6f7f9; --c-card: #ffffff; --c-soft: #f2f3f6; --c-raised: #ffffff;
-  --c-ink: #0b0d12; --c-ink2: #3a4150; --c-muted: #676f80; --c-subtle: #7a8293;
+  --c-ink: #0b0d12; --c-ink2: #3a4150; --c-muted: #676f80; --c-subtle: #686f7d;
   /* Edges: 1px alpha hairlines, never solid grey. */
   --c-line: rgb(12 16 28 / .08); --c-line-strong: rgb(12 16 28 / .14); --c-hover: rgb(12 16 28 / .035);
   --c-edge: inset 0 0 0 0 transparent;
@@ -42,7 +42,7 @@
   --c-amber: #fbbf24; --c-amber-tint: rgb(251 191 36 / .12);
   --c-red: #f87171; --c-red-tint: rgb(248 113 113 / .12);
   --c-bg: #0a0b0f; --c-card: #121419; --c-soft: #191c23; --c-raised: #161920;
-  --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #747b8a;
+  --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #7e8492;
   --c-line: rgb(255 255 255 / .075); --c-line-strong: rgb(255 255 255 / .14); --c-hover: rgb(255 255 255 / .04);
   --c-edge: inset 0 1px 0 rgb(255 255 255 / .05);
   --page: radial-gradient(1100px 560px at 8% -14%, rgb(142 153 255 / .12), transparent 62%),

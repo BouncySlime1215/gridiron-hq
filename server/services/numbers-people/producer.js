@@ -89,7 +89,7 @@ export function runLeague({ leagueId, entry, force = false, trigger = null, data
     const started = Date.now();
     const base = { leagueId, week, planAt: plansAt ?? entry?.planned_at ?? null, inputsHash: hash, trigger: trigger ?? why };
     try {
-      const out = await readBothLanes(items, { signalsFor: signals, ...(jevLane ? { jevLane } : {}) });
+      const out = await readBothLanes(items, { signalsFor: signals, leagueId, ...(jevLane ? { jevLane } : {}) });
       const latencyMs = Date.now() - started;
       const runId = saveRun(database, { ...base, status: 'ok', reads: out.reads, costUsd: out.cost_usd, latencyMs,
         reason: out.skipped.length ? `${out.skipped.length} item(s) the numbers lane did not read` : null });

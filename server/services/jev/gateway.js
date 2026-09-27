@@ -19,7 +19,7 @@
  * `jev_runaway` event and a status line, and never blocks a call.
  */
 import crypto from 'node:crypto';
-import { row } from '../../db/index.js';
+import { row, run, rows } from '../../db/index.js';
 import { recordUsage as recordUsageRow } from '../claude.js';
 import { costOfUsage } from '../llm-budget.js';
 import { QUESTION_TYPES } from './questions.js';
@@ -117,6 +117,13 @@ function defaultRecordUsage(feature, model, usage) {
   return { cost, id: row('SELECT last_insert_rowid() AS id')?.id ?? null };
 }
 
+/** JEV-SINK-FIX: a logging failure after a paid call is written on that call's ai_usage row (ai_usage.error). */
+function defaultMarkUsageError(id, text) {
+  if (id == null) return;
+  if (!rows('PRAGMA table_info(ai_usage)').some(c => c.name === 'error')) return;
+  run('UPDATE ai_usage SET error = ? WHERE id = ?', text, id);
+}
+
 const toUsd = v => (v == null || v === '' ? null : Number(v));
 
 /**
@@ -124,10 +131,11 @@ const toUsd = v => (v == null || v === '' ? null : Number(v));
  * @param {Function} [deps.evaluate]     experimental_evaluate stand-in (tests inject; default imports `ai` lazily)
  * @param {Function} [deps.getCredits]   () => {balance, totalUsed} | null
  * @param {Function} [deps.recordUsage]  (feature, model, usage) => {cost, id}
+ * @param {Function} [deps.markUsageError] (ai_usage id, text) — where a logging failure after a paid call is recorded
  * @param {object}   deps.sink           { appendEvent({type, as_of, payload}) } — the engine event log
  */
 export function createJevGateway({
-  evaluate = defaultEvaluate, getCredits = defaultGetCredits, recordUsage = defaultRecordUsage,
+  evaluate = defaultEvaluate, getCredits = defaultGetCredits, recordUsage = defaultRecordUsage, markUsageError = defaultMarkUsageError,
   sink, env = process.env, now = () => Date.now(), runaway = createRunawayMonitor({ now }), model = JEV_MODEL,
 } = {}) {
   if (!sink?.appendEvent) throw new Error('Jev gateway needs an engine sink with appendEvent');
@@ -147,6 +155,19 @@ export function createJevGateway({
     if (!fresh.length) return;
     lastAlert = { text: fresh.map(r => r.summary).join('; '), at: new Date(t).toISOString() };
     sink.appendEvent({ type: 'jev_runaway', as_of: asOf ?? lastAlert.at, payload: { reasons: fresh } });
+  }
+
+  /**
+   * JEV-SINK-FIX: logging (the jev_call event, a runaway alert) never costs Nick an answer. A failure
+   * is returned as text, warned, and, when the call was paid, written to that ai_usage row's error.
+   */
+  function logSafely(fn, usageId = null) {
+    try { return { value: fn(), error: null }; } catch (err) {
+      const text = `jev_log_failed: ${String(err?.message ?? err)}`.slice(0, 300);
+      console.warn(`[jev] ${text}`);
+      try { markUsageError(usageId, text); } catch (e2) { console.warn(`[jev] could not record the logging failure: ${e2?.message ?? e2}`); }
+      return { value: null, error: text };
+    }
   }
 
   return {
@@ -178,8 +199,8 @@ export function createJevGateway({
       const hash = promptHash(model, state, questions);
       const base = { qtype, question_version: spec.version, arm, model, prompt_hash: hash, state_ids: stateIds };
       if (!env[KEY_ENV]) {
-        const eventId = sink.appendEvent({ type: 'jev_call', as_of: asOf,
-          payload: { ...base, ok: 0, error: `no_key: ${KEY_ENV} is not set`, input_tokens: 0, cost_usd: 0, latency_ms: 0, ai_usage_id: null } });
+        const { value: eventId } = logSafely(() => sink.appendEvent({ type: 'jev_call', as_of: asOf,
+          payload: { ...base, ok: 0, error: `no_key: ${KEY_ENV} is not set`, input_tokens: 0, cost_usd: 0, latency_ms: 0, ai_usage_id: null } }));
         return { ok: false, error: 'no_key', eventId };
       }
       const t0 = now();
@@ -190,9 +211,9 @@ export function createJevGateway({
         runaway.recordSend({ hash, costUsd: 0 });
         const status = err?.statusCode ?? err?.status ?? null;
         const error = `${status ? `${status} ` : ''}${String(err?.message ?? err)}`.slice(0, 300);
-        const eventId = sink.appendEvent({ type: 'jev_call', as_of: asOf,
-          payload: { ...base, ok: 0, error, input_tokens: 0, cost_usd: 0, latency_ms: now() - t0, ai_usage_id: null } });
-        raiseRunaway(asOf);
+        const { value: eventId } = logSafely(() => sink.appendEvent({ type: 'jev_call', as_of: asOf,
+          payload: { ...base, ok: 0, error, input_tokens: 0, cost_usd: 0, latency_ms: now() - t0, ai_usage_id: null } }));
+        logSafely(() => raiseRunaway(asOf));
         return { ok: false, error, eventId };
       }
       const latency = now() - t0;
@@ -202,11 +223,13 @@ export function createJevGateway({
       const { cost, id: usageId } = recordUsage(`jev:${qtype}`, model, usage);
       const costUsd = cost ?? costOfUsage(model, usage);
       runaway.recordSend({ hash, costUsd });
-      const eventId = sink.appendEvent({ type: 'jev_call', as_of: asOf,
+      // Paid for: the answer goes back even if logging it fails (the failure lands on this ai_usage row).
+      const logged = logSafely(() => sink.appendEvent({ type: 'jev_call', as_of: asOf,
         payload: { ...base, ok: 1, error: null, input_tokens: inputTokens, output_tokens: outputTokens,
-          cost_usd: costUsd, latency_ms: latency, ai_usage_id: usageId } });
-      raiseRunaway(asOf);
-      return { ok: true, answers: result.answers, usage, costUsd, eventId, usageId, promptHash: hash };
+          cost_usd: costUsd, latency_ms: latency, ai_usage_id: usageId } }), usageId);
+      const alert = logSafely(() => raiseRunaway(asOf), usageId);
+      const logError = logged.error ?? alert.error;
+      return { ok: true, answers: result.answers, usage, costUsd, eventId: logged.value, usageId, promptHash: hash, ...(logError ? { logError } : {}) };
     },
 
     status: () => ({ key: Boolean(env[KEY_ENV]) ? 'present' : 'absent', balance, runaway: lastAlert.text, runaway_at: lastAlert.at }),

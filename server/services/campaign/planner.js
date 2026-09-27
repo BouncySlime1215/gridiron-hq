@@ -20,6 +20,7 @@ import { coachMessagesOn } from './messages.js';
 import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
 import { stopsMode, findHoles, priceHoles } from './stops.js';
+import { titlePathFlag, titlePath } from './title-path.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { deadlineMode, deadlineReport } from './deadline-mode.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
@@ -36,6 +37,7 @@ import { PROTECTED_IDS, MODE_LABEL, tierUpGets, upgradeRises, protectedGiven } f
 import { moveId } from './view.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive, perLeagueRulesOn, resolveLeagueRules } from './never-give.js';
+import { consolidationFlag, findConsolidations } from './consolidation.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
@@ -934,6 +936,13 @@ export function planLeague(adapter, settings) {
       arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
       give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
+  // TITLE-PATH (GRIDIRON_TITLE_PATH=1 only, shadow): three plain lines on why the served move wins the title,
+  // from plan numbers only (title-path.js). Read after planning; it moves nothing and nothing served reads it.
+  const title_path = titlePathFlag(env) === 'off' ? undefined : { mode: 'shadow', ...titlePath({
+    plan: best, titleNow: now.title, roster: adapter.rosters.get(me) ?? [], players: adapter.players, starters: adapter.starters,
+    weeklyOf: W.weekly ? (st => (st ? weeklyOf(st.state) : nowWeeks)) : null,
+    from: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
+    playoffWeeks: L.playoff_weeks ?? null, untouchable: [...untouchable, ...(objective.untouchables ?? [])] }) };
   // STOPS-01 (GRIDIRON_STOPS: 1 serves, shadow reports, default off): bye / injury holes in Nick's weekly lineup,
   // each priced as a plan-added stop on the ranked (rule-filtered) plans; off, nothing is computed.
   const stopsM = stopsMode(env);
@@ -985,6 +994,13 @@ export function planLeague(adapter, settings) {
   const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null, { league: { id: L.id, me, season: L.season } });
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
+  // BENCH-CONSOLIDATION + ROSTER-SPOT VALUE (shadow, GRIDIRON_CONSOLIDATION=1 only): depth-only 2-for-1 / 3-for-1
+  // offers for one Blue chip under Nick's rules, on both dice; reported under _run.inputs, nothing served reads it.
+  const consolidationMode = consolidationFlag(env);
+  const consolidation = consolidationMode === 'off' ? null : findConsolidations({ mode: consolidationMode, adapter, S, S2, board, vals,
+    depthPremium, excludedTeam: excluded, soldOut: id => !!TM?.excluded(id),
+    stepOk: step => !TM || stepPasses(TM, step, tmFloor), ledgerMissing, untouchables: objective.untouchables ?? [] });
+  if (consolidation) mark('consolidation');
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
   const sanity = adapter.sanity ? adapter.sanity() : null;
   mark('finder_and_sanity');
@@ -1006,7 +1022,7 @@ export function planLeague(adapter, settings) {
     aj_pick: ajSink,
     protected_upgrade: protSink,
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), ...(title_path ? { title_path } : {}), ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),
@@ -1015,6 +1031,7 @@ export function planLeague(adapter, settings) {
     playoff_path: playoffPathFor(W.base, me),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     ...(ladders ? { ladders } : {}),
+    ...(consolidation ? { consolidation } : {}),
     // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).
     p_yes_basis: adapter.pYesBasis ?? null,
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.

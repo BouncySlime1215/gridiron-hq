@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { PlayerCardProvider } from './components/PlayerCard';
 import { LeagueProvider } from './state/league';
@@ -69,6 +69,10 @@ export default function App() {
   useEffect(() => { if (isMobile) setCollapsed(true); }, [isMobile, location.pathname, location.search]);
   const drawerOpen = isMobile && !collapsed;
   const rail = !isMobile && collapsed;
+  // A closed phone drawer is only moved off-screen, so its links would still take Tab stops;
+  // inert takes them (and the screen-reader view of them) out until it opens.
+  const side = useRef<HTMLElement>(null);
+  useEffect(() => { side.current?.toggleAttribute('inert', isMobile && !drawerOpen); }, [isMobile, drawerOpen]);
   const inBetting = location.pathname.startsWith('/betting') || location.pathname.startsWith('/props') || location.pathname.startsWith('/nfl-board');
   const pageLabel = destinationLabel(location.pathname);
 
@@ -101,8 +105,10 @@ export default function App() {
   return <LeagueProvider><AppCoachProvider><PlayerCardProvider>
     <PageExplainContext.Provider value={pageExplain}>
     <div className="flex min-h-screen bg-white">
+      {/* First Tab stop on every page: jump past the nav to the page itself. */}
+      <a href="#main" className="ds-skip">Skip to content</a>
       {drawerOpen && <div className="fixed inset-0 z-40 bg-slate-900/40" aria-hidden="true" onClick={() => setCollapsed(true)} />}
-      <aside style={{ width: rail ? 64 : 244 }} className={`app-side flex h-screen shrink-0 flex-col overflow-hidden py-4 ${rail ? 'px-2' : 'px-3'} ${isMobile
+      <aside ref={side} style={{ width: rail ? 64 : 244 }} className={`app-side flex h-screen shrink-0 flex-col overflow-hidden py-4 ${rail ? 'px-2' : 'px-3'} ${isMobile
         ? `fixed inset-y-0 left-0 z-50 bg-[var(--c-card)] transition-transform duration-200 ${drawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`
         : 'sticky top-0 transition-[width] duration-200'}`}>
         <div className={`mb-4 ${rail ? 'text-center' : 'px-2'}`}>
@@ -114,7 +120,7 @@ export default function App() {
           {NAV_GROUPS.map(group => <div key={group.label} className="mb-3">
             {!rail && <div className="app-group" title={group.question || undefined}>{group.label}</div>}
             {rail && <div className="mx-2 my-2 h-px bg-[var(--c-line)]" />}
-            {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={rail ? item.label : undefined} className={({ isActive }) => `app-nav-link${rail ? ' is-rail' : ''}${isActive ? ' is-active' : ''}`}>
+            {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={rail ? item.label : undefined} aria-label={rail ? item.label : undefined} className={({ isActive }) => `app-nav-link${rail ? ' is-rail' : ''}${isActive ? ' is-active' : ''}`}>
               <span className="app-nav-ic">{NAV_ICON[item.to] ? <Icon name={NAV_ICON[item.to]} size={18} /> : item.icon}
                 {/* BROKEN-01b: red when any number is broken for the selected league; nothing otherwise. */}
                 {item.to === '/settings' && <span className="absolute -right-1 -top-1 flex"><NumberHealthNavDot /></span>}</span>
@@ -139,7 +145,7 @@ export default function App() {
           {!inBetting && <div className="min-w-[8rem] flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
           <div className="ml-auto flex shrink-0 items-center gap-2"><HeaderFacts /><span className="hidden xl:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden lg:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /><MoreMenu /></div>
         </header>
-        <main className="app-main min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
+        <main className="app-main min-w-0 flex-1 p-4 sm:p-6 lg:p-8" id="main" tabIndex={-1}><Suspense fallback={<RouteSkeleton />}><Routes>
           {/* The seven areas (docs/ui/CONSOLIDATION-MAP.md). */}
           <Route path="/" element={<Today />} />
           <Route path="/trades" element={<Trades />} />

@@ -77,3 +77,25 @@ EDGE-PLAN. Research it and pre-register it; no claims without held-out proof.
    - (d) decision quality (the chain lookahead, comparative statics, the cost of waiting).
 3. **Proven signal first:** BUY-LOW (+1.98 pts/game held out) goes into player value, not only as a tie-breaker. Look for more "usage up, points down" style signals with pre-registered tests.
 4. **Honesty rule:** public-data projection edges are usually near zero (see the 9/17 betting work). Aim the model at league-specific decisions, where the edge is real, and show the scoreboard, never marketing.
+
+## Addendum 3: lessons from 2 sources Nick sent (9/27)
+**1. Fox, Stanford CS229 2016, "Beating Daily Fantasy Football".** Per-position linear regressions on the last game plus 3- and 5-game averages of yards, TDs and attempts.
+- Test error: about 6.5 pts (WR/TE), 7.3 (RB) and 6.2 (QB), which is baseline-level.
+- A big early bug was bye weeks counted as 0-point games. Our E-XGB has the same flaw (it projects bye and out players).
+- The DFS "+10.5%" was ONE weekend, so it isn't evidence.
+- Lessons: plain lagged stats about match the baseline; data hygiene (byes, injuries) matters as much as the model; never trust n=1.
+
+**2. Fantasy Outliers 2017, "We beat ESPN" (the MathBox model).** About 7,000 features: Armchair Analysis history plus scraped coaching and contract data. Separate models per position and scoring format, cross-validation weighted to recent seasons.
+- The key design: predict OPPORTUNITIES x POINTS-PER-OPPORTUNITY, not raw points.
+- They evaluated by converting both projections into beta-distribution WIN PROBABILITIES, not raw MAE.
+- Claimed result: beat ESPN at QB in weeks 6-16 of 2017, competitive elsewhere, best on LOW-BUZZ players.
+- Their conclusion: "ML + human expertise beats either alone"; use the model as a DIRECTIONAL signal vs ESPN.
+
+**What this means for us (feeds EDGE-PLAN):**
+- **(a) Decompose projections** into an opportunity model (snaps, targets, carries, red-zone) times an efficiency model. That's also the player-level "why" Nick wants.
+- **(b) Don't replace ESPN.** Use our model as a directional delta on low-buzz players, where ESPN's hand-tuning is thinnest. Grade the delta's hit rate.
+- **(c) Evaluate on decisions:** win probability, start/sit and trade outcomes, not MAE alone.
+- **(d) In-season edge shows up from about week 6.** Our Oct 13-15 refit timing matches.
+- **(e) Fix bye/out handling first,** as data hygiene.
+- **(f) Richer context features:** coaching changes, contract years, team pace.
+- **(g) Never claim an edge from one week.**

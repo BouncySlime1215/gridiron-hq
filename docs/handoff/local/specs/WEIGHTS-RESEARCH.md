@@ -110,3 +110,21 @@ Run this first in the new account: 6 parallel web-research agents, then a Fable 
 6. **The subset metric.** Measure the edge where the consensus is thin (low-buzz players, role changes, injury replacements). A "clear margin" there is realistic even if overall MAE is a near-tie.
 7. **Decision backtest.** Start/sit and waiver picks made with our model vs picks made with ESPN or FantasyPros alone, graded on realised points over past seasons (SEASON-REPLAY).
 Deliverable: a ranked list of edges, each with expected size, evidence, the data we have and a build cost, plus a pre-registered bar per edge.
+
+## Addendum 5 (9/27): open-source models reviewed, and the better edges they point to
+**Repos and papers:**
+- ffverse/ffopportunity: xgboost expected points on nflverse play-by-play. We already ingest it as nfl_ffopportunity_weekly.
+- ffverse/ffsimulator.
+- mattgilgo/fantasy_football (benchmarked vs experts).
+- clemens06 (walk-forward, per-season baselines, an ensemble of linear + xgb).
+- jfontanet5 (a Tweedie objective for zero-inflated points).
+- mazinsafer (leakage-safe walk-forward).
+- the `fantasyfootball` PyPI package: 18% better than naive, but industry is 4% better than it. Honest: DIY models usually trail industry on overall error.
+- OpenFPL (arXiv 2508.09992): position-specific ensembles MATCH a commercial service overall and BEAT it on HIGH-RETURN players.
+
+**Better edges to add to EDGE-PLAN:**
+- **(8) Tail accuracy.** Model boom probability (P ≥ 20/25 pts). OpenFPL's clear win was on high-return players, and underdogs (like Nick at 0-3) win on tails.
+- **(9) xFP luck regression.** Actual minus expected fantasy points (ffopportunity) regresses hard. Buy negative-luck players and sell positive-luck ones; this is BUY-LOW/SELL-HIGH made quantitative.
+- **(10) Tweedie / zero-inflated loss** plus availability, so injuries, byes and blowouts are modelled natively.
+- **(11) Walk-forward weekly retrain** (the A_weekly arm), with leakage-safe features.
+- **(12) Market-value vs projection gaps.** Where FantasyCalc and FantasyPros trade value lag our xFP-based forward value, that's the trade edge; it pairs with SCREEN-GAP.

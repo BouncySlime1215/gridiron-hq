@@ -434,7 +434,10 @@ export const PLANS_SCHEMA = obj({ ...HEAD, leagues: arr(league) });
 
 /* ------------------------------------------------------------ validator */
 
-const FIELD_META = ['status', 'reason', 'source', 'se', 'clears_2se', 'as_of', 'n', 'unit', 'guess'];
+// COACH-SHAPE-2: zero_in_runs / upper_95 ride on a probability of exactly 0 (none of `n` simulated seasons).
+// They are allowed on any typed field but declared as paths nowhere: only a field that is exactly 0 carries them.
+const FIELD_META_RARE = ['zero_in_runs', 'upper_95'];
+const FIELD_META = ['status', 'reason', 'source', 'se', 'clears_2se', 'as_of', 'n', 'unit', 'guess', ...FIELD_META_RARE];
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const ID_RE = /^[A-Za-z0-9:_.-]{1,64}$/;
 
@@ -496,6 +499,8 @@ function check(node, v, path, ctx) {
       if ('n' in v) check(int(0), v.n, `${path}.n`, ctx);
       if ('unit' in v && !UNITS.includes(v.unit)) err(`unit must be one of ${UNITS.join(', ')}`);
       if ('guess' in v && typeof v.guess !== 'boolean') err('guess must be true or false');
+      if ('zero_in_runs' in v && v.zero_in_runs !== true) err('zero_in_runs is only ever true');
+      if ('upper_95' in v && !(typeof v.upper_95 === 'number' && v.upper_95 >= 0 && v.upper_95 <= 1)) err('upper_95 must be a probability');
       if (v.status === 'ok') {
         if (!('value' in v)) err("an 'ok' field must carry a value");
         else check(node.inner, v.value, `${path}.value`, ctx);
@@ -597,7 +602,7 @@ export function schemaPaths() {
         for (const [k, sub] of [...Object.entries(node.req), ...Object.entries(node.opt)]) walk(sub, p ? `${p}.${k}` : k);
         return;
       case 'field':
-        for (const k of FIELD_META) out.add(`${p}.${k}`);
+        for (const k of FIELD_META) if (!FIELD_META_RARE.includes(k)) out.add(`${p}.${k}`);
         walk(node.inner, `${p}.value`);
         return;
       default:

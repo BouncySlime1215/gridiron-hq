@@ -35,9 +35,11 @@ test.after(() => setAnthropicClientForTesting(null));
 const ask = q => chatTurn({ userId: user(), leagueId: 4, question: q, hasModel: true, context: { league: 4 } });
 
 test('EXPLAIN a served term: a definition plus the league value, cited, in the format, $0', async () => {
-  for (const [q, rx] of [['What do title odds mean?', /^Read title odds as/], ['What is the overpay cap?', /^Read the overpay cap/],
-    ['What does a blue chip mean here?', /^Read a blue chip/], ['What does P(yes) mean?', /^Read P\(yes\)/],
-    ['What is the depth premium?', /^Read the depth premium/], ['What does SE mean next to a number?', /^Read SE as/]]) {
+  for (const [q, rx] of [['What do title odds mean?', /^Think of title odds as/], ['What is the overpay cap?', /^Think of the overpay cap/],
+    ['What does a blue chip mean here?', /^Think of a blue chip/], ['What does P(yes) mean?', /^Think of P\(yes\)/],
+    ['What is the depth premium?', /^Think of the depth premium/], ['What does SE mean next to a number?', /^Think of SE as/],
+    ['What does it mean when a move clears the noise?', /^Call a gain real when it beats twice its margin of error/],
+    ['Why is the next move marked as a guess?', /^Treat the chance they say yes as a guess/]]) {
     const out = await ask(q);
     assert.equal(out.cost_usd, 0, q);
     assert.match(out.answer.shape.verdict.text, rx, q);
@@ -50,10 +52,11 @@ test('EXPLAIN a served term: a definition plus the league value, cited, in the f
   assert.equal(calls, 0, 'no model call');
 });
 
-test('CHAT: an acknowledgement and a pointer, $0', async () => {
-  for (const [q, v] of [['thanks', 'Happy to help.'], ['lol ok', 'Glad that landed.'], ['cool', 'Got it.']]) {
+test('CHAT: a verb-first line and the served next move as the why line, $0', async () => {
+  for (const [q, v] of [['thanks', 'Ask me next about your move, a target or your lineup (anytime).'], ['lol ok', 'Ask me next about your move, a target or your lineup (glad that landed).'], ['cool', 'Ask me next about your move, a target or your lineup (got it).']]) {
     const out = await ask(q);
     assert.equal(out.answer.shape.verdict.text, v);
+    assert.match(out.answer.shape.why[0].text, /^Your next move: the served offer to \D|^Answers from your plan cost nothing\.$/, 'the partner by name, never a roster number');
     assert.equal(out.cost_usd, 0);
     assert.ok(out.thread.followups.length >= 2);
   }

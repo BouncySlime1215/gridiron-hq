@@ -196,6 +196,7 @@ export function planLeague(adapter, settings) {
   const base = S.rescore(new Map(), me);
   // U1: title_now's run-to-run SE rides with it when the rescore reports one (null otherwise, never invented).
   const now = { title: base.me.title_before, title_se: Number.isFinite(base.me.title_before_se) ? base.me.title_before_se : null,
+    title_95: Array.isArray(base.me.title_before_95) ? base.me.title_before_95 : null, runs: Number.isInteger(base.me.runs) ? base.me.runs : null,
     playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
 
   // NO-OVERPAY: Nick's cap on market value given (destination tolerance max_overpay; default 0).

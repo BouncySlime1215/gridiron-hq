@@ -131,8 +131,8 @@ test('morning brief on the real producer plan: every line grounds, none dropped'
   assert.ok(r.claims.length >= 10);
   assert.match(r.text, /Offer Team 3 P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)\./);
   assert.doesNotMatch(r.text, /It is the first of/, 'a one-step move says no step count');
-  assert.match(r.text, /If he says yes, title odds move \+11\.6 pts to 54%\./);
-  assert.match(r.text, /Chance he says yes: 53%, a guess until the yes-model is proven\./);
+  assert.match(r.text, /If they say yes, title odds move \+11\.6 pts to 54%\./);
+  assert.match(r.text, /Chance they say yes: 53% \(a guess until the yes-model is proven\)\./);
   // Review 5825030366 on #390: the producer's "all 1 step(s) land" is said in plain words.
   assert.match(r.text, /Why: If the step lands you gain 11\.6 pts of title odds; across yes and no outcomes that is 6\.1 pts/);
   assert.match(r.text, /When: Now: nothing argues for waiting\./);

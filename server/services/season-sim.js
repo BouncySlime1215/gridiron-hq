@@ -1382,6 +1382,9 @@ export function tradeImpact(lg, {
       title_before: b.title_odds, title_after: a.title_odds,
       // U1: each arm's own SE (the served title_now reads title_before_se).
       title_before_se: seOf(rb), title_after_se: seOf(ra),
+      // COACH-SHAPE-2: the level's 95% interval and the run count, so a level of 0 (no title in any run)
+      // is served as "under <upper>" instead of a certain 0.00% with an SE of 0.
+      title_before_95: Array.isArray(b.title_odds_95) ? b.title_odds_95 : null, runs: before.runs ?? null,
       title_delta, title_delta_se,
       title_delta_clears_noise: title_delta_se != null && Math.abs(title_delta) > TRADE_DELTA_NOISE_SE * title_delta_se,
       playoff_before: b.playoff_odds, playoff_after: a.playoff_odds,

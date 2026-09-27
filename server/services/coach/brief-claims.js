@@ -65,6 +65,12 @@ export function nextMove(entry, ledger, section) {
   return moveClaims(entry, ledger, section, nm.value, { isNext: true });
 }
 
+/** The odds this league's plan is tracked in, as the served goal labels them ("Title odds" / "Playoff odds"). */
+export function metricLabelOf(entry) {
+  const goal = val(val(entry?.destination)?.goal);
+  return typeof goal?.metric_label === 'string' && goal.metric_label ? goal.metric_label : 'Title odds';
+}
+
 /** The producer's template writes "all N step(s)"; Coach says "the step" or "all N steps". */
 export const plainSteps = text => (typeof text === 'string'
   ? text.replace(/\ball 1 step\(s\) land\b/g, 'the step lands').replace(/\b1 step\(s\)/g, '1 step').replace(/step\(s\)/g, 'steps')
@@ -102,13 +108,15 @@ export function moveClaims(entry, ledger, section, move, { k = 0, isNext = false
     text: `Offer ${row.partner_label} ${list('give').map(x => x.name).join(' + ')} for ${list('get').map(x => x.name).join(' + ')}.` });
   if (k > 0) out.push({ section, text: `It is step ${row.step} of ${row.steps}: the steps before it go first.`, cites: [c(0, 'step'), c(0, 'steps')] });
   else if (row.steps > 1) out.push({ section, text: `It is the first of ${row.steps} steps.`, cites: [c(0, 'steps')] });
+  // COACH-SHAPE-2: the odds the league's plan is tracked in (its goal's metric_label: title or playoff), not always "title".
+  const odds = metricLabelOf(entry).toLowerCase();
   if (row.delta != null && row.title_after != null) {
-    out.push({ section, text: `If he says yes, title odds move ${pts(row.delta)} to ${pct(row.title_after)}.`,
+    out.push({ section, text: `If they say yes, ${odds} move ${pts(row.delta)} to ${pct(row.title_after)}.`,
       cites: [c(0, 'delta'), c(0, 'title_after')] });
   }
   if (row.p_yes != null) {
     out.push({ section, cites: [c(0, 'p_yes')],
-      text: `Chance he says yes: ${pct(row.p_yes)}${row.guess ? ', a guess until the yes-model is proven' : ''}.` });
+      text: `Chance they say yes: ${pct(row.p_yes)}${row.guess ? ' (a guess until the yes-model is proven)' : ''}.` });
   }
   // The planner's own prose, held to the numbers they stand on: strict, citing only
   // result cells. Team and player names are removed as labels, never matched as
@@ -563,7 +571,9 @@ export function answerClaimsFor(intent, { entry, ledger }) {
     // No move clears: the producer's reason, then the nearest miss (why_nothing without its repeat of the reason).
     if (!entry.error && !ok(entry.next_move)) return [...nextMove(entry, ledger, section), ...whyNothing(entry, ledger, section).slice(1)];
     const draft = nextMove(entry, ledger, section).filter(c => !/^It is the first of \d+ steps\.$/.test(c.text));
-    return [...draft.slice(0, 1), ...stepOf(entry, ledger, section), ...draft.slice(1)];
+    // COACH-SHAPE-2: "Step 1 of 1" is filler; the step line appears only when the move has more than one step.
+    const steps = val(entry.next_move)?.steps?.length ?? 0;
+    return [...draft.slice(0, 1), ...(steps > 1 ? stepOf(entry, ledger, section) : []), ...draft.slice(1)];
   }
   if (intent === 'why_nothing') return whyNothing(entry, ledger, section);
   if (intent === 'all_in') return allIn(entry, ledger, section);

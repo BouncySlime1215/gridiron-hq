@@ -124,6 +124,19 @@ function num(value, source, { se, clears, unit, guess, n, prob = false, missing 
   return out;
 }
 
+/**
+ * COACH-SHAPE-2: title_now. A level of exactly 0 is "no title in any simulated season", not a certain
+ * 0.00%: its SE of 0 is dropped, and the run count and the 95% upper bound are served with it
+ * (`zero_in_runs`, `n`, `upper_95`), so every reader can say "under 0.3% (none of 1,200 seasons)".
+ */
+export function titleNow(now) {
+  const f = num(now?.title, 'sim.title', { prob: true, unit: 'title_odds', se: now?.title_se, ...(Number.isInteger(now?.runs) ? { n: now.runs } : {}) });
+  if (f.status !== 'ok' || f.value !== 0) return f;
+  const { se, ...rest } = f;
+  const upper = Array.isArray(now.title_95) && fin(now.title_95[1]) ? now.title_95[1] : null;
+  return { ...rest, zero_in_runs: true, ...(upper != null ? { upper_95: upper } : {}) };
+}
+
 /** A deck card's id: stable across refreshes while the plan's steps are the same. */
 export function moveId(league, plan) {
   return `L${league}-${hash(league, plan.target ?? '', ...plan.steps.map(dealKey)).toString(36)}`;
@@ -383,7 +396,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     tolerances: ok(tolerances, 'campaign.plan'),
     arrive_by: week(o.arrive_by) ? ok(o.arrive_by, 'campaign.plan') : unknown('No arrive-by week is set.', 'campaign.plan'),
     eta_week: week(res.eta_week) ? ok(res.eta_week, 'plan.path') : unknown('No plan, so no arrival week.', 'plan.path'),
-    title_now: num(res.now.title, 'sim.title', { prob: true, unit: 'title_odds', se: res.now.title_se }),
+    title_now: titleNow(res.now),
     title_planned_now: metric !== 'title' ? unknown(`The plan is tracked in ${LABEL[metric]}, not title odds.`, 'plan.path')
       : num(plannedNow ?? nowMetric, 'plan.path', { prob: true, unit: 'title_odds' }),
     path: path.length ? ok(path, 'plan.path') : unknown('The current week is unknown, so there is no path.', 'plan.path'),

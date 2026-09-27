@@ -67,8 +67,11 @@ test('a question no rule matches is routed by the cheap model, with a schema', a
 });
 
 test('per intent: model, effort and lookup budget', () => {
-  assert.equal(planFor('DO', 'should I trade for a WR').model, MODELS.strong);
-  assert.equal(planFor('DO', 'who should I start').model, MODELS.normal);
+  // COACH-SHAPE-2: shaped, preloaded turns are Sonnet with thinking off at low effort, trade questions included.
+  for (const [i, q] of [['DO', 'should I trade for a WR'], ['ABOUT', 'should I trade A.J.'], ['DO', 'who should I start'], ['WHY', 'why'], ['WHAT_IF', 'what if']]) {
+    const p = planFor(i, q);
+    assert.deepEqual([p.model, p.effort, p.thinking], [MODELS.normal, 'low', { type: 'disabled' }], `${i}: ${q}`);
+  }
   assert.equal(planFor('CHAT', 'lol').model, MODELS.cheap);
   assert.equal(planFor('CHAT', 'lol').toolRounds, 0);
   assert.equal(planFor('EXPLAIN', 'x').effort, null, 'Haiku takes no effort setting');
@@ -97,8 +100,10 @@ test('enforcing the shape drops blocks, never the answer', () => {
   const { answer, dropped } = enforceShape(bad);
   assert.equal(answer.shape.verdict.text, good.verdict.text);
   assert.equal(answer.shape.why.length, LIMITS.whyMax);
-  assert.equal(answer.shape.risks.length, LIMITS.risksMax);
-  assert.ok(dropped.length >= 3);
+  assert.equal(answer.shape.risks.length, 0, 'COACH-SHAPE-2: risk lines fold into the why block');
+  assert.equal(answer.shape.why.at(-1).text, 'The risk: he goes quiet.', 'the first risk is the last why bullet');
+  assert.ok(answer.shape.more.length >= 2, 'the rest is folded under more, never dropped');
+  assert.ok(Array.isArray(dropped));
   assert.deepEqual(shapeCheck(answer), []);
 });
 
@@ -133,7 +138,7 @@ test('a shaped refusal keeps a verdict; an uncited number in the verdict is caug
   assert.ok(out.answer.shape.verdict.text && !/\d/.test(out.answer.shape.verdict.text), 'a verdict with no number stands in');
 });
 
-test('plan ($0) answers come back in the same format: verdict from the first line, why and risks, the rest folded', async () => {
+test('plan ($0) answers come back in the same format: verdict from the first line, up to 3 why lines with the first risk last, the rest folded', async () => {
   const { shapeDeterministic } = await import('../server/services/coach/answer-shape.js');
   const c = (text, cite = 'r1#0.x') => ({ text, cites: [cite] });
   const out = shapeDeterministic({ claims: [c('Offer Team 3 P4 (WR) + P6 (RB) for P21 (WR).'), c('Chance he says yes: 53%, a guess.'),
@@ -142,8 +147,9 @@ test('plan ($0) answers come back in the same format: verdict from the first lin
   assert.equal(out.shape.verdict.text, 'Send Team 3 P4 (WR) + P6 (RB) for P21 (WR).');
   assert.deepEqual(out.shape.verdict.cites, ['r1#0.x']);
   assert.equal(out.shape.why.length, 3);
-  assert.deepEqual(out.shape.risks.map(r => r.text), ['If he says no: Log the reason.', 'The risk: he says no.']);
-  assert.equal(out.shape.more.length, 1);
+  assert.deepEqual(out.shape.risks, [], 'COACH-SHAPE-2: no separate tail of risk lines');
+  assert.equal(out.shape.why.at(-1).text, 'If he says no: Log the reason.', 'the first risk is the last why line');
+  assert.deepEqual(out.shape.more.map(m => m.text), ['When: Now.', 'The risk: he says no.', 'Nudge to copy: "Still open?"']);
   assert.equal(out.claims.length, 7, 'the grounded claims are untouched');
   const none = shapeDeterministic({ claims: [c('No next move: nothing clears your sliders this week and every path overpays by FantasyCalc value.')], refusals: [] });
   assert.equal(none.shape.verdict.text, 'No move clears your rules this week.');

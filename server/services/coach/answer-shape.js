@@ -48,8 +48,8 @@ ANSWER FORMAT. Reply with the JSON object in the schema, filled like this:
 - "stance": go, wait, avoid, or none when the question is not about acting.
 - "basis": the deciding reason in two to four words (for example "title odds gain", "his price", "your floor").
 - "basis_key": the same reason as one of: title_gain (the odds the plan chases), price (value given or asked), willingness (whether he will deal), roster_fit (a lineup need), risk (injury, volatility, a weak guess), timing (why now or not now).
-- "why": one to ${LIMITS.whyMax} bullets, at most ${LIMITS.whyWords} words each; the first is the deciding reason; each carries ONE cited number with its label. Empty when you refused.
-- "risks": at most ${LIMITS.risksMax} lines, "If no: ..." or "Risk: ...", only when the plan has them.
+- "why": one to ${LIMITS.whyMax} bullets, at most ${LIMITS.whyWords} words each; the first is the deciding reason; each carries ONE cited number with its label. When the plan has a fallback or a real risk, the LAST bullet may say it ("If they say no, ..." or "The risk: ..."). Empty when you refused.
+- "risks": always an empty list (a fallback or risk goes in "why").
 - Refer to any league-mate as they, them or their, never he, him or his. A line resting on chat reads ends with "(from chat, unverified)".
 - Never mention tables, columns, fields, schema, queries or any snake_case name, and never guess at them: when a fact is not on file, say so in plain words ("No health update on file yet.").
 - "refusals": at most one short line, only for what you could not answer; leave it empty when the verdict and why already answer.
@@ -69,9 +69,26 @@ export function toAnswer(parsed) {
   const why = (Array.isArray(parsed?.why) ? parsed.why : []).map(clean).filter(Boolean);
   const risks = (Array.isArray(parsed?.risks) ? parsed.risks : []).map(clean).filter(Boolean);
   const refusals = (Array.isArray(parsed?.refusals) ? parsed.refusals : []).filter(r => typeof r === 'string' && r.trim()).map(r => r.trim());
+  const folded = foldRisks(why, risks);
   const shape = { verdict, stance: STANCES.includes(parsed?.stance) ? parsed.stance : 'none',
-    basis: typeof parsed?.basis === 'string' ? parsed.basis.trim() : '', basis_key: BASIS_KEYS.includes(parsed?.basis_key) ? parsed.basis_key : null, why, risks };
+    basis: typeof parsed?.basis === 'string' ? parsed.basis.trim() : '', basis_key: BASIS_KEYS.includes(parsed?.basis_key) ? parsed.basis_key : null,
+    why: folded.why, risks: [], ...(folded.more.length ? { more: folded.more } : {}) };
   return { claims: claimsOf(shape), refusals, as_of: typeof parsed?.as_of === 'string' && parsed.as_of.trim() ? parsed.as_of.trim() : null, shape };
+}
+
+/**
+ * COACH-SHAPE-2 (c): one block of reasons. A fallback or risk line ("If no: ...", "Risk: ...") is the
+ * last why bullet, not a separate tail: the first risk takes the last of the ${LIMITS.whyMax} slots when
+ * they are full, and anything left over is kept folded under "more" (still cited, never dropped).
+ * "If no:" and "Risk:" read "If they say no," and "The risk:" in the one block.
+ */
+export function foldRisks(why, risks) {
+  const words2 = t => String(t).replace(/^If no:\s*/i, 'If they say no, ').replace(/^Risk:\s*/i, 'The risk: ');
+  const rs = risks.map(r => ({ ...r, text: words2(r.text) }));
+  if (!rs.length) return { why, more: [] };
+  const keep = why.slice(0, Math.max(1, LIMITS.whyMax - 1));
+  const out = why.length ? [...keep, rs[0]] : [rs[0]];
+  return { why: out.slice(0, LIMITS.whyMax), more: [...why.slice(keep.length), ...rs.slice(1)] };
 }
 
 /**
@@ -189,8 +206,9 @@ export function shapeDeterministic(answer) {
     if (s) why.push({ text: s, cites: rest[0].cites });
   }
   const fromFirst = v != null && !/^(No move clears|Send the served)/.test(v);
+  const folded = foldRisks(why, risks);
   return { ...answer, shape: { verdict: { text: lead, cites: fromFirst ? claims[0].cites : [] }, stance: /^Send/.test(lead) ? 'go' : /^No move/.test(lead) ? 'wait' : 'none',
-    basis: 'your plan', why, risks, more } };
+    basis: 'your plan', why: folded.why, risks: [], more: [...folded.more, ...more] } };
 }
 
 /* ------------------------------------------------ no dev text on screen */

@@ -1,0 +1,33 @@
+# Cloud builds, local verification
+
+Nick (2026-09-22 ~6:40 PM ET): "we need to validate cloud work and make sure synergies and those verify checks happen. Cloud sessions should be quick, not massive context readers, and get the same level of verify as we have here."
+
+## 1. Cloud: lean builder (Opus 5.5 at medium effort per Nick 7:10 PM ET; Claude Code cloud routines via RemoteTrigger. The Agent tool's isolation "remote" ran locally, so it is not used)
+
+The coordinator hands each session a complete spec: the unit id, the exact files (file:line), the acceptance test, the RED expectation, and the constraints. The session:
+- reads ONLY the listed files, their tests, and what they import directly (no repo-wide exploring, no handoff reading);
+- builds test-first: a RED commit (failing assertion quoted), a GREEN commit, and an evidence file under docs/tdd/;
+- runs `npm ci` + `npm run check` once (Node 22, same as CI) and records the exit code, test counts and write-tree before/after;
+- opens a DRAFT PR whose body has Before/After and merge-gate sections 1-5;
+- replies with the PR URL, head sha and check result, nothing more.
+
+Only units classed CLOUD / CLOUD-DATA in WORK-QUEUE §10 go to the cloud. Anything needing Nick's data (local DB copy, Sleeper corpus, league payloads, real-row timing) stays local.
+
+## 2. Local: same rigor as local builds
+
+`~/gridiron-local/wf/verify-pr.js` runs on each cloud PR:
+- four independent skeptics on the PR head: claims/statistics, wiring/consumer, test liveness, and structure (one number, one producer; no unwired data), tiered by risk;
+- a fix loop: a local fixer commits to the PR branch (TDD); failed lenses re-check, up to 2 rounds;
+- if clean: the skeptics' verified claims go into the PR body and it's marked ready; otherwise it's held with the open issues.
+
+No local `npm run check`: CI on Node 22 is the full check, which spares this 8 GB Mac.
+
+## 3. After verification (same as every build)
+
+- `merge-queue.sh`: bring up to main, wait for CI on that exact head, gate script, merge, WORKLOG, integration card, integration log.
+- Integration intake (INTEGRATION-PROCEDURE.md step 2) on the card.
+- Synergy review about every 5 merges.
+- Board updated (the keeper, every 10 min).
+
+## 2026-09-23 01:48Z: new cloud builds paused (coordinator call, Nick may say "keep cloud")
+Why: cloud sessions share the account's 5-hour limit (no token saving), wake on PR webhooks and hourly self-armed check-ins (hidden token burn), and one merged its own PR (#159). Measured alternative: the same lean builder run locally (INT-128-1: 29 min, 182K Sonnet tokens) with targeted tests only and CI on Node 22 as the full check. Open cloud PRs (#161 #162 #163, F-07 #100/#103/#120, F-04 #77, C-12 #73, F-03 #97) got a stand-down comment asking their sessions to unsubscribe; all 20 routines are disabled (0 enabled at 01:46Z). They are verified and landed by the local queue as before.

@@ -1,0 +1,11 @@
+---
+name: gridiron-state-0926-2026-09-22
+description: "Coordinator state 09:26Z pause window, part 8: Scheduler final — draft PR #107 (scheduler.js:725 archetype sync_log states, gated), five scripts whose piped JSON report truncates on process.exit."
+metadata:
+  type: project
+  modified: 2026-09-22T08:44:00.000Z
+---
+Part 8; earlier parts [[gridiron-state-0856-2026-09-22]] … [[gridiron-state-0909-2026-09-22]].
+- **SCHEDULER 09:26Z final: draft PR #107** (scheduler.js:725 archetype sync_log states), head 3dd4334 tree 50d1bf58, pair 2997/2956/0/41 both exit 0, sweep 25/23/2, primary write-tree fcd698a1 + mtime constant; +11 over main's 2986 reconciles. 9 injections killed; 3 of 11 tests exist because injections exposed blind spots (named in evidence). Fix: three collapsed sync_log messages now distinct; the false 'printed no JSON summary' now reports the parse error + stdout_bytes. Self-corrections: RED message says nine tests, actual eight (fixed in GREEN/evidence/body, no amend); 'generalises to any stdout-parsing job' was wrong, exactly one exists (own commit 3dd4334). Paths on /mnt/project-files: verify2x-e3a8676-scheduler-2026-09-22.txt (#104), verify2x-3dd4334-archetype-2026-09-22.txt (#107), verify2x-local-scheduler-2026-09-22.sh.txt (runner) — forwarded to Evidence Auditor 09:27Z. **#107 gated (Evidence Auditor after reset).** FINDING (memory process-exit-truncates-a-piped-report): process.exit(0) right after console.log(JSON.stringify) truncates piped stdout at ~146,176 B in FIVE scripts: build-manager-archetypes, luck-panel, promote-weekly-ensemble, availability-decision-calibration, import-alt-spreads; none fixed; priority promote-weekly-ensemble.mjs (a truncated report fakes a failed promotion, exactly the Auditor unit-1 open question), then luck-panel. Scheduler after-reset order: grain mismatch with UI → five-script flush fix → next Phase A unit. All branches pushed, nothing uncommitted.
+- **OPPORTUNITY 09:43Z:** reach grader verified (2 runs 3001/2960/0/41 exit 0, tree identical) as TWO LOCAL UNPUSHED commits on its #99 branch; NOT pushed per Nick's 09:42Z order; needs his push word.
+Prev [[gridiron-state-0909-2026-09-22]] · PR board [[gridiron-pr-board-0855-2026-09-22]] · morning list [[gridiron-nick-morning-list-2026-09-22]].

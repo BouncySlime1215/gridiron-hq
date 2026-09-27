@@ -1,0 +1,11 @@
+---
+name: gridiron-phase-a-0517-b-2026-09-22
+description: 05:02-05:17Z cycle pt2 — Fantasy plan's reliability push+redirect; Trade Brain's 2nd prod-bug fix push. Other parts: [[gridiron-phase-a-0517-2026-09-22]] [[gridiron-phase-a-0517-c-2026-09-22]] [[gridiron-phase-a-0517-d-2026-09-22]].
+metadata:
+  type: project
+  modified: 2026-09-22T05:20:41.522Z
+---
+
+**Fantasy plan**: pushed the nfl_metric_reliability persistence work (effk branch now at 73c0e11: migration 063_nfl_metric_reliability.js, RED 150fa04/GREEN 73c0e11, 5-row mutation sweep with 4 initial survivors all closed, full check 3025/2984/0/41). Coordinator redirected it to hold step 3 (the fitting job + backtest.js ablation gate) and pick up the projection-range integration instead, since UI/Model evidence audit/R&D-integration are all effectively blocked on that wiring. Also given new file ownership (nfl-sim-policy.js, nfl-sim-learn.js, td-features.js, previously unclaimed) for the fourth-down bug fix, but told to hold off swapping until the producer field is confirmed pushed (see R&D integration, part 3).
+
+**Trade Brain**: pushed trade-outcomes.js/trade-tactics.js work to a NEW branch claude/project-thread-3xqh5l-outcome-ledger (head e3bca56, six commits, no PR) after a second full mutation sweep (33 rows, 32 killed, 0 survivors — up from 19/33 on the first pass) caught a real production bug it had shipped in the same earlier commit: vetoClimate() set read_state on the absent-data and empty-data paths but not the populated-data path, so a consumer checking read_state==='present' got undefined exactly when data existed. Fixed at trade-tactics.js:481. Correctly refused to push on the coordinator's say-so alone (twice — once generally, once even after the coordinator's paraphrase) until the coordinator attached Nick's literal 04:42:28Z message via context_message_ids, then pushed immediately. Also flagged a related bare catch{} at trade-engine.js:1841-1842 (Feature audit's file) that would swallow this exact class of fault, and sent Feature audit the exact read_state contract directly (enum 'present'|'source_table_absent') — Feature audit's fix at that call site is still pending/unconfirmed as of this cycle.

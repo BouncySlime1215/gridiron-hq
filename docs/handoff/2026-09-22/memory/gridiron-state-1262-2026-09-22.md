@@ -1,0 +1,13 @@
+---
+name: gridiron-state-1262-2026-09-22
+description: "17:45Z-17:49Z twenty-fourth/fifth batch: citation rule refined (reachability applies to shas cited as evidence, not cautionary examples); #116 owes one ladder qualifier; #85 merged main rather than rebased (Nick's own account, reverts would replay), head 69909edd; Opportunity reproduced the Auditor's grader (225 on 93870a92 vs 228 on 500bab36) — the partition 116/53/67/183 reproduces by nothing; partition script first, call graph second; fleet reading rule: a ~1-minute CI red is the wiring gate, tests ABSENT not red"
+metadata:
+  type: project
+  modified: 2026-09-22T17:51:00.000Z
+---
+- **Citation rule refined** ([[gridiron-evidence-citation-rule]]): the reachability check applies to shas cited AS EVIDENCE ("commit measured on", RED, GREEN), not to a sha printed as a cautionary example of a dead citation (Evidence Auditor: the #116 file documents b885db2b deliberately). #116's live RED 9383c873 / GREEN 28b801b8 are both reachable from 93870a92. **#116 owes one qualifier:** `docs/tdd/symbol-reach-namespace.tdd.md:125` quotes 183/116/67/53/14 unqualified → "500bab36, not reproducible by command" (routed to Opportunity 17:47Z). Standing-down comment 5780973254 posted.
+- **#85:** Opportunity MERGED main rather than rebasing — the branch author is Nick's own account, and a rebase would replay two old commits (reverts) deleting `CONTRACT.md`, which main now owns; accepted. Merge head **69909edd**; `docs/inventory` diff vs main empty; delta 11 files / +1123 / −31; both gates running. Opportunity hit its permission gate twice on `git rebase --skip` and aborted cleanly (nothing pushed).
+- **Opportunity independently reproduced the Auditor's grader** on 93870a92 (write-tree 2e32352c, TS 5.9.3; population server/services + server/modeling = 321): wired 225 / betting-only 55 / unreached 26 / hand-run 10 / mlb-only 3 / offproduct-only 2 — vs the Auditor's 228/55/21/10/3/2 on 500bab36 (319). **RECORD LINE: the grader reproduces (225 on 93870a92, 228 on 500bab36); the partition 116/53/67/183 reproduces by nothing**; the earlier 391/289 were a different, unwritten population. R51.4 amendments appended to the call-graph pre-reg before measuring (side-effect imports own category; population B; citation format). **Next-unit order (coordinator 17:49Z): partition script FIRST** (pre-registered, own draft PR, before MLB removal merges), **call graph second.**
+- **Fleet reading rule (Opportunity):** a CI failure that returns in about a minute is the wiring gate failing before the tests — test results are **MISSING, not red.**
+- Evidence Auditor's own full check on 93870a92 in progress.
+Prev [[gridiron-state-1261-2026-09-22]]. Next [[gridiron-state-1263-2026-09-22]].

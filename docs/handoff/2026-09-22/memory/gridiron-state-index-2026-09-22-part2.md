@@ -1,0 +1,11 @@
+---
+name: gridiron-state-index-2026-09-22-part2
+description: "Part 2 of the chronological coordinator state-file index for 2026-09-22, 08:56Z pause window through 11:28Z, one-line summaries; read via [[gridiron-state-index-2026-09-22]]"
+metadata:
+  type: project
+---
+- **08:56Z PAUSE WINDOW, route after 11:11Z:** [[gridiron-state-0856-2026-09-22]] (routing, Auditor 17/18, Explorer answers 1-5) · [[gridiron-state-0857-2026-09-22]] (Planner stop, Chat sync #100, UI 071c6c1, Scheduler, Release c8420d3 + conflicts) · [[gridiron-state-0858-2026-09-22]] (Auditor 17b gate redirect, 16b: #20 never ran the repo gate, 2025 holdout recommendation, Explorer/Opportunity stop) · [[gridiron-state-0859-2026-09-22]] (Plan 01 1b canonical 21.02%, Fantasy plan #106 effW gate open, #99 verified) · [[gridiron-state-0901-2026-09-22]] (#103 verified 2x; classifier blocks shared-mount script; Wiring map 94858c3) · [[gridiron-state-0906-2026-09-22]] (#104 verified 2x; archetype 3dd4334 guard pair ~09:25Z; UI mount handover; grain vocabulary open; Coach #90 closed; Feature audit guard pairs + offense_pct closed) · [[gridiron-state-0909-2026-09-22]] (Model evidence audit: snap-share response 6e25ce48, ceiling labelling 9b99a77e, headroom 0.3141 derivation CONTESTED by Auditor 11:20Z, see 1120 state) · [[gridiron-state-0926-2026-09-22]] (Scheduler #107 gated; five scripts truncate piped JSON on process.exit, promote-weekly-ensemble first) · PR board [[gridiron-pr-board-0855-2026-09-22]].
+- **11:15Z:** [[gridiron-state-1115-2026-09-22]] (resume, non-pushing).
+- **11:20Z:** [[gridiron-state-1120-2026-09-22]] (Auditor: #17 spec-only, n objection withdrawn; ceiling +0.3141 headroom CONTESTED, within-player MAE bracket gate; section 3 shares not quotable).
+- **11:27Z:** [[gridiron-state-1127-2026-09-22]] (Explorer Unit A: Plan 05 mechanism REFUTED, weighted-median rule, predA list, Condition A discharged, audit record rig-fix label backwards; → Auditor; Planner Plan 05 amendment queued after ruling).
+- **11:28Z:** [[gridiron-state-1128-2026-09-22]] (Model evidence audit: +0.3141 WITHDRAWN, floor bracket [4.2122, 4.7167], headroom +0.4258 [0.3948, 0.4538]; e2718f53 held unpushed; 24,801 vs 25,323 rows to reconcile; → Auditor).

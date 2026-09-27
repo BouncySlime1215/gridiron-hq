@@ -1,0 +1,16 @@
+---
+name: gridiron-state-1261-2026-09-22
+description: "17:27Z-17:45Z twenty-third batch: Auditor R51 — #106 override-default-off ACCEPTED with four conditions, 0.0003 CLOSED with an observed_diff follow-up, LADDER NOT REPRODUCIBLE BY COMMAND (only 319/228/14 reproducible), call-graph prereg CLEARED; R52 — Wiring map's reversed assertion legitimate with five checks, FLEET CITATION RULE for RED/GREEN shas; #116 'unstable' not dirty; plan items 1-25 text located in the PART 5 message"
+metadata:
+  type: project
+  modified: 2026-09-22T17:47:00.000Z
+---
+- **R51.1:** #106 override-with-default-off **ACCEPTED**; the harder shape REFUSED (`gradedAvailabilityMultiplier` `nfl-player-context.js:525` has zero non-test callers). Four conditions: caller-scan test; literal `{ enabled: true }` only; opt-in named in each of the three evidence tests; default-on only at the coupled grade's call site where R19.6 binds; check:wiring. The multiplier half no longer holds #106.
+- **R51.2:** 0.0003 CLOSED. `backtest-significance.js:114` `mean_diff` is a bootstrap mean; the function never returns the full-sample difference → follow-up `observed_diff` for the file owner (Fantasy plan asked).
+- **R51.3 LADDER NOT REPRODUCIBLE BY COMMAND.** Auditor ran the committed grader on b0c1616d / tree 500bab36: population 319; WIRED 228 / betting-only 55 / mlb-only 3 / offproduct-only 2 / hand-run 10 / unreached 21; 214 route-reached, 14 script-only. **116 / 53 / 67 / 183 come from NO committed command.** `CONTRACT.md:126-135` reads 178–228; Phase-A bracket 250 vs `CONTRACT.md:134` 228 conflict; `INVENTORY.md:87` 250 = pipeline rows. → MEMORY.md ladder line now says: 116/53/67/183 carry "500bab36, not reproducible by command"; only 319/228/14 reproducible. **Opportunity's next unit after #116/#85 = commit the partition as a script, reconcile 250 vs 228.** MLB removal changes the population.
+- **R51.4:** call-graph prereg **CLEARED** with two additions: side-effect imports get their own category, never `never_called`; second population compared vs 500bab36's 228.
+- **R52.1:** Wiring map's reversed assertion legitimate in principle; five checks incl. (b) an unrecognised receiver → explicit unresolved state REPORTED (count + list), never a silent false negative.
+- **R52.2 FLEET CITATION RULE** [[gridiron-evidence-citation-rule]]: cite RED/GREEN as `#N`, commit subject, sha (squash merges orphan branch shas; `refs/pull/N/head` survives); RED's failing assertion message inline in the evidence file; shas updated in the same push that rewrites them; Evidence Auditor runs `git merge-base --is-ancestor` for both before REAL; fix before merge only where unreachable from the PR head, else when next touched; merged files untouched. Relayed to all 12 PR-holding threads 17:44Z.
+- **Evidence Auditor:** #116 `mergeable_state` now `unstable` (stale dirty confirmed), CI red on the gate only; running the full check on 93870a92 itself (high-risk list).
+- **PLAN ITEMS 1-25 LOCATED:** the PART 5 message fetched by the coordinator (cmsg_01YAsw8AnFv4ioRMQw8dfPmTRwtoUfvgWYLwXAcxCgATNx, 2026-09-21T19:58:42Z); worker writing `/mnt/project-files/PLAN-ITEMS-1-25.md` and memory [[gridiron-plan-items-1-25-verbatim]].
+Prev [[gridiron-state-1260-2026-09-22]]. Next [[gridiron-state-1262-2026-09-22]].

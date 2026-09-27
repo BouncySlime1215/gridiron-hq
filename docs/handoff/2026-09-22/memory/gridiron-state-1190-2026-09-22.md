@@ -1,0 +1,8 @@
+---
+name: gridiron-state-1190-2026-09-22
+description: "13:00Z Trade Brain next unit routes/trades.js:499-503 bare catch on archetype read: store never built, store threw and no archetype all publish archetype: null; asymmetry with :491-494/:543 which capture and publish layerError for the counterparty layer; archetypesFor (manager-archetypes.js:829-844) reads league_season_teams with no table guard and main has no migration for it, so every archetype is null indistinguishable from none; fix inside trades.js using isMissingTable at :281, RED/GREEN/evidence/five questions, local + bundled; manager-archetypes.js:833 silent espn_member_id drop is Chat sync's (#89) file, sent as a finding 13:04Z with the league_season_teams guard/migration question"
+metadata:
+  type: project
+---
+- **13:00Z Trade Brain next unit: routes/trades.js:499-503 bare catch on archetype read** ('store never built', 'store threw', 'no archetype' all publish archetype: null). Asymmetry inside one function: :491-494 captures layerError for the counterparty layer and :543 publishes it; :499-503 deletes the archetype fault (earlier counterparty-pricing.js:246/:394 framing was from another tree, note corrected). archetypesFor (manager-archetypes.js:829-844) reads league_season_teams with NO table guard and main has NO migration for it → 'no such table' → empty Map → every manager archetype: null, indistinguishable from none. Fix stays inside trades.js using isMissingTable at :281; RED/GREEN/evidence/five questions; local + bundled. manager-archetypes.js:833 `if (!t.espn_member_id) continue;` silent drop = Chat sync's (#89) file → sent to Chat sync 13:04Z as a finding (plus: does #89 cover the league_season_teams guard/migration).
+Prev [[gridiron-state-1189-2026-09-22]].

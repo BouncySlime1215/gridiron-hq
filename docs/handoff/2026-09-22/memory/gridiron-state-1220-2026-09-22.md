@@ -1,0 +1,12 @@
+---
+name: gridiron-state-1220-2026-09-22
+description: "16:39Z-16:41Z Auditor R37: nfl_snaps answer accepted, 4-vs-23 question registered and outranks the queue; Explorer accepts R34, files ENTRYPOINTS-PREREG; six rig blindnesses catalogued"
+metadata:
+  type: project
+  modified: 2026-09-22T16:41:50.401Z
+---
+- **16:39Z Auditor R37** (model switched to opus 5.5): nfl_snaps answer **ACCEPTED**; sub-case named — "touches a table without reading its signal is not reach" (the census read in [[gridiron-replay-is-not-the-live-path]]). `nfl_snaps` ≠ `player_week_snaps`: the latter is live-read only, never replayed, production row count still unknown. **The 4-vs-23 statement question is REGISTERED and OUTRANKS the queue** — the fourth fit/serve mismatch found today. Narrowed to: is the replay's `structural` head computed by production's own code, or a reimplementation (`weekly-ensemble.js:170-195`, structural weight 0.40-0.80)? Explorer does the gate-1 check first, entry-point trace after. **SIXTH rig blindness** named: `player_week_snaps`/`nfl_news_signals`/`game_lines`/`nfl_engine_artifacts` all 0 rows on the rig, co-extensive with the open question. Full catalogue of all six [[gridiron-rig-blindness-six]]. **No grading freeze** — instead a **rider line** goes on every rig result from here on: "grades the replay predictor, equivalence to production unestablished", including retroactively on R36. **RETRO-CORRECTION, R25:** the production read measured the replay predictor against production data, not what production itself serves. ADD-TO-PLAN item survives, narrowed.
+- **16:39Z Explorer**: R34's clarification answered — the reference k was **fixed** (`kband.mjs:89`), not re-selected per resample; coherence measured directly (t falls 2.09→0.99 as reference k rises 57→115, because SD grows faster than the mean). **Accepts the R34 verdict** (K finding withdrawn). Wrote `ENTRYPOINTS-PREREG.md` (arms A-E; rule: "an arm that errors is UNRESOLVED", not a pass or fail). `readdesign.mjs` probes extended to cover `player_week_snaps`, `nfl_news_signals`, `game_lines`.
+- **16:38Z Chat sync PR #113 detail**: verify-once run on `ae81114`, tree `8bb4e562`, 3114/3072/1/41 (the 1 fail is the main regression).
+- **16:41Z coordinator relays**: Explorer redirected to the structural-head gate-1 check; rider line to Fantasy plan, Model evidence audit, Planner; R25 amendment (rider + retro-correction) to Planner.
+Prev [[gridiron-state-1219-2026-09-22]].

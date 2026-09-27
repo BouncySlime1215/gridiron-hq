@@ -1,0 +1,38 @@
+{
+  "file": "server/services/manager-archetypes.js",
+  "test": "test/manager-archetypes-feature-store-state.test.js",
+  "mutants": [
+    {
+      "id": "M1-unit-always-present",
+      "kind": "unit",
+      "find": "  if (!missing.length) return Object.freeze({ present: true, reason: null, source: FEATURE_STORE_SOURCE });",
+      "replace": "  if (true) return Object.freeze({ present: true, reason: null, source: FEATURE_STORE_SOURCE });",
+      "expect": "DIED",
+      "why": "featureStoreState() stops looking and always answers present, which is the incumbent silence this PR removes."
+    },
+    {
+      "id": "M2-callsite-force-store-present",
+      "kind": "call-site",
+      "find": "      const got = draftSeason(league_id, season, allPicks, teamAbbr, currentSeason, storeState.present);",
+      "replace": "      const got = draftSeason(league_id, season, allPicks, teamAbbr, currentSeason, true);",
+      "expect": "DIED",
+      "why": "Pins the injected value directly. With the gate bypassed and a store table absent, storeYardageCv() reads through to playerHistory() and the exception leaves the whole build. Survived on the first sweep because league_draft_picks is created by no migration, so the draft half never ran; test 5 creates it and kills the mutant."
+    },
+    {
+      "id": "M3-surface-force-present",
+      "kind": "unit",
+      "find": "    feature_store_state: storeState.present ? 'present' : 'table_absent',",
+      "replace": "    feature_store_state: 'present',",
+      "expect": "DIED",
+      "why": "The reporting half: the build claims the store is readable while a table is renamed away."
+    },
+    {
+      "id": "CONTROL-surviving-source-label",
+      "kind": "control-surviving",
+      "find": "source: FEATURE_STORE_SOURCE });",
+      "replace": "source: 'deliberately-wrong-source-label' });",
+      "expect": "SURVIVED",
+      "why": "Designed to survive. The tests pin present/reason and the two build fields, not the provenance label. If this dies the tests reach further than claimed."
+    }
+  ]
+}

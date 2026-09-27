@@ -1,0 +1,12 @@
+---
+name: gridiron-state-1206-2026-09-22
+description: "15:48Z-16:12Z: Wiring map PR #108, per-thread push round (#87/#68/#106/#86/#102), scheduler nfl_depth root cause, main-CI-red priority to Chat sync"
+metadata:
+  type: project
+  modified: 2026-09-22T16:19:46.160Z
+---
+- **15:48Z Wiring map PUSHED 1161c16 → draft PR #108** (3210/3169/0/41, tree 1ac9d618, clean vs 1a136145); #36 duplicate → coordinator: CLOSE #36 superseded (comment + footer, keep branch).
+- **15:46Z-16:12Z pushes:** Feature audit: unit already in draft PR #87, merging main in + one run + push. Coach: rebasing c7b51bb4, push + draft PR. Planner: merging main into 85598b6. Model evidence audit: 58c29114/7a3b8262 already on origin; **PUSHED f3425568 → PR #68** (2950/2909/0/41, tree b1557a0b; evidence-doc only); next efficiency-constant sweep, target-share prior; projections.js now theirs. Fantasy plan: **PUSHED f9dcc0a..90ca5c7 → #106** (2997/2956/0/41); next unit LEVEL vs INFORMATION decomposition (pre-register, rig, Auditor format). UI: **PUSHED → PR #86** (freshness endpoint mounted + player-page advanced-stats; 3068/0 fail); banner kill shipped; #96 merges AFTER #86. Release: **PUSHED 14f1d1f → PR #102** (CLAUDE.md CI-history paragraph from Actions API: 7 runs ever on main: 4 cancelled 09-13×3/09-15, then 252 success 09-19, 354 success today, **355 FAILURE today (#89 merge, Test step) → MAIN CI RED at 1a136145**); TASKS.md line lands with #102.
+- **15:50Z Scheduler nfl_depth CAUSE:** writer syncDepthCharts nfl-advanced.js:215, caller nfl-model-growth.js:195; rows dated via game_lines → 0 rows while 'healthy'; zero-row throw nfl-advanced.js:275 on main since 83332628, UNTESTED, not in live image; surviving defect: nfl-model-growth.js:90 required:false, :149-153 swallow into detail_json, :286-288 status ignores ingestion errors; production state (A) never ran / (B) waiting / (C) swallowed, settled by three SQL statements (runs count; last 5 with json_extract depth_error; game_lines gameday count). Coordinator: build :275 test now; RED for the swallow, GREEN pending owner; write read-depth.mjs for Nick's post-deploy paste.
+- **16:12Z coordinator → Chat sync: main RED priority:** read run 355; if the same ENOTEMPTY race, open e7a4e94 as draft PR, CI, ready + squash-merge on green, report merge sha + main run id. Nick told 16:13Z (post cmsg_01YAsw8AnFv4ioRMQw8dfPmT1KA9PVZvKgtMYpE8YoJ4WX).
+Prev [[gridiron-state-1205-2026-09-22]].

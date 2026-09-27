@@ -1,0 +1,20 @@
+---
+name: gridiron-evidence-file-form-2
+description: Page 2 of the docs/tdd evidence-file standard (from 11:10Z 2026-09-20): two control kinds, control-vs-equivalent column, aimed-test wording, part 5 = numbers AND the commit measured on, NO-OP that matched elsewhere, the differential matrix, and the EIGHTH PART (quote the exact before/after text).
+metadata:
+  type: project
+---
+
+Continues [[gridiron-evidence-file-form]] (parts 1-7, canonical shape).
+
+- Two definitions (11:10Z, Model audit's second readings): KILL-CONTROL (drops a value, must change the answer) and NO-OP CONTROL (pattern absent) are named separately; the no-op one is required, a kill-control only where no mutation row already proves the suite can fail (11:16Z). The test FILE is named beside each test title (vocabulary rows spanned two files without saying which); Trade Brain's convention, test titles beginning with the rule id, recommended to all.
+- Column (11:16Z, Opportunity's control grading): a zero-fail row is either a CONTROL or an EQUIVALENT survivor; two zero-fail rows meaning opposite things need a column saying which.
+- Wording (11:19Z, Google sign-in): each row names the test the injection is aimed at, which must be among the failures; Fails = the total; a row reaching further than intended is recorded, not trimmed; an injection leaving its target passing is unfinished.
+- PART 5 SWEEP (11:23Z, Model audit's pattern across seven files): the full-check line states the numbers AND the commit they were measured on, i.e. the parent of the commit that prints them, unless the docs-only child touches a file the suite reads (page 4's two-file command, ≥12:11Z; five test files read docs/); a file carried unchanged onto a new head with its old numbers is stale (memo-fit at 9fce773); a figure claimed on the very commit that prints it is false. MAINTENANCE (11:43Z, Google sign-in a2e7f97): when a later commit touches the report, the figure is re-measured and re-pointed, or it becomes a claim about a tree that no longer exists; list every head the report has had, each re-measured.
+- NO-OP that matched elsewhere (11:23Z, fantasy plan's snap-guard S4): a pattern present twice in the file lands on the other site and reads as applied; a sweep that predates the hash column is an ASSERTION until re-run with hashes.
+- Differential matrix (11:23Z, scheduler's merge-reconciliations at e852884/89cdb3a): tests × versions × scenarios, where the line-shifted column is the applied injection and the base-version fail row is the control, is an accepted instrument for a merge resolution; per-version file hashes (blob id + sha256 + bytes, re-derived from the repo) and the full-check line are still required.
+- EIGHTH PART (11:31Z, Model audit's reading 11): quote the mutation's exact before/after text in the row; 5 of 18 Opportunity re-runs and 2 of 8 plus a control diverged only because the description, not the text, was reproduced. Sent to all ten evidence threads for their next commit. Quote from a re-applied clean checkout, not from command history ("quoting the file, not quoting yourself"; scheduler 64cb90e, 11:32Z); a section with no applied edit (the same resolved file on two trees) has nothing to quote. Generated from the run's mutation list, never retyped (Google sign-in 1e8dddd, 11:35Z: a retyped row is only as good as the description it replaced).
+
+- Runner requirements (11:45Z, from Model audit's verdict on Coach's harness): `count(old) != 1` → NOT APPLIED (anchor xN), and the restore proved by hash, REQUIRED of every runner; Coach's docs/tdd/sweeps/*.json harness (literal old/new per injection, rows generated from the exact patch) RECOMMENDED for new sweeps, existing sweeps stand. Part five's shape = Opportunity's commit-keyed check table (b1b9f2b: one row per commit measured, "a number without a commit beside it is not a measurement").
+
+**How to apply:** parts 1-8 in every docs/tdd file from 2026-09-20 on; a missing part is fixed in the owner's next doc-only commit on its hold. Continues: [[gridiron-evidence-file-form-3]].

@@ -83,7 +83,7 @@ The `source` on every typed field is one of these 17 ids.
 | `blend.accept` | `server/services/p-yes-blend.js#blendP` | P(yes) from the graded blend of baseline and clone (GRIDIRON_PYES_BLEND). |
 | `usage.xfp` | `server/services/campaign/buy-low.js#scoreBuyLow` | usage up, points down (xFP) for buy-low reads. |
 
-## Flags: switches (131)
+## Flags: switches (132)
 
 A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UNCONFIRMED`. An unproven unit stays off or in shadow until its pre-registered bar passes. "preview-aware file" means a file naming the flag also reads preview mode; read that file before assuming preview leaves it off.
 
@@ -105,6 +105,7 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_CLONE_V2` | `server/services/trade-acceptance.js`, `server/services/trade-engine.js` |  |
 | `GRIDIRON_COACH_BRAIN_TOOLS` | `server/services/coach/brain-tools.js`, `server/services/coach/tools.js`, `server/services/coach/verify.js` | yes |
 | `GRIDIRON_COACH_BRIEF_ENABLED` | `scripts/coach/morning-brief.mjs`, `server/services/coach/brief.js`, `server/services/coach/starter-answers.js` +1 more | yes |
+| `GRIDIRON_COACH_CHAIN` | `server/services/coach/chain-intent.js`, `server/services/coach/chat.js` | yes |
 | `GRIDIRON_COACH_LANES` | `server/services/coach/lanes.js` |  |
 | `GRIDIRON_COACH_MESSAGES` | `scripts/campaign/produce-plans.mjs`, `server/services/campaign/messages.js` | yes |
 | `GRIDIRON_COACH_NAV` | `server/services/coach/navigator.js`, `server/services/coach/tools.js` | yes |
@@ -211,7 +212,7 @@ A unit switches on only through its own flag, never through `GRIDIRON_PREVIEW_UN
 | `GRIDIRON_WANTS` | `server/services/campaign/planner.js`, `server/services/campaign/view.js`, `server/services/campaign/wants.js` | yes |
 | `GRIDIRON_WARROOM_ENABLED` | `server/services/warroom-flag.js` | yes |
 | `GRIDIRON_WARROOM_NIGHTLY_ALL` | `scripts/refresh-live-data.mjs` |  |
-| `GRIDIRON_WARROOM_OBJECTIVES` | `scripts/campaign/produce-plans.mjs`, `server/services/campaign/never-give.js` | yes |
+| `GRIDIRON_WARROOM_OBJECTIVES` | `scripts/campaign/produce-plans.mjs`, `server/services/campaign/never-give.js`, `server/services/coach/chain-engine.js` | yes |
 | `GRIDIRON_WARROOM_PEOPLE_ENABLED` | `server/services/warroom-flag.js` | yes |
 | `GRIDIRON_WARROOM_PLANS` | `server/services/warroom-flag.js` | yes |
 | `GRIDIRON_WARROOM_PUSHES` | `scripts/campaign/daily-digest.mjs`, `scripts/campaign/produce-plans.mjs`, `server/services/campaign/daily-digest.js` | yes |

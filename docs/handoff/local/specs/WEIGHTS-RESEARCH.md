@@ -128,3 +128,19 @@ Deliverable: a ranked list of edges, each with expected size, evidence, the data
 - **(10) Tweedie / zero-inflated loss** plus availability, so injuries, byes and blowouts are modelled natively.
 - **(11) Walk-forward weekly retrain** (the A_weekly arm), with leakage-safe features.
 - **(12) Market-value vs projection gaps.** Where FantasyCalc and FantasyPros trade value lag our xFP-based forward value, that's the trade edge; it pairs with SCREEN-GAP.
+
+## Addendum 6 (9/27): "one giant ML pool", done right (STACK unit)
+- Build a stacked ensemble, not "add every repo".
+- Base learners chosen for DIVERSITY:
+  - ESPN;
+  - FantasyPros (internal only);
+  - xFP (ffopportunity);
+  - a usage/routes model (FTN TPRR, route growth);
+  - a Vegas top-down volume model;
+  - our E-XGB (Tweedie);
+  - a luck-regression prior.
+- Meta-learner: a regularised linear or quantile blender with per-position, per-context weights, trained walk-forward on past weeks only.
+- Outputs: the mean plus quantiles (p10/p50/p90 and boom probability).
+- Pre-registered bar: beat ESPN and FantasyPros on held-out-week MAE AND on tail and boom calibration, with a paired CI. Otherwise it stays shadow.
+- Only add a new base model if it lowers stack error on held-out weeks (ablation). Check the license before copying any repo code; prefer re-implementing ideas.
+- Watch out for: models trained on the same nflverse data make correlated errors (little gain); the blender overfits with about 3 seasons of weekly data; leakage from post-game stats; 8 GB Mac compute.

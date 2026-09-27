@@ -65,3 +65,15 @@ Nick, 9/27: "expand the families way more; add categories only if genuinely uniq
 4. Decision-first mixture simulation.
 5. Coach debate page with belief sliders and flip triggers.
 6. Add families 5, 8, 9, 10, 13 and 14, one per unit, each through the ablation gate.
+
+## Rule map v2 (9/27): the 10 gaps Nick approved adding
+1. **History archive:** point-in-time snapshots of every expert's pre-kickoff forecast, plus a 2021-2025 backfill (archives, and re-running experts as-of).
+2. **Replay lab:** the whole pipeline re-run as-of every past week. Experts, reasons and the gate are trained and tested on thousands of weeks.
+3. **Complexity budget:** the maximum experts × contexts the data supports, with strong pooling.
+4. **Nick as an expert:** his calls and belief-slider settings are logged and graded; the gate learns where to trust him.
+5. **Explicit objective set by Nick:** playoffs vs title, now vs next year, risk appetite, across all 5 leagues.
+6. **Game theory:** rivals chasing the same players, reactions to offers, rival-rival trades.
+7. **Counterfactual grading:** paths not taken (declined or unsent trades, benched players) are graded too.
+8. **Kill switches:** per-expert health checks, automatic demotion, fallback to ESPN / LAST-GOOD.
+9. **Model registry:** version, weights and seed per recommendation; replay and roll back.
+10. **All decision types:** lineups (D/ST, K), waivers and flip claims, value over time (keepers, picks), trades and chains.

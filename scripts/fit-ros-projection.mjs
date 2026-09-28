@@ -1,12 +1,16 @@
 /**
  * Fit and gate the rest-of-season projection (server/services/ros-projection.js).
  *
- *   node scripts/fit-ros-projection.mjs [--smoke] [--out results.json] [--baseline-fit 1]
+ *   node scripts/fit-ros-projection.mjs [--smoke] [--out results.json] [--baseline-fit 1] [--marcel-referee]
  *
  * Reads the database only (point GRIDIRON_DB_PATH at a copy for experiments). Prints
  * the per-w table, the gate verdict and, on PASS, the live params to paste into
  * ROS_PARAMS. Exit code 0 = gate passed, 1 = gate failed, 2 = error. --smoke builds
  * and reports 2023 only (trained on 2022) and never touches the validation seasons.
+ * --marcel-referee (report-only, default off) adds a Marcel-NFL column
+ * (server/services/marcel-referee.js) for seasons <= 2024 and a 'd_update MAE <= marcel
+ * MAE' ok/FAIL line per season x w. It is not part of the registered gate below: it
+ * never changes the VERDICT or the exit code. 2025 stays closed to it.
  *
  * ============================== PRE-REGISTERED GATE ==============================
  * Written 2026-09-18 before any candidate was scored; must not move after the run.
@@ -55,11 +59,15 @@ const { pairedBootstrapDiff } = await import('../server/services/backtest-signif
 const {
   ROS_POSITIONS, rosPriorMap, priorFor, predictRow, selectRosStructure, evaluateRosGate
 } = await import('../server/services/ros-projection.js');
+const { marcelPrediction, positionMeans, ageAtSeason, loadBirthDates, marcelRefereeChecks } =
+  await import('../server/services/marcel-referee.js');
 
 const args = process.argv.slice(2);
 const SMOKE = args.includes('--smoke');
 const outIdx = args.indexOf('--out');
 const OUT = outIdx >= 0 ? args[outIdx + 1] : null;
+const MARCEL = args.includes('--marcel-referee');
+const MARCEL_LAST_SEASON = 2024;   // 2025 stays closed to the referee
 
 const WS = [1, 2, 3, 4, 6, 8, 10];
 const LAST_WEEK = 18;
@@ -151,14 +159,29 @@ for (const s of seasonsNeeded) {
 }
 const primary = s => data.get(s).filter(r => r.actual != null);
 
+/** Marcel-NFL prediction per row of season s (current = weeks 1..w, priors = s-1..s-3). */
+function marcelFor(season) {
+  const positionOf = new Map(rows('SELECT id, position FROM players').map(p => [p.id, p.position]));
+  const born = loadBirthDates();
+  const prior = [1, 2, 3].map(k => actuals(season - k));
+  const m = positionMeans(prior[0], positionOf);
+  return r => marcelPrediction({
+    points: [r.std * r.n, ...prior.map(a => a.get(r.player_id)?.points ?? 0)],
+    games: [r.n, ...prior.map(a => a.get(r.player_id)?.games ?? 0)],
+    positionMean: m[r.position], position: r.position, age: ageAtSeason(born.get(r.player_id), season)
+  });
+}
+
 const report = { blend_weights: blendWeights.id, blend_weights_data_hash: blendWeights.data_hash,
   preregistered_baseline: BASELINE_FIT === PREREGISTERED_BASELINE_FIT, seasons: {}, gate: null, live: null };
 const gateRows = [];
 for (const s of REPORT_SEASONS) {
   const train = TRAIN[s].flatMap(primary);
   const sel = selectRosStructure(train);
-  const rowsS = data.get(s).map(r => ({ ...r, d: predictRow(r, sel.params) }));
-  const cands = { ...CANDIDATES, d_update: r => r.d };
+  const withMarcel = MARCEL && s <= MARCEL_LAST_SEASON;
+  const marcel = withMarcel ? marcelFor(s) : null;
+  const rowsS = data.get(s).map(r => ({ ...r, d: predictRow(r, sel.params), ...(withMarcel ? { marcel: marcel(r) } : {}) }));
+  const cands = { ...CANDIDATES, d_update: r => r.d, ...(withMarcel ? { marcel: r => r.marcel } : {}) };
   const byW = {};
   for (const w of WS) {
     const wRows = rowsS.filter(r => r.w === w);
@@ -187,6 +210,12 @@ for (const s of REPORT_SEASONS) {
       early_b_vs_a: pooled([1, 2, 3, 4], 'b_structural'), early_d_vs_b: dVsB([1, 2, 3, 4]), late_d_vs_b: dVsB([6, 8, 10])
     }
   };
+  if (withMarcel) {
+    const pooledMae = (key, ws) => r3(mean(prim.filter(r => ws.includes(r.w)).map(r => Math.abs(r[key] - r.actual))));
+    const ws = WS.filter(w => w >= 2);
+    report.seasons[s].marcel_pooled_w2_10 = { ws, marcel: pooledMae('marcel', ws), std: pooledMae('std', ws),
+      d_update: pooledMae('d', ws), n: prim.filter(r => ws.includes(r.w)).length };
+  }
   if (VALIDATION.includes(s)) {
     for (const r of prim) gateRows.push({ season: s, w: r.w, player_id: r.player_id,
       err_a: Math.abs(r.blend - r.actual), err_d: Math.abs(r.d - r.actual) });
@@ -197,6 +226,12 @@ if (!SMOKE) {
   report.gate = evaluateRosGate(gateRows, { seasons: VALIDATION, seed: SEED });
   const live = selectRosStructure(TRAIN.live.flatMap(primary));
   report.live = { trained_on: TRAIN.live, structure_cv: live.cv.map(c => ({ ...c, cv_mae: r3(c.cv_mae) })), params: live.params };
+}
+
+if (MARCEL) {
+  const seasons = REPORT_SEASONS.filter(s => s <= MARCEL_LAST_SEASON);
+  report.referee = { ...marcelRefereeChecks(report.seasons, { candidate: 'd_update', seasons, ws: WS }),
+    report_only: true, closed_seasons: REPORT_SEASONS.filter(s => s > MARCEL_LAST_SEASON) };
 }
 
 /* ------------------------------------------------------------------ print */
@@ -233,6 +268,18 @@ if (report.gate) {
   const L = report.live;
   console.log(`\nlive fit (${L.trained_on.join('+')}): ${JSON.stringify(L.params)}`);
   console.log(`live structure CV: ${L.structure_cv.map(c => `${c.prior}/${c.perPosition ? 'pos' : 'global'}=${c.cv_mae}`).join('  ')}`);
+}
+if (report.referee) {
+  console.log('\n=== REFEREE vs Marcel (report-only; not part of the registered gate or the exit code)');
+  for (const s of REPORT_SEASONS.filter(x => report.seasons[x].marcel_pooled_w2_10)) {
+    const P = report.seasons[s].marcel_pooled_w2_10;
+    console.log(`${s} pooled w2-10 MAE: marcel ${P.marcel} std ${P.std} d_update ${P.d_update} n=${P.n}`);
+  }
+  for (const c of report.referee.checks) {
+    console.log(`${c.ok ? 'ok  ' : 'FAIL'} REFEREE ${c.season} w${c.w} d_update MAE ${c.mae_candidate} <= marcel MAE ${c.mae_marcel} n=${c.n}`);
+  }
+  for (const s of report.referee.closed_seasons) console.log(`--   REFEREE ${s} closed (not scored)`);
+  console.log(`REFEREE: ${report.referee.all_ok ? 'd_update beats Marcel at every scored season x w' : 'd_update does NOT beat Marcel everywhere'}`);
 }
 console.error(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 if (OUT) fs.writeFileSync(OUT, JSON.stringify(report, null, 2));

@@ -34,9 +34,95 @@ export function activeWeeklyWeightSet({ season, week } = {}) {
   const fit = rows(`SELECT * FROM weekly_ensemble_fits WHERE promoted=1 AND epoch_id=?
             AND (through_season < ? OR (through_season = ? AND through_week < ?))
             ORDER BY through_season DESC, through_week DESC, id DESC LIMIT 1`, epochId, season, season, week)[0];
+  if (!fit) {
+    const orphan = orphanedPromotedFit(epochId, season, week);
+    if (orphan) return orphanedFallback(orphan, epochId);
+    return { ...weightSetFrom(null, week), frozen_reason: whyFrozen(epochId, season, week) };
+  }
   // `early` (weeks 2-4 buckets) is served only inside its stored week window, so a
   // week-1 or week-5+ caller gets exactly the per-position vectors it always got.
   return weightSetFrom(fit, week);
+}
+
+/**
+ * A promoted fit this caller WOULD have been served but for the epoch filter.
+ *
+ * Same cutoff as above, epoch clause dropped. That difference is the whole point:
+ * a fit excluded by the cutoff is the leakage guard doing its job, and reporting it
+ * would cry wolf; a fit excluded only by `epoch_id` means the champion was promoted,
+ * an epoch was rolled after it, and nothing else changed.
+ *
+ * Runs only when the epoch-filtered lookup found nothing, so the common path pays
+ * for no extra query.
+ */
+function orphanedPromotedFit(epochId, season, week) {
+  return rows(`SELECT id, epoch_id FROM weekly_ensemble_fits WHERE promoted=1 AND epoch_id<>?
+            AND (through_season < ? OR (through_season = ? AND through_week < ?))
+            ORDER BY through_season DESC, through_week DESC, id DESC LIMIT 1`,
+  epochId, season, season, week)[0];
+}
+
+/**
+ * Why the frozen constants are being served, for a surface to repeat verbatim.
+ *
+ * `source` stays 'frozen' for both cases below: model-integrity.js pins that
+ * contract for the cutoff case, and widening the vocabulary would make every
+ * consumer re-learn it to gain nothing. The account goes here instead.
+ *
+ * The distinction is not cosmetic. "Nothing has ever been promoted" means the
+ * weekly learning loop has never completed a promotion and someone should look at
+ * the loop; "everything promoted is trained through this week or later" means the
+ * loop works and the leakage guard is doing its job. Reported as one string, those
+ * two send whoever is debugging to opposite ends of the system.
+ */
+function whyFrozen(epochId, season, week) {
+  const promotedAtAll = rows(`SELECT id, through_season, through_week FROM weekly_ensemble_fits
+            WHERE promoted=1 AND epoch_id=?
+            ORDER BY through_season DESC, through_week DESC, id DESC LIMIT 1`, epochId)[0];
+  if (!promotedAtAll) {
+    return `a weekly ensemble fit has never been promoted in epoch ${epochId}; ` +
+      'serving the frozen 2023 constants. The weekly learning loop has not completed a promotion.';
+  }
+  return `every promoted fit in epoch ${epochId} is trained through ` +
+    `${promotedAtAll.through_season} week ${promotedAtAll.through_week} or later, which the ` +
+    `leakage cutoff excludes for ${season} week ${week}; serving the frozen 2023 constants.`;
+}
+
+// One line per (fit, active epoch), not per player-week: activeWeeklyWeightSet runs
+// once per projected player, and a warning that repeats ten thousand times a pass is
+// noise nobody reads. The condition cannot change without one of these two changing.
+const announcedOrphans = new Set();
+
+/**
+ * The frozen fallback, saying what it is.
+ *
+ * Rolling a learning epoch (startLearningEpoch, behind
+ * POST /api/nfl-betting/engine/learning-epoch) leaves the previous epoch's promoted
+ * fit in place and invisible: activeWeeklyWeightSet stops matching it and the
+ * frozen-2023 constants are served instead. Before this, that was silent and shaped
+ * exactly like a genuine cold start -- the layer went inert and said nothing, which
+ * is the one thing this project does not allow.
+ *
+ * The NUMBERS are deliberately unchanged: the same frozen vectors, under the same
+ * `frozen-2023` id. Only the account of them changes, via `source` and
+ * `orphaned_fit`, so a surface that reports the served weight set (see
+ * player-week-engine.js `weight_source`) can say the champion is orphaned rather
+ * than absent. Re-promote into the active epoch to clear it.
+ */
+function orphanedFallback(orphan, activeEpochId) {
+  const key = `${orphan.id}:${activeEpochId}`;
+  if (!announcedOrphans.has(key)) {
+    announcedOrphans.add(key);
+    console.warn(`[weights] serving frozen-2023: promoted fit ${orphan.id} is in epoch ` +
+      `${orphan.epoch_id} but the active learning epoch is ${activeEpochId}, so it is ` +
+      'invisible to activeWeeklyWeightSet. Re-promote into the active epoch.');
+  }
+  return {
+    id: 'frozen-2023',
+    weights: WEEKLY_ENSEMBLE_WEIGHTS,
+    source: 'frozen-orphaned-epoch',
+    orphaned_fit: { fit_id: orphan.id, fit_epoch_id: orphan.epoch_id, active_epoch_id: activeEpochId }
+  };
 }
 
 /**

@@ -1,0 +1,89 @@
+# dependencies
+node_modules/
+# A worktree symlink (git worktree setups link node_modules rather than
+# installing a copy) isn't matched by the trailing-slash pattern above —
+# git's "only match directories" rule doesn't count a symlink-to-a-directory
+# as one. This bit a prior integration pass (see git log: "Untrack
+# node_modules symlink accidentally added by git add -A"); belt and suspenders.
+node_modules
+
+# local data — contains ESPN league cookies and your personal rankings/drafts
+server/data.sqlite
+server/data.sqlite-shm
+server/data.sqlite-wal
+# Safety copies created before local model-memory resets. They are intentionally
+# kept beside the live database, but must never make an audit look code-dirty or
+# be committed to GitHub.
+server/data.sqlite*.bak
+
+# secrets
+.env
+.env.local
+.env.*.local
+
+# build output
+client/dist/
+dist/
+
+# OS
+.DS_Store
+server/data/launcher-key.txt
+server/data/launcher-tunnel-url.txt
+server/data/launcher-logs/
+server/data.sqlite.bak.*
+server/data.sqlite.pre-reset-*.bak-shm
+server/data.sqlite.pre-reset-*.bak-wal
+
+# Offline ML artifacts and Python caches
+server/data/market-lab/
+server/data/tree-lab/
+server/data/role-scenario-lab/
+server/data/book-lag-lab/
+server/data/evidence-datasets/
+server/data/news-event-impact/
+server/data/expert-selector-lab/
+research/__pycache__/
+research/.venv/
+# Full tree_lab.py evaluation runs (per-fold OOF predictions etc.) are large
+# and fully reproducible from the script + database; keep only the summary
+# finding in docs/CLAUDE-NEXT-STEPS.md, matching server/data/tree-lab/ above.
+research/betting/nfl/tree_lab_reports/
+research/catboost_info/
+**/__pycache__/
+
+# Agent worktrees created under the repo, and this session scratch dir.
+# Neither is source; both otherwise make every `git status` look dirty.
+.claude/worktrees/
+scratchpad/
+
+# Guard against a backup path that evaluated to a bare string (2026-09-10):
+# a shell quoting mistake made VACUUM INTO write a 9.3 GB database to a file
+# literally named "undefined", and `git add -A` committed it. The real fix was
+# the quoting; this is the seatbelt.
+undefined
+*.sqlite.bak
+*.pre-migration-*.bak
+*.pre-migration-*.bak-journal
+*.pre-migration-*.bak-wal
+*.pre-migration-*.bak-shm
+
+# 2026-09-17 workflow artifacts. Agent scratch and derived data, all reproducible from the
+# scripts + the archive. Kept on disk (nothing is deleted -- Nick's rule), but never tracked:
+# analysis/ is per-workflow scratch code; the sqlite files are model outputs and tapes.
+# The two worth knowing about are recorded in EDGE-TEST-REGISTRY.md section W.
+analysis/
+data/derived/
+data/live-tape/
+data/grading_panel.sqlite
+data/grading_panel.sqlite-shm
+data/grading_panel.sqlite-wal
+
+# private: extracted iMessage league chat for manager profiling. Never commit.
+data/derived/league_chat.sqlite*
+.wip/
+
+# Secret backups written by persistEnvVar, and local-only data files.
+.env.bak-*
+server/data/learned-shadow/
+server/data/app.sqlite
+data/nflverse.sqlite

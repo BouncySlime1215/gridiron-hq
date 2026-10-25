@@ -1,0 +1,13 @@
+---
+name: gridiron-state-1264-2026-09-22
+description: "17:51Z-17:57Z twenty-eighth batch: Wiring map's gate fix NEW HEAD 6432a768 (supersedes ae84ac6d) with unresolvedReceivers report-never-gate and R52.2 citations; Explorer's package — optional sources (snaps/ngs/pfr_adv/depth/injuries) are required:false so their staleness never triggers or reports, fix shape queued to Scheduler after MLB removal; Opportunity withdrew the unreproducible ladder figures from #116"
+metadata:
+  type: project
+  modified: 2026-09-22T17:59:00.000Z
+---
+(Coordinator asked for this as "state 1263"; 1263 holds batches 26-27, so this is 1264.)
+- **Wiring map:** R52.1(b) accepted and fixed before pushing. **NEW HEAD 6432a7685ff43a646f7eddeef8792630fb07db30** (supersedes ae84ac6d). `unresolvedReceivers` is report-never-gate: **19 sites** (`run-historical-leaderboard.mjs` 8 rdb, `td-features.js` 7 appDb/nflDb, `model-registry-persistence.test.js` 4 upgradeDb). (a) RED 4bab4fd 3/5 with the message inline; (c) renamed; (d) one assertion changed (`pool`); (e) check:wiring 0 on head. Citations #1 4bab4fd / #2 a997747 / #3 ae84ac6 / #4 6432a76; 103/103; guard re-running, push on clean. Evidence Auditor and Trade Brain told to poll 6432a768.
+- **Explorer 17:55Z:** package `/mnt/project-files/PACKAGE-OPTIONAL-SOURCES-NEVER-TRIGGER-2026-09-22.md` (static, 654ff93): `nfl_snaps`/`nfl_ngs`/`nfl_pfr_adv` (full force) and `nfl_depth`/`nfl_injuries` (second writers `scheduler.js:829-831`, `:1166-1167` via `routes/nfldata.js` `syncDepthChart`, a different function) are **`required:false`** (`nfl-model-growth.js:76-98`); sync only under `finalized_week > 0 && (force || coreLag)` (`:185`); `coreLag` `:181` and status `:126` count required only → **their staleness never triggers or reports.** Production staleness NOT claimed. FRESHNESS block added to the read-script census; **NEW MD5 0b633a737b6bfa4bd1afbc1c2d78f24d, 43,161 B** (read.mjs 23f215643142ef5702ea48bca02ba9f6). Fixture crash note: census printed before the crash — R49 ordering vindicated. Explorer memory [[gridiron-optional-sources-never-trigger]].
+- **Routed:** taxonomy line + pre-reg to the Auditor; **fix shape (own staleness trigger + reported status, NOT `required:true`) queued to Scheduler AFTER MLB removal** — `nfl-model-growth.js` is already Scheduler's (16:28Z grant), confirmed for that unit ([[gridiron-file-allocation]]).
+- **Opportunity** withdrew 183/116/67/53 from #116's evidence file (replaced with command-produced figures) and is writing the partition script first.
+Prev [[gridiron-state-1263-2026-09-22]]. Next [[gridiron-state-1265-2026-09-22]].

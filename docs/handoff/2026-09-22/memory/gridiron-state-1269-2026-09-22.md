@@ -1,0 +1,14 @@
+---
+name: gridiron-state-1269-2026-09-22
+description: "18:22Z-18:25Z thirty-seventh batch, Auditor R54: reproducible EDGE bracket 172–228 (request-only vs request+job) — 116/53/67/183 AND 178 not reproducible, CONTRACT.md doc fix to Wiring map; partition pre-reg CLEARED with six conditions; guard RED must be committed-fixture form; optional-sources SCOPE OPEN — Scheduler must trace reach from a fantasy route before building, nfl_depth EMPTY outcome pre-registered separately; NAME THE TABLE AND THE WRITER FUNCTION is now a fleet rule"
+metadata:
+  type: project
+  modified: 2026-09-22T18:27:00.000Z
+---
+(Coordinator asked for this as "state 1268"; 1268 holds batch 36, so this is 1269.)
+- **R54.1:** on 500bab36 via `classifyImportEdges().request` → `dropRouteBootEdges` → `reachableEntries` → `gradeReach`: **request-only 172/65/6/18/11/47 = 319; request+job 228/55/3/2/10/21.** `CONTRACT.md:160-166` prints 178 and its column sums to 325, not 319 (the +6 at `:140`'s 205→196→172→178 step). **Reproducible EDGE bracket = 172–228; 116/53/67/183 AND 178 are not reproducible.** "Job reach" = in-process scheduler deferred imports; the CLI uses `buildImporterGraph`, never `classifyImportEdges`. Doc fix → **Wiring map** (CONTRACT.md is its file) 18:25Z.
+- **R54.2: partition pre-reg CLEARED with six conditions** — falsify on b0c1616d, not the #99 tip (605ab3f6/1da962d3); edge-mechanism bracket vs entry-type split output separately; scheduler-invoked `package.json` scripts as a third row; definition frozen at the Auditor's approximate 214 route / 14 script-only on the combined graph (not a correction to 116); print node/typescript versions, fail without 5.9.3; print both ends with column sums → **Opportunity BUILD.**
+- **R54.3:** the guard RED must be in **COMMITTED-FIXTURE form** — a scanner over `{path, source}`; cases: 6th arg, forwarded flag, aliased import, namespace call, destructured dynamic import; the real tree scans clean → Fantasy plan.
+- **R54.4:** Explorer's correction accepted; the Auditor's own scope line WITHDRAWN; **SCOPE OPEN:** `nfl_snaps` readers (`nfl-availability.js:197-200/:103-105`, `nfl-advanced.js:487-572`) are reached only via the `scheduler.js` hub, and the taxonomy says betting/team-card side → **Scheduler must trace call reach from a FANTASY route before building; if none, the unit is NOT built** (only the #119 note fix). `nfl_depth` = 0 rows in production (17:03Z screenshot) → **EMPTY outcome pre-registered separately**, never-attempted vs attempted-and-failed via `detail_json.ingestion.depth_charts`. `nfl-model-growth.js` grant to Scheduler now CONDITIONAL on the scope trace ([[gridiron-file-allocation]]).
+- **R54.5: NAME THE TABLE AND THE WRITER FUNCTION verbatim with file:line = FLEET RULE** [[gridiron-name-the-table-rule]] (the Auditor its latest violator).
+Prev [[gridiron-state-1268-2026-09-22]]. Next [[gridiron-state-1270-2026-09-22]].

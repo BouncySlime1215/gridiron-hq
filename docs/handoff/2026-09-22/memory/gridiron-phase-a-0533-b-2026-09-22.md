@@ -1,0 +1,9 @@
+---
+name: gridiron-phase-a-0533-b-2026-09-22
+description: Wiring map's push hold continues; bodyRange bug fixed, findings jump 22→82. [[gridiron-phase-a-0533-2026-09-22]] [[gridiron-phase-a-0533-c-2026-09-22]] [[gridiron-phase-a-0533-d-2026-09-22]]
+metadata:
+  type: project
+  modified: 2026-09-22T05:36:40.827Z
+---
+
+**Wiring map**: still holding its push (now 35 commits, head progressed past 5597ab8 to 1858ca6 and beyond). Corrected itself twice more this cycle: a suspected "182 empty-note rows violate spec" claim was false — it had checked the wrong field; a second suspected "312 rows are prose-only evidence" claim was also false — they're valid absence-findings with no line number by design. Completed the scheduler-job resolver unit: all 62 jobs now resolve, with two non-obvious resolutions named — manager_archetypes resolves to a script it execFiles, not the path-arithmetic module it imports; manager_signals resolves to the actual worker file, not a dispatcher. That work uncovered a bigger defect: the bodyRange helper used by its composed-key-never-read rule was blind to any function using an options-bag parameter with a default value (`function f({a=1}={})`) — every such function's body read as empty to every caller of bodyRange. Fixed; composed-key-never-read findings jumped from 22 to 82 (60 new ones, 4 spot-verified). One mutation (B2) survived first pass due to a fixture gap — caught and fixed rather than swapped quietly. Measured where the remaining 541 unclassified inventory rows actually sit: ~200 tables + 175 pipelines blocked on production row-count reads (not resolvable from this container), 62 jobs need a live run, 19 pages are UI's to verify, 12 contested with Model evidence audit — i.e. the bulk of what's left needs live DB access, which ties to Nick's own live-DB investigation tonight. Still waiting on the same antecedent/scope question as UI.

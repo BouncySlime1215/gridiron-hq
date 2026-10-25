@@ -1,0 +1,19 @@
+---
+name: gridiron-held-branches-17-2026-09-20
+description: Page 17 of the no-PR "-hold" branch ledger for the 2026-09-20 GitHub freeze; heads from 11:12Z on (wiring map 4389a7a, scheduler merge-resolutions e852884, Opportunity dd84efa) and the T1115Z sweep as the one merge-order source.
+metadata:
+  type: project
+---
+
+Continues [[gridiron-held-branches-16-2026-09-20]]. Merge order: /mnt/project-files/hold-branch-sweep-2026-09-20T1115Z.md (Opportunity 11:16Z; 44 rows; header carries the four resolved conflicts; ruling 11:18Z: the ONE source; 1105Z and 0736Z superseded); the go sweep replaces it.
+
+| Thread | Branch | Head | Lands how | Notes |
+|---|---|---|---|---|
+| Wiring map (#36) | claude/wiring-map-8f96ur-route-gate-hold | 4389a7a → 4450301 (11:41Z, p21) | #36 252c896, ff | VERDICTS COMMIT: 3,015 / 2,974 / 0 / 41, wiring-map.test.js 67 pass; test/decision-inbox.test.js 11 → 7 (lineupDiff/waiverUpgrades sections out, publish contract kept); test 3 typeof function; six verdicts (39 verdicts, 66 rows, 43 dying); routeLiteralAbsent gate FIXED: three suppressed routes back (/trades/:leagueId/inbox, /tradelab/:leagueId/analysis, /drafts/:id/simulate), 385 in-scope, routePattern() exported, test 67 pins it; RED 7c9e12c, census 8b1f3ad. Next: test-dial split (ruling 11:15Z: a test fetch() is never a live dial; name the test file), :164 served-string rule, seventh usage-coverage mutation |
+| Scheduler (NEW) | claude/project-thread-o3wt2p-merge-resolutions-hold | e852884 → 89cdb3a (11:28Z, p18) | apply AFTER #71 and #50 merge; NOT a ff onto either (or take the resolutions by hand from the evidence file) | chain 8709ec6 → 0e0bb86 (merge #71 8b1a036) → 7462c4c (merge #50 d01df31) → e852884 (docs/tdd/merge-reconciliations-2026-09-20.md); 3,054 / 3,013 / 0 / 41 (+33 #71 credential tests), build + smoke clean; is-ancestor chain verified by Opportunity (sweep row base 8709ec6, +13/−0); growth-offthread-hold 8709ec6 unchanged |
+| Opportunity | claude/project-thread-w45mur-wiring-names-hold | dd84efa → b1b9f2b (11:42Z, p21) | new PR off main; base for memo-key (merge pending) | doc-only: every test title tagged (vocab)/(prior), legend names both paths, run = both suites (12/12); control grading in its report (both fantasy plan files carry a correct no-op control; M4 is an equivalent survivor, not a control → column, ruling 11:16Z). a7ac178 now +1/−6 vs dd84efa, the sweep's only ancestor=NO. Model audit reproduced dd84efa hash-for-hash 11:28Z (canonical); next: `unvouched` arm + eighth part |
+| Google sign-in (#71) | claude/project-thread-n4052e-league-sync-creds-hold | 1171d66 → 511eed8 (11:26Z, p18) | #71 8b1a036, ff | wording fix in docs/tdd/uncalled-surface-audit.tdd.md (canonical; rows name the aimed test, Fails = total); PR body stays /mnt/project-files/pr-71-body-da8ec48.md until re-cut. Outlook patch /mnt/project-files/outlook-route-803074d.patch swapped in place 11:17Z (3,063 / 3,022 / 0 / 41 on the amended tree) |
+| Trade Brain | claude/project-thread-3xqh5l-accessor-hold | 3afdb25 → 1f8562e (11:33Z, p19) | #41 45323ce, ancestor | Part 9 credibility fix: 2,993 / 2,952 / 0 / 41 in 354.7 s on the exact tree (npm ci not run, stated); 41 commits, 22 files, +3,906/−858; body /mnt/project-files/pr-41-body-3afdb25.md SUPERSEDES the 1e6a205 and 3f7a82d files (Part 9 Before/After, 34250dc note, follow-ons section); G10b/G10c/G10d in test/valuation-map.test.js; docs/tdd/transactions-as-of.tdd.md Part 9, baseline 4293dfcae703, 5/5 killed; open: season_delta_weeks name (feature audit) |
+| Coach | claude/coach-grounded-4l8hno-hold | fdfebf5 → 4e93e98 (11:31Z, p19) | new PR off main | 3,105 / 3,064 / 0 / 41 in 468 s; 30 commits, 40 files, +7,237/−4; body /mnt/project-files/pr-coach-body-fdfebf5.md, ONE file (-f62896e.md never existed); next: doc-only commit, no-op control + SHA + test file per row, seven files |
+
+Continues: [[gridiron-held-branches-18-2026-09-20]].

@@ -1,0 +1,11 @@
+---
+name: gridiron-state-1240-2026-09-22
+description: "17:00Z-17:01Z fifth batch: merge shas for #95/#86/#112/#109/#110/#87 and the main chain from ac31922d; four new draft PRs #117-#120; head moves — #94 rebased to 951c70f1, #103 CI green, #92 conflict resolved to 67b05ef (burned-seasons rule kept)"
+metadata:
+  type: project
+  modified: 2026-09-22T17:02:00.000Z
+---
+- **MERGE SHAS:** #95 eb861febca82e24ebd42c56ec0fc12aa38572120 (16:57Z, CI 35756690362 on 3f3ddbaa); #86 7eca9a8b0e0447ee13bb482ca8afd1c98b169fa6; #112 a1e661fc22bb04a98eae55495683755dedb72559 (16:59Z); #109 4ff3048b166632929426c42e1d5e03caba5a94e0; #110 ab01efa8989e9044bea97ca948aeaafb5a386f8e; #87 0c5b7be4. **Chain: ac31922d → eb861feb → 7eca9a8b → a1e661fc → (4ff3048b, ab01efa8, 0c5b7be4 order unverified).** Nick told of each. (0877ea45 #114 and 26a5002a #68 also in main; position in chain not restated here.)
+- **NEW DRAFT PRs:** **#117 Coach 38f6f4c5** (paid-run guard on `scripts/build-manager-archetypes.mjs --jev`; `docs/tdd/paid-run-opt-in-manager-archetypes.tdd.md`; finding: `test/offline-guard.mjs` strips AI_GATEWAY_API_KEY at import and NODE_OPTIONS inherits into spawnSync children). **#118 UI 39d0231e** (player-advanced-stats position applicability, `unavailable_kind` measured/absent/inapplicable; `nflverse.js:218` carries target_share/wopr so the old "file lacks column" wording was false; 14/14 mutations). **#119 Scheduler 225f5ec7** (growth cycle `ingest_error` status; 6/6 mutations; 3125/0). **#120 Trade Brain a1164dd5** engine-fault, base #103.
+- **HEAD MOVES:** #94 rebased onto a1e661fc → **951c70f1** (Trade Brain rebases before every merge — lesson [[gridiron-rebase-before-merge-lesson]]). #103 CI success 16:58Z run 35756794144. **#92 conflict** after main moved: `nfl-formations.js` two hunks; Planner kept its `res.status===404` branch over main's `season>2023` branch (`test/formations-participation-columns.test.js:147` requires it; burned-seasons rule), took main's 2024/2025 participation facts (45,919/285, 45,184/285); new head **67b05ef**, coordinator accepted 17:01Z. CI job 6m53s vs the 20-min budget.
+Prev [[gridiron-state-1239-2026-09-22]]. Next [[gridiron-state-1241-2026-09-22]].

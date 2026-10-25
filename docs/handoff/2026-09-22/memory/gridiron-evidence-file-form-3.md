@@ -1,0 +1,17 @@
+---
+name: gridiron-evidence-file-form-3
+description: Page 3 of the docs/tdd evidence-file standard (from 11:46Z 2026-09-20): the free-text mutation clause under part eight, and later clauses.
+metadata:
+  type: project
+---
+
+Continues [[gridiron-evidence-file-form-2]] (parts 1-8, runner requirements, part five's shape).
+
+- Part eight, free-text clause (11:46Z, Opportunity c10f925): a free-text mutation (a reworded comment, a replaced sentence) has no recoverable hash, so the table re-measures it with quotable text or drops the hash for that row; a hash that is real but unrecoverable from the page is a measurement the file cannot hand a reader (failure mode 128). REPAIR METHOD (named 11:50Z): a pre-eighth-part table is repaired by re-deriving each edit from its description and applying it until the recorded after-hash returns (Opportunity c10f925, rows 1-6; Model audit reproduced CONTROL A first try off the quoted text). Rows are RECOVERED, not remembered: re-derive each edit from its quoted text until the recorded after-hash returns; deletions are shown with no +; a NO-OP control quotes the exact pattern searched.
+- Part seven, module-absent clause (11:51Z, Model audit on Coach's tool layer): where the RED commit is module-absent (the suite fails every test for one import reason), it is not per-test RED evidence, so the seventh part applies to EVERY test in the suite: each gets a killing row or a stated reason; run the union of reds against the full test list (coach-tool-layer: eight of eight rows reproduce, ten of seventeen tests red by nothing; failure mode 131).
+- Part seven, stated-reason classes (11:54Z, Opportunity f68059d): an unkilled test carries a reason of one of two kinds, never a row: a FIXTURE GUARD (the fixture is the case under test; it guards the premise) or a BOTH-STATES test (passes in both states on purpose; a killing mutation would make the flag redundant). A module-absent RED discharges nothing (11:54Z, confirmed on Coach's 54 of 123 + 21).
+- Suite naming (11:54Z, chat sync f61f5d4): each row names the suite it was run against; the runner fails a row whose suite has no test touching the mutated export (rows run against a suite that does not assert the rule read as survivors, failure mode 135); a regex alternation assertion is satisfied by the wrong alternative (134): assert each fact separately.
+- Lint count named against a commit (11:58Z, Model audit): `git ls-tree -r --name-only <commit> -- server scripts test | grep -cE '\.(js|mjs)$'` (the roots and extensions scripts/lint.mjs walks); a bare repo-wide ls-tree gives a different number (778 .js / 890 with .mjs/.cjs on 2b7f8e2 vs 878), and a filesystem walk counts untracked files (failure mode 130). Both-states precision: discharged only when indistinguishability IS the assertion; a test that claims a difference needs a fixture where the difference shows.
+- Changing an existing test instead of the implementation (≥11:59Z, from Coach 0b8e77d): accepted only when (1) the old assertion is false on a changed premise, with the argument in the evidence file, (2) replacement tests cover what it covered, and (3) a second thread grades it; a test weakened without those three is a skipped test. Worked example (≥12:06Z): Coach's catalog test at 0b8e77d, graded JUSTIFIED by Model audit; the grade's minimum is two escape trials (a fabricated table pointing at a real file; a fabricated table with no creator), each caught by the replacement tests, plus the kill row reproduced.
+
+Continues: [[gridiron-evidence-file-form-4]].

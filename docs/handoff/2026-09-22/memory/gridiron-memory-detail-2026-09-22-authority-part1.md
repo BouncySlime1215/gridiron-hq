@@ -1,0 +1,11 @@
+---
+name: gridiron-memory-detail-2026-09-22-authority-part1
+description: "Verbatim text displaced from MEMORY.md at 18:37Z 2026-09-22 when it was cut to pointers: AUTHORITY block part 1 (Nick 18:16:07Z usage rule #1 with ledger/headline metric, 18:16:38Z skills, 18:18:29Z opus 5.5, 18:08:47Z/18:06:15Z/18:06:52Z lines). Nothing here is superseded by the cut; read via [[gridiron-memory-detail-2026-09-22]]"
+metadata:
+  type: project
+  modified: 2026-09-22T18:37:00.000Z
+---
+## AUTHORITY AS OF 18:27Z 2026-09-22 (verbatim, displaced 18:37Z)
+- **18:16:07Z Nick STANDING RULE #1** (cmsg_01YAsw8AnFv4ioRMQw8dfPmTWxz7wC5vFLCTEe7cMso3FB): 'YOUR #1 priority above all else is to monitor this' — usage and usage types; $200/m 20x plan must last the week at 24/7 without the weekly cap, 'while not killing accuracy or missing small things'. **Ledger `/mnt/project-files/USAGE-LEDGER.md`; HEADLINE = 5-HOUR ROLLING PACE (18:19:53Z: 5h 9% in ~19 min ≈ 28%/h, needs <20%/h, resets ~22:41Z; weekly 3%, resets Tue 01:00Z — not the constraint); next screenshot ~19:20Z; usage line opens every 30-min post; five threads, restart-fresh, no polling (10 min), report per milestone, memory in batches; Sonnet 5 for docs-only OFFERED, not switched without his word** [[gridiron-usage-priority-rule]]. **18:16:38Z** 'always be updating skills' → repeated procedure = same-day skill proposal; `anthropic-skills:gridiron-token-efficiency` SAVED 18:17:52Z; **18:18:29Z 'opus 5.5 is cheaper and better'** → project settings already claude-opus-5-5, fresh restarts land on 5.5. **Skills load ONLY with the `anthropic-skills:` prefix** [[gridiron-skill-prefix-lesson]]; **no subagent for a single API call** [[gridiron-no-subagent-for-single-api-call-lesson]] [[gridiron-state-1290-2026-09-22]].
+- **18:08:47Z Nick** 'ok add that to the skill pls - we are good to go?' → v2 skill saved 18:13:38Z [[gridiron-state-1288-2026-09-22]]. **18:06:15Z "ok go"** = GO on gate + fleet cut + one-pass merge; **18:06:52Z usage screenshot** 92.8B tokens, 99% cache hit → **continuing threads RESTART FRESH from their handoffs once PRs land** [[gridiron-restart-fresh-from-handoff-rule]] [[gridiron-state-1285-2026-09-22]].
+Next [[gridiron-memory-detail-2026-09-22-authority-part2]].

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { espnCookies, BROWSER_HEADERS } from '../services/espn-draft.js';
+import { BROWSER_HEADERS } from '../services/espn-draft.js';
 import { findPlayerMatch } from '../services/player-identity.js';
 import { recordSync } from '../services/scheduler.js';
 import { extractEntities } from '../news/normalize.js';
@@ -41,12 +41,18 @@ export async function syncPlayersFromESPN() {
     const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
     const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
     const headers = { ...BROWSER_HEADERS, 'X-Fantasy-Filter': JSON.stringify(filter) };
-    // This is a public default-league endpoint, not tied to any one private league,
-    // but sending cookies from whichever ESPN league is connected (if any) can only
-    // help it see a fuller/more current player pool — same helper the live-draft
-    // sync uses to find cookies, so there's one real source for them, not two.
-    const { s2, swid } = espnCookies();
-    if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
+    // No cookies, deliberately. This is a public default-league endpoint, not
+    // tied to any private league, and it used to borrow whichever ESPN pair the
+    // install happened to hold on the theory that it "can only help it see a
+    // fuller player pool". That theory is not what limits us: measured against
+    // this endpoint anonymously, `limit: 800` returns 800 and `limit: 1500`
+    // returns 1042, which is ESPN's own ceiling for it. Our own filter below is
+    // the binding constraint, by 242 players. (espnPlayerPool() in
+    // services/espn-draft.js has always called the same endpoint with no
+    // cookies at all, so this is also the two paths finally agreeing.)
+    //
+    // Borrowing a credential because it might help is the habit being removed
+    // here; see platform/espn-credentials.js.
     const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
     if (!resp.ok) throw new Error(`ESPN players API ${resp.status}`);
     const data = await resp.json();

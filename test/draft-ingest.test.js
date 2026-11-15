@@ -43,6 +43,14 @@ function user(subject, role, token) {
 const commissioner = user('ingest:commissioner', 'commissioner', 'commish-secret');
 const member = user('ingest:member', 'member', 'member-secret');
 
+// The league needs an ESPN connection, because reaching ESPN at all now requires
+// one: fetchDraftDetail resolves credentials from the league it is fetching and
+// throws rather than falling back to whatever the install happened to hold
+// (server/platform/espn-credentials.js). Without this the "poller resumes" half of
+// the source-of-truth test below stops before the network and proves nothing.
+run(`INSERT INTO espn_credentials (user_id, espn_s2, swid, connect_token) VALUES (?,?,?,?)`,
+  commissioner.userId, 'AEC%2FingestTestS2Value', '{44444444-4444-4444-4444-444444444444}', 'ingest-test-token');
+
 const PICK_ORDER = [10, 20, 30, 40]; // ESPN team ids -> slots 1..4
 const TEAM_COUNT = 4, ROUNDS = 3;
 let draftCounter = 0;

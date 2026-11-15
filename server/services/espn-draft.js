@@ -11,6 +11,7 @@
  * downstream feature (board, recommendation, grade) works unchanged on a live draft.
  */
 import { rows, row, run } from '../db/index.js';
+import { requireCredentialsForLeague } from '../platform/espn-credentials.js';
 import { reconcileDraftBoard, openQuarantine } from './draft-reconcile.js';
 import { normalizePlayerName } from './player-identity.js';
 
@@ -23,18 +24,16 @@ export function ingestIsFresh(draft, now = Date.now()) {
   return Number.isFinite(at) && now - at < INGEST_FRESH_MS;
 }
 
-/** ESPN cookies, from wherever the user connected (bookmarklet or manual form). */
-export function espnCookies() {
-  const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
-  let s2 = get('espn_s2'), swid = get('swid');
-  if (!s2 || !swid) {
-    const lg = row(`SELECT espn_s2, swid FROM leagues
-                    WHERE platform='espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL
-                    ORDER BY fetched_at DESC LIMIT 1`);
-    s2 = lg?.espn_s2 ?? null; swid = lg?.swid ?? null;
-  }
-  return { s2, swid };
-}
+/*
+ * There was an `espnCookies()` here that read one install-wide pair and, when
+ * that was empty, took whichever league had been fetched most recently. Every
+ * ESPN request in this file went out under it, whoever it belonged to.
+ *
+ * It is gone, and its callers now ask platform/espn-credentials.js about the
+ * specific league they are fetching. See that file for why, and see the
+ * 2026-09-06 investigation in services/scheduler.js for what the global
+ * lookup cost in practice.
+ */
 
 // A bare Node fetch sending only Accept + Cookie is the single most
 // bot-like signal this request could carry, independent of anything about
@@ -51,19 +50,26 @@ export const BROWSER_HEADERS = {
   Origin: 'https://fantasy.espn.com'
 };
 
-async function espnGet(leagueId, season, views) {
-  const { s2, swid } = espnCookies();
+/**
+ * `leagueRowId` is OUR leagues.id, not ESPN's league id, and it is required:
+ * it is the only thing that says whose credentials this request may use. A
+ * private league fetched with no cookies does not fail — ESPN answers with a
+ * thin public payload that the reconciler will write down as though the draft
+ * were empty — so a missing connection has to throw here rather than proceed.
+ */
+async function espnGet(leagueId, season, views, leagueRowId) {
+  const { s2, swid } = requireCredentialsForLeague(leagueRowId);
   const url = `${BASE}/seasons/${season}/segments/0/leagues/${leagueId}?${views.map(v => `view=${v}`).join('&')}`;
   const headers = { ...BROWSER_HEADERS };
-  if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
+  headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
   if (!resp.ok) throw new Error(`ESPN API ${resp.status} on league ${leagueId}`);
   return resp.json();
 }
 
-/** Draft board + settings + team names for a league. */
-export function fetchDraftDetail(leagueId, season) {
-  return espnGet(leagueId, season, ['mDraftDetail', 'mSettings', 'mTeam']);
+/** Draft board + settings + team names for a league. `leagueRowId` is ours, not ESPN's. */
+export function fetchDraftDetail(leagueId, season, leagueRowId) {
+  return espnGet(leagueId, season, ['mDraftDetail', 'mSettings', 'mTeam'], leagueRowId);
 }
 
 const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
@@ -186,7 +192,7 @@ export async function ensureLiveDraft(leagueRowId) {
   if (!lg) throw Object.assign(new Error('league not found'), { status: 404 });
   if (lg.platform !== 'espn') throw Object.assign(new Error('live draft sync is ESPN-only'), { status: 400 });
 
-  const data = await fetchDraftDetail(lg.league_id, lg.season);
+  const data = await fetchDraftDetail(lg.league_id, lg.season, lg.id);
   const ds = data.settings?.draftSettings ?? {};
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const pickOrder = ds.pickOrder ?? (data.teams ?? []).map(t => t.id);
@@ -256,7 +262,7 @@ async function syncLiveDraftImpl(draftId) {
     };
   }
 
-  const data = await fetchDraftDetail(draft.espn_league_id, draft.season);
+  const data = await fetchDraftDetail(draft.espn_league_id, draft.season, draft.league_row_id);
   const detail = data.draftDetail ?? {};
   const ds = data.settings?.draftSettings ?? {};
   const pickOrder = ds.pickOrder ?? JSON.parse(draft.pick_order ?? '{}').order ?? [];

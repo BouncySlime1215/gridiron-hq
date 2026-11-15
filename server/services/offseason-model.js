@@ -48,7 +48,8 @@
  */
 import { rows } from '../db/index.js';
 import { canonicalTeamCode } from './team-codes.js';
-import { pairedBootstrapDiff } from './backtest-significance.js';
+
+import { poolArm, comparePooledArms, armCoverage, clusteredDiff } from './pooled-arms.js';
 import { fitGbm, predictGbm } from './nfl-gbm.js';
 
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE', 'FB']);
@@ -1047,7 +1048,12 @@ export function chooseLambda(train, field, grid = LAMBDA_GRID, vec = featureVect
 
 export function walkForward({
   testSeasons = [2023, 2024, 2025], firstFitSeason = FIRST_DEPTH_SEASON,
-  field = 'y_share', lambdas = LAMBDA_GRID, gbm = true
+  field = 'y_share', lambdas = LAMBDA_GRID, gbm = true,
+  // The fitter is injectable for ONE reason: the `catch` below decides what the
+  // pooled comparison at the end is allowed to compare, and a failure path that
+  // cannot be reached from a test is a failure path nobody has ever seen run.
+  // Production passes nothing and gets `fitGbm`.
+  gbmFit = fitGbm
 } = {}) {
   const perSeason = [];
   const pooled = {};
@@ -1070,11 +1076,18 @@ export function walkForward({
     const shippedLambda = chooseLambda(train, field, lambdas, shippedVector);
     const shipped = fitRidge(train.map(shippedVector), ytr, shippedLambda);
 
-    let gbmModel = null;
+    let gbmModel = null, gbmError = null;
     if (gbm) {
       try {
-        gbmModel = fitGbm(Xtr, ytr, { trees: 120, learningRate: 0.05, maxDepth: 3, minLeaf: 40, seed: 5 });
-      } catch { gbmModel = null; }
+        gbmModel = gbmFit(Xtr, ytr, { trees: 120, learningRate: 0.05, maxDepth: 3, minLeaf: 40, seed: 5 });
+      } catch (err) {
+        // RECORDED, NOT SWALLOWED. The challenger is optional, so a failed fit is
+        // not fatal -- but it drops this season from the gbm arm and no other, and
+        // a silent drop is what made the pooled comparison below compare different
+        // seasons to each other. The reason travels on the season's own record.
+        gbmModel = null;
+        gbmError = err?.message ?? String(err);
+      }
     }
 
     const truth = test.map(r => r[field]);
@@ -1095,6 +1108,10 @@ export function walkForward({
     if (gbmModel) preds.gbm = test.map(r => predictGbm(gbmModel, featureVector(r)));
 
     const groups = test.map(r => `${r.season}|${r.team}`);
+    // The row's own identity, which is what the pooled arms are aligned on. An arm
+    // that skipped this season simply has none of these keys, and the comparison
+    // finds that out instead of pairing by position.
+    const keys = test.map(r => `${r.season}|${r.team}|${r.player_id}`);
     const err = p => p.map((v, i) => Math.abs(v - truth[i]));
     const baseErr = err(preds.no_change);
     const mrErr = err(preds.mean_reversion);
@@ -1107,19 +1124,18 @@ export function walkForward({
         mae: r4(mean(e)), rmse: r4(Math.sqrt(mean(e.map(x => x * x)))),
         spearman: r4(spearman(p, truth)),
         vs_no_change: name === 'no_change' ? null
-          : pairedBootstrapDiff(baseErr, e, { iterations: 2000, seed: 13, groups }),
+          : clusteredDiff(baseErr, e, { iterations: 2000, seed: 13, groups }),
         vs_mean_reversion: name === 'mean_reversion' || name === 'no_change' ? null
-          : pairedBootstrapDiff(mrErr, e, { iterations: 2000, seed: 17, groups }),
+          : clusteredDiff(mrErr, e, { iterations: 2000, seed: 17, groups }),
         vs_flat_rule: name === 'flat_mover_rule' ? null
-          : pairedBootstrapDiff(flatErr, e, { iterations: 2000, seed: 19, groups })
+          : clusteredDiff(flatErr, e, { iterations: 2000, seed: 19, groups })
       };
-      (pooled[name] ??= { errs: [], preds: [], truth: [], groups: [] });
-      pooled[name].errs.push(...e); pooled[name].preds.push(...p);
-      pooled[name].truth.push(...truth); pooled[name].groups.push(...groups);
+      poolArm(pooled, name, { errs: e, preds: p, truth, groups, keys });
     }
 
     perSeason.push({
       season, fit_seasons: fitSeasons, n_train: train.length, n_test: test.length,
+      gbm_error: gbmError,
       lambda, shipped_lambda: shippedLambda,
       ridge_weights: Object.fromEntries(FEATURE_NAMES.map((n, i) => [n, r4(ridge.weights[i])])),
       shipped_weights: Object.fromEntries(SHIPPED_FEATURES.map(n =>
@@ -1140,20 +1156,22 @@ export function walkForward({
   }
 
   const overall = {};
-  const baseP = pooled.no_change, mrP = pooled.mean_reversion, flatP = pooled.flat_mover_rule;
   for (const [name, p] of Object.entries(pooled)) {
     overall[name] = {
       n: p.errs.length, mae: r4(mean(p.errs)),
       spearman: r4(spearman(p.preds, p.truth)),
       vs_no_change: name === 'no_change' ? null
-        : pairedBootstrapDiff(baseP.errs, p.errs, { iterations: 4000, seed: 23, groups: p.groups }),
+        : comparePooledArms('no_change', pooled.no_change, name, p, { iterations: 4000, seed: 23 }),
       vs_mean_reversion: name === 'mean_reversion' || name === 'no_change' ? null
-        : pairedBootstrapDiff(mrP.errs, p.errs, { iterations: 4000, seed: 29, groups: p.groups }),
+        : comparePooledArms('mean_reversion', pooled.mean_reversion, name, p,
+          { iterations: 4000, seed: 29 }),
       vs_flat_rule: name === 'flat_mover_rule' ? null
-        : pairedBootstrapDiff(flatP.errs, p.errs, { iterations: 4000, seed: 31, groups: p.groups })
+        : comparePooledArms('flat_mover_rule', pooled.flat_mover_rule, name, p,
+          { iterations: 4000, seed: 31 })
     };
   }
-  return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall };
+  return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall,
+    arm_coverage: armCoverage(pooled) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1431,7 +1449,8 @@ const v2Vec = names => r => keepV2(featureVectorV2(r), names);
  */
 export function walkForwardV2({
   testSeasons = [2023, 2024, 2025], firstFitSeason = FIRST_DEPTH_SEASON,
-  field = 'y_share', lambdas = LAMBDA_GRID, gbm = true, candidates = null
+  field = 'y_share', lambdas = LAMBDA_GRID, gbm = true, candidates = null,
+  gbmFit = fitGbm
 } = {}) {
   const allV2 = V2_COLUMNS.flatMap(c => [`v2_${c.col}`, `v2_${c.col}_missing`]);
   const cand = candidates ?? {
@@ -1462,15 +1481,21 @@ export function walkForwardV2({
       const m = fitRidge(train.map(vec), train.map(r => r[field]), l);
       preds[name] = test.map(r => predictRidge(m, vec(r)));
     }
+    let gbmError = null;
     if (gbm) {
       try {
-        const g = fitGbm(train.map(featureVectorV2), train.map(r => r[field]),
+        const g = gbmFit(train.map(featureVectorV2), train.map(r => r[field]),
           { trees: 200, learningRate: 0.05, maxDepth: 3, minLeaf: 40, seed: 5 });
         preds.v2_gbm = test.map(r => predictGbm(g, featureVectorV2(r)));
-      } catch { /* the challenger is optional */ }
+      } catch (err) {
+        // Optional, and recorded: this is the season the v2_gbm arm will be missing,
+        // which is exactly what the pooled comparison below has to know about.
+        gbmError = err?.message ?? String(err);
+      }
     }
 
     const groups = test.map(r => `${r.season}|${r.team}`);
+    const keys = test.map(r => `${r.season}|${r.team}|${r.player_id}`);
     const err = p => p.map((v, i) => Math.abs(v - truth[i]));
     const incumbent = err(preds.v1_shipped);
     const scored = {};
@@ -1479,14 +1504,12 @@ export function walkForwardV2({
       scored[name] = {
         mae: r4(mean(e)), spearman: r4(spearman(p, truth)),
         vs_v1: name === 'v1_shipped' ? null
-          : pairedBootstrapDiff(incumbent, e, { iterations: 2000, seed: 41, groups })
+          : clusteredDiff(incumbent, e, { iterations: 2000, seed: 41, groups })
       };
-      (pooled[name] ??= { errs: [], preds: [], truth: [], groups: [] });
-      pooled[name].errs.push(...e); pooled[name].preds.push(...p);
-      pooled[name].truth.push(...truth); pooled[name].groups.push(...groups);
+      poolArm(pooled, name, { errs: e, preds: p, truth, groups, keys });
     }
     perSeason.push({ season, n_train: train.length, n_test: test.length,
-      lambdas: lambdas_used, models: scored });
+      lambdas: lambdas_used, gbm_error: gbmError, models: scored });
   }
 
   const overall = {};
@@ -1494,8 +1517,8 @@ export function walkForwardV2({
     overall[name] = {
       n: p.errs.length, mae: r4(mean(p.errs)), spearman: r4(spearman(p.preds, p.truth)),
       vs_v1: name === 'v1_shipped' ? null
-        : pairedBootstrapDiff(pooled.v1_shipped.errs, p.errs,
-          { iterations: 4000, seed: 43, groups: p.groups })
+        : comparePooledArms('v1_shipped', pooled.v1_shipped, name, p,
+          { iterations: 4000, seed: 43 })
     };
   }
   return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall };
@@ -1557,7 +1580,7 @@ export function ablationV2({ testSeasons = [2023, 2024, 2025], field = 'y_share'
       name: step.name, mae: r4(mean(errs[i])),
       spearman: r4(spearman(predsAll[i], truthAll)),
       vs_previous: i === 0 ? null
-        : pairedBootstrapDiff(errs[i - 1], errs[i], { iterations: 4000, seed: 47, groups: groupsAll })
+        : clusteredDiff(errs[i - 1], errs[i], { iterations: 4000, seed: 47, groups: groupsAll })
     }))
   };
 }
@@ -1636,6 +1659,7 @@ export function multiplierWalkForward({
         meanReversionPredict(mr, r) + clampLog(part(r) - bar));
     }
     const groups = test.map(r => `${r.season}|${r.team}`);
+    const keys = test.map(r => `${r.season}|${r.team}|${r.player_id}`);
     const err = p => p.map((v, i) => Math.abs(v - truth[i]));
     // Compare like with like: a centred candidate is graded against the centred
     // incumbent, a raw one against the raw incumbent. Comparing across the two
@@ -1646,11 +1670,9 @@ export function multiplierWalkForward({
       const e = err(p);
       scored[name] = { mae: r4(mean(e)), spearman: r4(spearman(p, truth)),
         vs_v1: name === incumbentOf(name) ? null
-          : pairedBootstrapDiff(err(preds[incumbentOf(name)]), e,
+          : clusteredDiff(err(preds[incumbentOf(name)]), e,
             { iterations: 2000, seed: 53, groups }) };
-      (pooled[name] ??= { errs: [], preds: [], truth: [], groups: [] });
-      pooled[name].errs.push(...e); pooled[name].preds.push(...p);
-      pooled[name].truth.push(...truth); pooled[name].groups.push(...groups);
+      poolArm(pooled, name, { errs: e, preds: p, truth, groups, keys });
     }
     perSeason.push({ season, n_test: test.length, models: scored });
   }
@@ -1660,8 +1682,7 @@ export function multiplierWalkForward({
     overall[name] = { n: p.errs.length, mae: r4(mean(p.errs)),
       spearman: r4(spearman(p.preds, p.truth)),
       vs_v1: name === inc ? null
-        : pairedBootstrapDiff(pooled[inc].errs, p.errs,
-          { iterations: 4000, seed: 59, groups: p.groups }) };
+        : comparePooledArms(inc, pooled[inc], name, p, { iterations: 4000, seed: 59 }) };
   }
   return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall };
 }

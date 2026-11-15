@@ -257,6 +257,7 @@ function insInjury(_unused, season, week, p) {
 seed();
 
 const M = await import('../server/services/offseason-model.js');
+const G = await import('../server/services/nfl-gbm.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -562,6 +563,53 @@ test('walkForward never lets a model see the season it is graded on', () => {
   // it is a guard that the plumbing is connected at all.)
   assert.ok(wf.pooled.shipped_adjustment.mae < wf.pooled.no_change.mae,
     JSON.stringify({ shipped: wf.pooled.shipped_adjustment.mae, none: wf.pooled.no_change.mae }));
+});
+
+test('a challenger that fails on one season is compared on the seasons it has, not by index', () => {
+  // THE DEFECT. The GBM challenger is fitted in a try and omitted from a season's
+  // predictions when the fit throws. Its pooled error array is then SHORTER than
+  // the baseline's, and the old call handed both straight to the bootstrap with
+  // the challenger's own groups: `n = min(...)` is the challenger's length, so
+  // `groups.length === n` held, the clustered path was taken, and the
+  // challenger's later-season rows were paired against the baseline's earlier
+  // ones. A tight, significant interval on a comparison of nothing.
+  //
+  // The exact-length guard in backtest-significance.js is the MIRROR of this and
+  // cannot see it: both arrays it receives really are the same length.
+  let calls = 0;
+  const { fitGbm: realFitGbm } = G;
+  const failsOnTheFirstSeason = (...args) => {
+    if (++calls === 1) throw new Error('not enough leaves to split on');
+    return realFitGbm(...args);
+  };
+  const wf = M.walkForward({ testSeasons: [2024, 2025], gbm: true, gbmFit: failsOnTheFirstSeason });
+
+  const first = wf.per_season.find(x => x.season === 2024);
+  const second = wf.per_season.find(x => x.season === 2025);
+  assert.match(first.gbm_error, /not enough leaves/,
+    'the catch records why the arm is missing instead of swallowing it');
+  assert.equal(second.gbm_error, null, 'and says so when there was nothing to record');
+  assert.ok(!first.models.gbm, 'no gbm row for the season it could not fit');
+  assert.ok(second.models.gbm, 'and one for the season it could');
+
+  assert.deepEqual(wf.arm_coverage.incomplete,
+    [{ arm: 'gbm', covers: ['2025'], missing: ['2024'] }],
+    'the result names which arm is short and which season it lost');
+
+  const basis = wf.pooled.gbm.vs_no_change.comparison_basis;
+  assert.ok(basis, 'a comparison between arms of different length must say what it compared');
+  assert.equal(basis.aligned, false);
+  assert.equal(basis.compared, second.n_test, 'the 2025 rows, which are the shared ones');
+  assert.equal(basis.rows.no_change, first.n_test + second.n_test);
+  assert.equal(basis.rows.gbm, second.n_test);
+  assert.match(basis.reason, /compared on the \d+ they share/);
+  assert.equal(wf.pooled.gbm.vs_no_change.clustered, true,
+    'and the shared rows still carry their own team-season groups');
+
+  // An arm that covers everything says so, in the same field, so a reader never
+  // has to read an absent basis as "aligned".
+  assert.equal(wf.pooled.ridge.vs_no_change.comparison_basis.aligned, true);
+  assert.equal(wf.pooled.ridge.vs_no_change.comparison_basis.dropped, 0);
 });
 
 test('the shipped fit is the one the docs justify', () => {

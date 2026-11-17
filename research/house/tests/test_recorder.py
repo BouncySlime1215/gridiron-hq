@@ -130,3 +130,11 @@ def test_trades_are_not_fetched_unless_asked_for_but_the_moved_count_still_is(tm
     line = r.step()
     assert line["moved"] == 1 and "trades" not in line
     assert not [1 for path, _ in api.calls if path == "/markets/trades"]
+
+
+def test_each_markets_price_grid_is_kept_once(tmp_path):
+    api = FakeApi()
+    r = Recorder(tmp_path, api, now=clock(), meta_every=0)
+    r.step(); r.step()
+    rows = [json.loads(x) for x in (tmp_path / "grids.jsonl").read_text().splitlines()]
+    assert rows == [{"ticker": "MKT-A", "price_ranges": []}]

@@ -62,15 +62,29 @@ python scripts/hist_extract.py                  # 14 months of trades in rewarde
   what Rule 5.17 calls spoofing. Anything built on this has to quote prices it
   is willing to trade at.
 
-## State on 2026-11-17 21:20 UTC
+## State on 2026-11-17 22:55 UTC
 
-- Recorder running since 21:05 UTC: 5,750 books a pass, a pass every ~2.2 minutes
-  (plus a 2-minute market-facts refresh every 15). `data/sweeps.jsonl` lists every pass and every failure.
-- `GATE.md` fixes the seven-day test (2026-11-18 to 2026-11-25) and what passes it.
-- History, step A (`results/history_step_a.json`): 365,290 paid windows, $25.8M.
+- **The recorder is not running continuously.** The cloud machine it was started on
+  powers off about five minutes after a session goes quiet and kills background jobs.
+  It recorded six passes (21:03 to 21:25 UTC) and one more at 22:41. It needs a host
+  that stays on. Until then each four-hour check-in records one pass (`GATE.md`, Amendment 1).
+- **The trade archive checks out.** 29 of 29 random market-days from the third-party
+  archive match Kalshi's own trades endpoint exactly, minute by minute, side by side,
+  price by price (`results/archive_check.json`, `scripts/hist_verify.py`). One more could not be fetched.
+- **History, step A** (`results/history_step_a.json`): 365,290 paid windows, $25.8M.
   Reward was 1.84% of the dollars traded inside them; $13.2M went to windows where
   under $1,000 traded, $3.6M of that to windows with no trade at all.
-- History, step B (what the fills cost): settlement results for the 60,000
-  busiest markets are being pulled by `scripts/hist_results.py`.
-- Not done yet: checking the third-party trade archive against Kalshi's own
-  trades endpoint on a random sample; maker-fee handling by series.
+- **History, step B, partial** (`results/history_step_b.partial.json`; settlement known for 54.5%
+  of the dollars traded in windows, the busiest markets first). Marked to settlement,
+  makers made +2.05% of traded dollars on their fills [+1.35, +2.87] before rewards.
+  By what the maker paid per contract: over 90c +1.12% [+0.73, +1.49]; 50-90c +3.71%
+  [+1.44, +5.77]; 25-50c +0.15% [-2.57, +2.99]; 10-25c -9.52% [-24.41, +5.16] (one event,
+  KXLAYOFFSYINFO-26, is -$2.1M of it); 10c and under +4.05% [-13.03, +24.75].
+  So fills on the expensive side were reliably profitable and fills on the cheap side
+  were a coin flip with wide swings. The cheap side is where reward per dollar is highest.
+- **Track B, first pair** (`results/track_b.json`): of 3,994 side-markets where $50 at the
+  reference price earned at least 1% a day at 21:03 UTC (mean 4.7% a day), the same orders
+  left untouched were earning 4.6% a day 98 minutes later; 82% were still above 1%, 10% had
+  dropped out of the qualifying levels. One pair, one evening. Fills in between are not counted yet.
+- **Not done:** fills for Track B (the archive lags a day or two); maker-fee handling by series;
+  the rest of the settlement results (20,200 of 60,000 pulled).

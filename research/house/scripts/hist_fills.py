@@ -65,5 +65,34 @@ def table(where: str, label: str) -> dict:
 rows = [table("true", "all with known result"), table("sport", "sports"), table("not sport", "not sports")]
 for lo, hi, name in ((0, 1e3, "traded < $1k"), (1e3, 1e4, "$1k-$10k"), (1e4, 1e5, "$10k-$100k"), (1e5, 1e18, "$100k+")):
     rows.append(table(f"taker_usd >= {lo} and taker_usd < {hi}", name))
-json.dump(dict(as_of="2026-11-17", reward_total=tot[1], traded_total=tot[2], traded_with_known_result=tot[4], rows=[r for r in rows if r]),
-          open(ROOT / "results" / "history_step_b.partial.json", "w"), indent=1)
+
+# The same fills from the maker's side, by what the maker paid per contract. A resting bid that is
+# hit buys at its own price; "cost" is what the makers spent, "pnl" what settlement returned on top.
+BUCKETS = ((0, 0.10, "maker paid <=10c"), (0.10, 0.25, "10-25c"), (0.25, 0.50, "25-50c"), (0.50, 0.90, "50-90c"), (0.90, 1.01, ">90c"))
+con.execute(f"""create table f as
+    select p.event, case when t.taker_yes then 1 - t.yes_px/1e4 else t.yes_px/1e4 end mpx, t.contracts,
+           case when t.taker_yes then 1 - r.v else r.v end worth, t.minute
+    from prog p join res r on r.ticker = p.ticker
+    join read_parquet('{H}/trades/*.parquet') t on t.ticker = p.ticker and t.minute >= p.t0 and t.minute < p.t1""")
+events = [e for (e,) in con.execute("select distinct event from f").fetchall()]
+where = {e: i for i, e in enumerate(events)}
+by_price = []
+for lo, hi, name in BUCKETS:
+    g = con.execute(f"select event, sum(contracts*mpx) cost, sum(contracts*(worth-mpx)) pnl from f where mpx > {lo} and mpx <= {hi} group by 1").df()
+    cost, pnl = np.zeros(len(events)), np.zeros(len(events))
+    at = [where[e] for e in g.event]
+    cost[at], pnl[at] = g.cost.values, g.pnl.values
+    draw = np.random.default_rng(3).integers(0, len(events), size=(a.boot, len(events)))
+    r = pnl[draw].sum(1) / cost[draw].sum(1) * 100
+    worst = g.sort_values("pnl").head(3)
+    row = dict(bucket=name, events=len(g), maker_cost=float(g.cost.sum()), maker_pnl=float(g.pnl.sum()),
+               pnl_pct_of_cost=float(100 * g.pnl.sum() / g.cost.sum()), ci=[float(np.percentile(r, 2.5)), float(np.percentile(r, 97.5))],
+               worst_events=[[e, float(v)] for e, v in zip(worst.event, worst.pnl)])
+    by_price.append(row)
+    print(f"{name:<18} events {row['events']:>6,}  makers spent ${row['maker_cost']:>13,.0f}  made ${row['maker_pnl']:>12,.0f}  "
+          f"{row['pnl_pct_of_cost']:+.2f}% [{row['ci'][0]:+.2f}, {row['ci'][1]:+.2f}]")
+done = sum(1 for _ in open(H / "results.jsonl"))
+name = "history_step_b.json" if done >= 60_000 else "history_step_b.partial.json"
+json.dump(dict(as_of="2026-11-17", results_pulled=done, reward_total=tot[1], traded_total=tot[2], traded_with_known_result=tot[4],
+               rows=[r for r in rows if r], by_maker_price=by_price), open(ROOT / "results" / name, "w"), indent=1)
+print("wrote results/" + name)

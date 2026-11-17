@@ -19,6 +19,8 @@ stop = []
 signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
 signal.signal(signal.SIGINT, lambda *_: stop.append(1))
 rec = Recorder(a.root, Kalshi(rate=a.rate), log=lambda m: print(time.strftime("%H:%M:%S"), m, flush=True))
+if a.sweeps == 1:
+    rec.t_meta = time.time()      # a single pass already fetches market facts for every market it has not seen
 while not stop and (not a.sweeps or rec.sweeps < a.sweeps):
     try:
         line = rec.step()

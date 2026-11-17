@@ -1,0 +1,24 @@
+{
+ "as_of": "2026-11-17T22:50:35+00:00",
+ "dollars": 50.0,
+ "min_yield": 0.01,
+ "pairs": [
+  {
+   "first": "210322",
+   "second": "224154",
+   "hours_between": 1.63,
+   "side_markets": 3994,
+   "entry_yield_mean": 0.047357928951351304,
+   "entry_yield_median": 0.029555457052091075,
+   "later_yield_mean_unmoved": 0.046375497109732024,
+   "later_yield_median_unmoved": 0.024263115134691794,
+   "later_yield_mean_reposted": 0.04821347953766393,
+   "kept_fraction_of_yield": 0.9792551772559884,
+   "still_at_least_min": 0.8167250876314471,
+   "earning_nothing": 0.09914872308462694,
+   "why_nothing": {
+    "order no longer counts": 396
+   }
+  }
+ ]
+}

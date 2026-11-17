@@ -7,6 +7,7 @@ and, every few minutes:
   meta/DATE/HHMMSS.parquet    volume, open interest, status
   trades/DATE.jsonl           public trades in markets whose volume moved (off by default: one request each)
   programs.jsonl              every programme row the first time it is seen
+  grids.jsonl                 each market's price grid the first time it is seen
   sweeps.jsonl                one line per sweep: what was fetched, what failed, the totals
 
 Reads public endpoints only. It cannot place an order.
@@ -148,6 +149,8 @@ class Recorder:
                 continue
             for m in markets:
                 t = m["ticker"]
+                if t not in self.grids:          # tick sizes are needed to value an order against a later book
+                    self._append("grids.jsonl", [{"ticker": t, "price_ranges": m.get("price_ranges") or []}])
                 self.grids[t] = Grid.from_market(m.get("price_ranges"))
                 vol = float(m.get("volume_fp") or 0)
                 if t in self.volume and vol > self.volume[t]:
@@ -187,7 +190,7 @@ class Recorder:
         tickers = sorted(self.programs)
         unknown = [t for t in tickers if t not in self.grids]
         if unknown:
-            self.refresh_meta(unknown, record=False)
+            self.refresh_meta(unknown)
         keyframe = self.sweeps % self.keyframe_every == 0
         scores, books, failed, unscored, changed = [], [], [], 0, 0
         for i in range(0, len(tickers), BATCH):

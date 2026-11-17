@@ -60,18 +60,21 @@ def maker_entries(df: pd.DataFrame, kind: str, lo: float = 0.0, hi: float = 1.0,
     "through" is the pessimistic rule: it assumes the order sat at the back of the queue,
     so it is filled only once the whole level has gone, which is exactly when the price
     is moving against it. The band [lo, hi] applies to the price of the side held.
+    The resting price is moved to a whole cent away from the market (bids down, offers
+    up): a last print can be a volume-weighted price off the grid, and 1c is a valid
+    tick in every market.
     The fill price is always the resting price, never the better price the market reached.
     """
     if fill not in ("through", "touch"):
         raise ValueError(f"fill must be 'through' or 'touch', got {fill!r}")
     if kind == "bid_favourite":
-        rest = df.bid_last.to_numpy(dtype=float) - offset
+        rest = np.floor(_ticks(df.bid_last.to_numpy(dtype=float) - offset) / 10.0 + 1e-9) / 100.0
         held = rest
         ext = df.nx_low.to_numpy(dtype=float)
         hit = _ticks(ext) < _ticks(rest) if fill == "through" else _ticks(ext) <= _ticks(rest)
         side = "yes"
     elif kind == "offer_longshot":
-        rest = df.ask_last.to_numpy(dtype=float) + offset
+        rest = np.ceil(_ticks(df.ask_last.to_numpy(dtype=float) + offset) / 10.0 - 1e-9) / 100.0
         held = 1.0 - rest
         ext = df.nx_high.to_numpy(dtype=float)
         hit = _ticks(ext) > _ticks(rest) if fill == "through" else _ticks(ext) >= _ticks(rest)

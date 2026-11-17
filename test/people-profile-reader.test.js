@@ -329,6 +329,30 @@ test('INT-4: every Nick-authored source counts (nick, nick+data, nick-chat-*); o
   for (const s of ['chat', 'model', 'claude', 'not-nick']) assert.equal(reader.nickBlock(null, [src(s)]), null, s);
 });
 
+test('NICK-SOURCES: across nick, nick+data and nick-chat-* notes the newest noted_at wins a key', () => {
+  const n = (source, noted_at, note) => ({ name: 'X', note, source, noted_at });
+  const oldest = n('nick', '2026-09-17', '{"active": false, "difficulty": "easy"}');
+  const middle = n('nick+data', '2026-09-20', '{"active": true}');
+  const newest = n('nick-chat-2026-09-23', '2026-09-24T02:17:19Z', '{"difficulty": "hard to deal with"}');
+  for (const order of [[oldest, middle, newest], [newest, middle, oldest], [middle, newest, oldest]]) {
+    const b = reader.nickBlock(null, order);
+    assert.equal(b.active, true);
+    assert.equal(b.difficulty, 'hard to deal with');
+    assert.equal(b.hard, true);
+    assert.deepEqual(b.notes, []);
+  }
+  // Each source shape alone is read; a note without noted_at counts as oldest.
+  assert.equal(reader.nickBlock(null, [oldest]).active, false);
+  assert.equal(reader.nickBlock(null, [middle]).active, true);
+  assert.equal(reader.nickBlock(null, [newest]).hard, true);
+  assert.equal(reader.nickBlock(null, [n('nick', '2026-09-17', '{"active": true}'), n('nick', null, '{"active": false}')]).active, true);
+  // Text notes are kept oldest first; nick_override still beats every note.
+  const t = reader.nickBlock({ active: false }, [n('nick-chat-2026-09-23', '2026-09-24', 'b'), n('nick', '2026-09-17', 'a'), middle]);
+  assert.deepEqual(t.notes.map(x => x.text), ['a', 'b']);
+  assert.equal(t.active, false);
+  assert.equal(t.sources.active, 'nick_override');
+});
+
 test('INT-4: untouchable notes resolve to player ids on that roster only; unmatched names are said', () => {
   assert.equal(reader.untouchableName('untouchable: Player One (Nick 9/24: no chance he trades him)'), 'Player One');
   assert.equal(reader.untouchableName('Untouchable - Player Two'), 'Player Two');

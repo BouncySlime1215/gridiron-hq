@@ -301,6 +301,9 @@ export const NICK_NOTES_SOURCE = 'nick-chat-2026-09-23';
 const boolOf = v => (v === true || v === false ? v : v === 1 || v === 0 ? v === 1 : parseBool(v));
 const textOf = v => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
+/** Notes oldest first by noted_at (ISO dates and timestamps sort as text); stable, missing noted_at first. */
+const byNotedAt = notes => [...(notes ?? [])].sort((a, b) => String(a?.noted_at ?? '').localeCompare(String(b?.noted_at ?? '')));
+
 /** 'probably none', 'none', 'no' -> this manager does not expect to trade. */
 export function tradesNone(trades) {
   return typeof trades === 'string' && /\b(none|no|never)\b/i.test(trades);
@@ -312,7 +315,8 @@ export function tradesNone(trades) {
  * whose text is a JSON object is read as override keys; a note 'untouchable: <player>'
  * names a player his owner will not trade (untouchable_names; resolveUntouchables turns
  * them into player ids against that roster); any other note is kept as a note, never
- * parsed for meaning. nick_override beats a note on the same key.
+ * parsed for meaning. Notes apply oldest first by noted_at, so the newest note wins a key
+ * two notes both set (a note without noted_at counts as oldest). nick_override beats a note on the same key.
  * Returns null when there is nothing; `{ empty: true, warnings }` when there
  * was input but none of it usable.
  *
@@ -332,7 +336,7 @@ export function nickBlock(override = null, notes = []) {
       keys[k] = { v, from };
     }
   };
-  for (const n of notes ?? []) {
+  for (const n of byNotedAt(notes)) {
     if (n?.source != null && !isNickNote(n)) continue;
     const raw = textOf(n?.note);
     if (!raw) continue;

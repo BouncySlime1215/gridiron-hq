@@ -253,6 +253,10 @@ change on signed flow share by class (integer positive, retail negative).
   affected by that ordering.
 - `features.py` and its tests were committed together rather than as a
   failing-test commit followed by a fix.
+- One holdout-period game was seen in passing. While testing the in-game
+  builders I printed the price path of Tampa Bay at Chicago (2026-11-08) to
+  check the columns, and it runs to 99c at the end. Nothing was fitted to it
+  and it is one of roughly twenty thousand holdout games, but it was seen.
 - Train-only exploration ran several in-game and maker variants before A2 was
   chosen (price bands, time windows, flow filters, a bid-for-the-favourite
   rule that lost under back-of-queue fills). They are in the session's commit

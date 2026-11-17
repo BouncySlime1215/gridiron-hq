@@ -1,0 +1,89 @@
+{
+ "a1": {
+  "bootstrap": "games, 10000 draws",
+  "claim": "in-game pre-fee taker return, integer-count orders minus retail dollar-buy orders > 0",
+  "universe": "holdout games with retail dollar-buy flow"
+ },
+ "a2": {
+  "bootstrap": "games, 10000 draws",
+  "fill": "through",
+  "hi": 0.97,
+  "kind": "offer_longshot",
+  "lo": 0.9,
+  "maker_fee": "0.0175 * p * (1 - p) on quadratic_with_maker_fees series, else 0",
+  "max_mins_in": 45,
+  "one_position_per_game": true,
+  "stake": 100.0
+ },
+ "code_commit": "47e609cb4da6b1c4a54cd9bc7ed0e7a8490cc5ca",
+ "fractional_era_start": "2026-04-20",
+ "frozen_at_utc": "2026-11-17 19:11:55",
+ "p4": {
+  "coef": [
+   1.1283534199743641,
+   0.08144710943643596,
+   -0.005619301322328902,
+   -0.008492831433100414,
+   -0.004913608807141429,
+   -0.012765417335974872,
+   -0.02268206442283292,
+   -0.01812548959997857,
+   -0.011959580098773454,
+   -0.010862588865757944
+  ],
+  "features": [
+   "lp0",
+   "lp0_cu",
+   "fam_spread",
+   "fam_total",
+   "fam_team_total",
+   "fam_prop",
+   "fam_spread_x_lp0",
+   "fam_total_x_lp0",
+   "fam_team_total_x_lp0",
+   "fam_prop_x_lp0"
+  ],
+  "horizon_min": 10,
+  "intercept": -0.3885117879253476,
+  "max_quote_age": 30,
+  "max_spread": 0.1,
+  "model": "M1 ridge logistic on price terms by family (fallback: nothing beat the market on validation)",
+  "scaler_mean": [
+   -0.35346176329252416,
+   -0.1728918089008341,
+   0.17370099515924625,
+   0.23361830760600835,
+   0.020744603494484034,
+   0.24403735482932706,
+   -0.10469844059523749,
+   0.0008705497994552733,
+   -0.000727048422894518,
+   -0.18666399508796674
+  ],
+  "scaler_scale": [
+   1.1426961389388228,
+   0.9328208858897961,
+   0.378852160400246,
+   0.42313212352327123,
+   0.1425281197530532,
+   0.4295149872556628,
+   0.4225111510392187,
+   0.47004121568983037,
+   0.1478729960065679,
+   0.6956268437272002
+  ],
+  "stake": 100.0,
+  "tau": 0.01,
+  "train_games": 43191,
+  "train_rows": 192532
+ },
+ "results_snapshot": {
+  "markets": 3329102,
+  "series": 1489
+ },
+ "s8": {
+  "hi": 0.98,
+  "lo": 0.95,
+  "stake": 100.0
+ }
+}

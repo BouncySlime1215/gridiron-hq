@@ -191,3 +191,57 @@ def test_series_is_the_ticker_prefix_before_the_first_dash():
     assert tape.series_of("KXNFLTD-26NOV15KCDEN-KCPMAHOMES15-1") == "KXNFLTD"
     assert tape.event_of("KXNBAGAME-26NOV16HOUMIA-MIA") == "KXNBAGAME-26NOV16HOUMIA"
     assert tape.event_of("KXNFLTD-26NOV15KCDEN-KCPMAHOMES15-1") == "KXNFLTD-26NOV15KCDEN"
+
+
+# --- one-minute bars with FIRST prints per side: the in-game execution clock -------------------
+
+def minute_bars(con, **kw):
+    return con.sql(tape.minute_bars_sql("raw", "fee", **kw)).df()
+
+
+def test_minute_bar_keeps_first_and_last_taker_print_on_each_side():
+    con = make_con([
+        ("a", T, 10, 90, 10, "yes", ts(12, 0, 5)),     # first YES taker of the minute paid 90
+        ("b", T, 10, 92, 8, "yes", ts(12, 0, 40)),     # last YES taker paid 92
+        ("c", T, 10, 89, 11, "no", ts(12, 0, 10)),     # first NO taker hit the 89 bid
+        ("d", T, 10, 91, 9, "no", ts(12, 0, 50)),      # last NO taker hit the 91 bid
+        ("e", T, 10, 95, 5, "yes", ts(12, 1, 0)),      # next minute
+    ])
+    b = minute_bars(con).sort_values("bucket").reset_index(drop=True)
+    assert len(b) == 2
+    m = b.iloc[0]
+    assert (m.ask_first, m.ask_last) == (pytest.approx(0.90), pytest.approx(0.92))
+    assert (m.bid_first, m.bid_last) == (pytest.approx(0.89), pytest.approx(0.91))
+    assert (m.px_high, m.px_low) == (pytest.approx(0.92), pytest.approx(0.89))
+    assert m.ask_first_sec == pytest.approx(5.0) and m.bid_first_sec == pytest.approx(10.0)
+    assert b.iloc[1].bucket.to_pydatetime() == ts(12, 1)
+
+
+def test_minute_bar_side_without_a_taker_is_null_not_zero():
+    con = make_con([("a", T, 10, 90, 10, "yes", ts(12, 0, 5))])
+    m = minute_bars(con).iloc[0]
+    assert m.ask_first == pytest.approx(0.90)
+    assert m.bid_first != m.bid_first and m.bid_last != m.bid_last
+
+
+def test_minute_bar_flow_is_collapsed_by_kind_and_side_and_sums_to_the_total():
+    con = make_con([
+        ("a", T, 19.32, 50, 50, "yes", ts(12, 0, 1)),   # RB yes, $9.66
+        ("b", T, 19.32, 43, 57, "no", ts(12, 0, 2)),    # FX no, 19.32 * 0.57
+        ("c", T, 1000, 50, 50, "yes", ts(12, 0, 3)),    # IN yes $500 (large)
+        ("d", T, 20, 50, 50, "no", ts(12, 0, 4)),       # IN no $10 (small)
+    ])
+    m = minute_bars(con).iloc[0]
+    assert m.usd_rb_yes == pytest.approx(9.66) and m.usd_rb_no == 0
+    assert m.usd_fx_no == pytest.approx(19.32 * 0.57) and m.usd_fx_yes == 0
+    assert m.usd_in_yes == pytest.approx(500.0) and m.usd_in_no == pytest.approx(10.0)
+    assert m.usd_inl_yes == pytest.approx(500.0) and m.usd_inl_no == 0      # $250+ integer orders only
+    assert m.usd_rb_yes + m.usd_rb_no + m.usd_fx_yes + m.usd_fx_no + m.usd_in_yes + m.usd_in_no == pytest.approx(m.dollars)
+    assert m.n_orders == 4
+
+
+def test_minute_bars_can_be_limited_to_listed_series():
+    other = "KXMLBKS-26JUL01X-9"
+    con = make_con([("a", T, 10, 90, 10, "yes", ts(12, 0, 5)), ("b", other, 10, 50, 50, "yes", ts(12, 0, 5))])
+    assert sorted(minute_bars(con).ticker) == sorted([T, other])
+    assert minute_bars(con, series=["KXNBAGAME"]).ticker.tolist() == [T]

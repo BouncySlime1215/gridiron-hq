@@ -117,15 +117,16 @@ def test_lookback_window_drops_old_bars():
 
 
 def test_flow_is_collapsed_into_retail_buy_other_fractional_and_small_and_large_integer():
-    rows = [bar(at(120), d_RBS_yes=5.0, d_RBM_yes=50.0, d_RBL_no=500.0, n_RBS_yes=1, n_RBM_yes=1, n_RBL_no=1,
+    rows = [bar(at(120), d_RBS_yes=5.0, d_RBM_yes=50.0, d_RBL_no=500.0, d_RBX_no=2500.0,
+                n_RBS_yes=1, n_RBM_yes=1, n_RBL_no=1, n_RBX_no=1,
                 d_FXS_no=3.0, d_FXX_yes=4000.0, d_INS_yes=10.0, d_INM_no=100.0, d_INL_yes=1000.0, d_INX_no=9000.0)]
     s = snap(rows).iloc[0]
-    assert (s.usd_rb_yes, s.usd_rb_no) == (pytest.approx(55.0), pytest.approx(500.0))
-    assert (s.n_rb_yes, s.n_rb_no) == (2, 1)
+    assert (s.usd_rb_yes, s.usd_rb_no) == (pytest.approx(55.0), pytest.approx(3000.0))
+    assert (s.n_rb_yes, s.n_rb_no) == (2, 2)
     assert (s.usd_fx_yes, s.usd_fx_no) == (pytest.approx(4000.0), pytest.approx(3.0))
     assert (s.usd_ins_yes, s.usd_ins_no) == (pytest.approx(10.0), pytest.approx(100.0))
     assert (s.usd_inl_yes, s.usd_inl_no) == (pytest.approx(1000.0), pytest.approx(9000.0))
-    assert s.usd == pytest.approx(55 + 500 + 3 + 4000 + 10 + 100 + 1000 + 9000)
+    assert s.usd == pytest.approx(55 + 3000 + 3 + 4000 + 10 + 100 + 1000 + 9000)
 
 
 def test_recent_window_is_the_last_sixty_minutes_before_the_decision_time():
@@ -138,7 +139,9 @@ def test_recent_window_is_the_last_sixty_minutes_before_the_decision_time():
 
 
 def test_earlier_prices_use_the_last_bar_that_had_finished_by_then():
-    rows = [bar(at(400), close=0.30), bar(at(100), close=0.40), bar(at(75), close=0.45), bar(at(15), close=0.50)]
+    rows = [bar(at(400), close=0.30), bar(at(100), close=0.40), bar(at(75), close=0.45),
+            bar(at(70), close=0.47),          # starts at t0 - 60: still printing an hour before the decision
+            bar(at(15), close=0.50)]
     s = snap(rows).iloc[0]
     assert s.p_m60 == pytest.approx(0.45)    # bar [T-75, T-70) finished at t0 - 60
     assert s.p_m360 == pytest.approx(0.30)   # t0 - 360 = T-370: only the T-400 bar had finished
@@ -162,3 +165,12 @@ def test_each_market_gets_its_own_clock():
     assert s.loc[T].p_last == pytest.approx(0.5)
     assert s.loc[other].p_last == pytest.approx(0.7)
     assert s.loc[other].n_bars == 2
+
+
+def test_entry_bar_that_would_run_past_the_start_is_dropped_at_a_short_horizon():
+    start = dt.datetime(2026, 11, 16, 19, 7, tzinfo=UTC)      # h = 5 -> t0 = 19:02
+    rows = [bar(dt.datetime(2026, 11, 16, 18, 55, tzinfo=UTC), close=0.40),            # ends 19:00 -> feature
+            bar(dt.datetime(2026, 11, 16, 19, 5, tzinfo=UTC), close=0.90, ask=0.91)]   # [19:05, 19:10) crosses 19:07
+    s = snap(rows, h=5, starts=((T, start),)).iloc[0]
+    assert s.p_last == pytest.approx(0.40)
+    assert s.e1_ask != s.e1_ask    # NaN: the only candidate entry bar includes in-game trading

@@ -5,7 +5,7 @@ Per sweep, for every market with an active reward programme:
   books/DATE/HHMMSS.parquet   the raw levels, only for books that changed (all of them every keyframe)
 and, every few minutes:
   meta/DATE/HHMMSS.parquet    volume, open interest, status
-  trades/DATE.jsonl           public trades in markets whose volume moved
+  trades/DATE.jsonl           public trades in markets whose volume moved (off by default: one request each)
   programs.jsonl              every programme row the first time it is seen
   sweeps.jsonl                one line per sweep: what was fetched, what failed, the totals
 
@@ -70,6 +70,7 @@ def score_rows(ts: float, prog: Program, grid: Grid, yes: list, no: list) -> lis
         rows.append(dict(
             ts=ts, ticker=prog.ticker, side=side, ok=s.ok, valid=ys.ok and ns.ok,
             ref=s.reference or 0, best=max((p for p, _ in levels), default=0),
+            low=s.levels[-1][0] if s.levels else 0,          # the lowest price that still qualifies
             score=s.total, qsize=s.size, full=s.full_credit_size, cap=s.collateral,
             depth=sum(z for _, z in levels), nlev=len(s.levels), perday=prog.per_day, target=prog.target,
         ))
@@ -77,9 +78,10 @@ def score_rows(ts: float, prog: Program, grid: Grid, yes: list, no: list) -> lis
 
 
 class Recorder:
-    def __init__(self, root, api, now=time.time, programs_every=900, meta_every=900, keyframe_every=24, log=print):
+    def __init__(self, root, api, now=time.time, programs_every=900, meta_every=900, keyframe_every=24, trades=False, log=print):
         self.root, self.api, self.now, self.log = Path(root), api, now, log
         self.programs_every, self.meta_every, self.keyframe_every = programs_every, meta_every, keyframe_every
+        self.trades = trades      # one request per traded market: affordable for a watch list, not for 5,700 markets
         self.programs: dict[str, Program] = {}
         self.grids: dict[str, Grid] = {}
         self.volume: dict[str, float] = {}
@@ -238,6 +240,7 @@ class Recorder:
         if self.now() - self.t_meta >= self.meta_every:
             self.t_meta = self.now()
             moved = self.refresh_meta(sorted(self.programs))
-            line["trades"] = self.fetch_trades(moved)
             line["moved"] = len(moved)
+            if self.trades:
+                line["trades"] = self.fetch_trades(moved)
         return line

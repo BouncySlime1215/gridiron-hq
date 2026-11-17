@@ -115,3 +115,15 @@ def test_payouts_round_down_to_the_cent_and_under_a_dollar_pays_nothing():
     assert lip.payout(reward=100.0, seconds=3, shares=[(0.1, 0.0, True)] * 3) == 5.0
     assert lip.payout(reward=10.0, seconds=3, shares=[(0.1999, 0.0, True)] * 3) == 0.0     # 0.9995
     assert lip.payout(reward=33.335, seconds=1, shares=[(0.1, 0.0, True)]) == 1.66          # 1.66675
+
+
+def test_an_order_below_the_reference_but_still_qualifying_is_paid_at_its_discount():
+    # 300 at 40c sets the reference; 100 + our 700 at 39c complete the target one tick below it
+    book = [(u("0.40"), 300.0), (u("0.39"), 100.0)]
+    assert lip.share(book, u("0.39"), 700, 1000, 0.5, CENT) == pytest.approx(700 * 0.5 / (300 + 800 * 0.5))
+
+
+def test_sizes_are_rounded_to_hundredths_not_truncated():
+    # 0.29 * 100 is 28.999999999999996 as a float; truncating it would leave this side one hundredth short
+    assert 0.29 * 100 < 29
+    assert side([("0.40", 999.71), ("0.39", 0.29)]).ok

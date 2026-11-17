@@ -61,7 +61,7 @@ def test_a_sweep_writes_the_formulas_verdict_for_each_side(tmp_path):
     s = read(tmp_path, "scores").set_index("side")
     want = lip.qualify([(u("0.40"), 600), (u("0.39"), 700)], 1000, 0.5, Grid())
     assert s.loc[YES, "score"] == want.total == 600 + 350
-    assert s.loc[YES, "ref"] == u("0.40") and s.loc[YES, "best"] == u("0.40")
+    assert s.loc[YES, "ref"] == u("0.40") and s.loc[YES, "best"] == u("0.40") and s.loc[YES, "low"] == u("0.39")
     assert s.loc[YES, "cap"] == 600 * 0.40 + 700 * 0.39
     assert s.loc[NO, "score"] == 2000 and bool(s.loc[NO, "valid"]) and s.loc[YES, "perday"] == 20.0
 
@@ -105,7 +105,7 @@ def test_trades_are_fetched_only_for_markets_whose_volume_grew(tmp_path):
     api = FakeApi()
     api.programs.append(program(ticker="MKT-B", pid="p2"))
     api.volume["MKT-B"] = 0.0
-    r = Recorder(tmp_path, api, now=clock(), meta_every=0)
+    r = Recorder(tmp_path, api, now=clock(), meta_every=0, trades=True)
     r.step()
     assert not (tmp_path / "trades").exists()            # first sight sets the baseline
     api.volume["MKT-B"] = 7.0
@@ -120,3 +120,13 @@ def test_each_programme_row_is_kept_once_even_across_restarts(tmp_path):
     r = Recorder(tmp_path, api, now=clock(), programs_every=0)
     r.step(); r.step()
     assert len((tmp_path / "programs.jsonl").read_text().splitlines()) == 1
+
+
+def test_trades_are_not_fetched_unless_asked_for_but_the_moved_count_still_is(tmp_path):
+    api = FakeApi()
+    r = Recorder(tmp_path, api, now=clock(), meta_every=0)
+    r.step()
+    api.volume["MKT-A"] = 99.0
+    line = r.step()
+    assert line["moved"] == 1 and "trades" not in line
+    assert not [1 for path, _ in api.calls if path == "/markets/trades"]

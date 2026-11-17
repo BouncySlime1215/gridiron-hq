@@ -1,0 +1,177 @@
+{
+ "as_of": "2026-11-17",
+ "source": "GET /incentive_programs (status=paid_out, type=liquidity) joined to TimeSeventeen/Kalshi daily trades 2025-09-17..2026-11-15",
+ "windows": 365290,
+ "reward_usd": 25806034.38,
+ "taker_usd_in_windows": 1401864338.37,
+ "contracts_in_windows": 2930023324,
+ "share_of_windows_with_no_trade": 0.1537,
+ "reward_usd_in_windows_with_no_trade": 3628806.65,
+ "reward_as_pct_of_taker_usd": 1.841,
+ "by_month": [
+  {
+   "month": "2025-09",
+   "windows": 66,
+   "reward_usd": 6160.0,
+   "taker_usd": 229163.0,
+   "reward_pct_of_volume": 2.69,
+   "no_trade_share": 0.015
+  },
+  {
+   "month": "2025-10",
+   "windows": 640,
+   "reward_usd": 139345.0,
+   "taker_usd": 7069007.0,
+   "reward_pct_of_volume": 1.97,
+   "no_trade_share": 0.009
+  },
+  {
+   "month": "2025-11",
+   "windows": 1365,
+   "reward_usd": 196121.0,
+   "taker_usd": 12651206.0,
+   "reward_pct_of_volume": 1.55,
+   "no_trade_share": 0.016
+  },
+  {
+   "month": "2025-12",
+   "windows": 3090,
+   "reward_usd": 232080.0,
+   "taker_usd": 23562643.0,
+   "reward_pct_of_volume": 0.98,
+   "no_trade_share": 0.038
+  },
+  {
+   "month": "2026-01",
+   "windows": 4667,
+   "reward_usd": 215205.0,
+   "taker_usd": 24530006.0,
+   "reward_pct_of_volume": 0.88,
+   "no_trade_share": 0.033
+  },
+  {
+   "month": "2026-02",
+   "windows": 6862,
+   "reward_usd": 317103.0,
+   "taker_usd": 14088241.0,
+   "reward_pct_of_volume": 2.25,
+   "no_trade_share": 0.057
+  },
+  {
+   "month": "2026-03",
+   "windows": 8485,
+   "reward_usd": 339202.0,
+   "taker_usd": 40900601.0,
+   "reward_pct_of_volume": 0.83,
+   "no_trade_share": 0.025
+  },
+  {
+   "month": "2026-04",
+   "windows": 12061,
+   "reward_usd": 709071.0,
+   "taker_usd": 56179908.0,
+   "reward_pct_of_volume": 1.26,
+   "no_trade_share": 0.067
+  },
+  {
+   "month": "2026-05",
+   "windows": 21696,
+   "reward_usd": 1598530.0,
+   "taker_usd": 58937079.0,
+   "reward_pct_of_volume": 2.71,
+   "no_trade_share": 0.175
+  },
+  {
+   "month": "2026-06",
+   "windows": 13037,
+   "reward_usd": 1095665.0,
+   "taker_usd": 68543989.0,
+   "reward_pct_of_volume": 1.6,
+   "no_trade_share": 0.027
+  },
+  {
+   "month": "2026-07",
+   "windows": 23616,
+   "reward_usd": 2191487.0,
+   "taker_usd": 125373711.0,
+   "reward_pct_of_volume": 1.75,
+   "no_trade_share": 0.138
+  },
+  {
+   "month": "2026-08",
+   "windows": 38511,
+   "reward_usd": 2472958.0,
+   "taker_usd": 252821888.0,
+   "reward_pct_of_volume": 0.98,
+   "no_trade_share": 0.135
+  },
+  {
+   "month": "2026-09",
+   "windows": 93780,
+   "reward_usd": 5541150.0,
+   "taker_usd": 370029699.0,
+   "reward_pct_of_volume": 1.5,
+   "no_trade_share": 0.155
+  },
+  {
+   "month": "2026-10",
+   "windows": 107907,
+   "reward_usd": 8067795.0,
+   "taker_usd": 261693097.0,
+   "reward_pct_of_volume": 3.08,
+   "no_trade_share": 0.155
+  },
+  {
+   "month": "2026-11",
+   "windows": 29507,
+   "reward_usd": 2684163.0,
+   "taker_usd": 85254101.0,
+   "reward_pct_of_volume": 3.15,
+   "no_trade_share": 0.358
+  }
+ ],
+ "by_window_volume": [
+  {
+   "bucket": "none",
+   "windows": 56155,
+   "reward_usd": 3628807.0,
+   "taker_usd": 0.0,
+   "reward_pct_of_volume": null
+  },
+  {
+   "bucket": "<$100",
+   "windows": 59652,
+   "reward_usd": 3685711.0,
+   "taker_usd": 1914468.0,
+   "reward_pct_of_volume": 192.52
+  },
+  {
+   "bucket": "<$1k",
+   "windows": 100285,
+   "reward_usd": 5888883.0,
+   "taker_usd": 44287220.0,
+   "reward_pct_of_volume": 13.3
+  },
+  {
+   "bucket": "<$10k",
+   "windows": 123307,
+   "reward_usd": 10130229.0,
+   "taker_usd": 391647276.0,
+   "reward_pct_of_volume": 2.59
+  },
+  {
+   "bucket": "<$100k",
+   "windows": 24253,
+   "reward_usd": 2257364.0,
+   "taker_usd": 626837262.0,
+   "reward_pct_of_volume": 0.36
+  },
+  {
+   "bucket": "$100k+",
+   "windows": 1638,
+   "reward_usd": 215042.0,
+   "taker_usd": 337178112.0,
+   "reward_pct_of_volume": 0.06
+  }
+ ]
+}

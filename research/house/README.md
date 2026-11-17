@@ -61,3 +61,16 @@ python scripts/hist_extract.py                  # 14 months of trades in rewarde
 - Orders placed only to collect a reward and pulled before they can trade are
   what Rule 5.17 calls spoofing. Anything built on this has to quote prices it
   is willing to trade at.
+
+## State on 2026-11-17 21:20 UTC
+
+- Recorder running since 21:05 UTC: 5,750 books a pass, a pass every ~2.2 minutes
+  (plus a 2-minute market-facts refresh every 15). `data/sweeps.jsonl` lists every pass and every failure.
+- `GATE.md` fixes the seven-day test (2026-11-18 to 2026-11-25) and what passes it.
+- History, step A (`results/history_step_a.json`): 365,290 paid windows, $25.8M.
+  Reward was 1.84% of the dollars traded inside them; $13.2M went to windows where
+  under $1,000 traded, $3.6M of that to windows with no trade at all.
+- History, step B (what the fills cost): settlement results for the 60,000
+  busiest markets are being pulled by `scripts/hist_results.py`.
+- Not done yet: checking the third-party trade archive against Kalshi's own
+  trades endpoint on a random sample; maker-fee handling by series.

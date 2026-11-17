@@ -1,4 +1,4 @@
-# The gate — written 2026-11-17 21:10 UTC, before any forward data was looked at
+# The gate — written 2026-11-17 21:07 UTC, before any forward data was looked at
 
 One question decides whether this goes any further: **does a newcomer's reward
 survive being filled at bad prices?** The recorder answers the first half and
@@ -56,7 +56,7 @@ orders priced to trade, not to be pulled.
 ## Already known going in (2026-11-17)
 
 - One snapshot, 20:15 UTC: $93k a day on $64.5M qualifying; half of side-markets
-  would pay a $25 newcomer 0.58% a day or more; a tenth, 7% or more.
+  would pay a small newcomer 0.58% a day or more at the margin; a tenth, 7% or more.
 - That figure falls with program age: 7.1% a day in the first hour, 0.32% after
   three days. Persistence is exactly what the week measures.
 - History, 365,290 paid windows, $25.8M: reward was 1.84% of the dollars traded

@@ -139,9 +139,11 @@ async def main() -> None:
     ap.add_argument("--skip-milestones", action="store_true")
     ap.add_argument("--series", nargs="*")
     ap.add_argument("--tiers", nargs="*", default=["historical", "live"])
+    ap.add_argument("--series-file", help="JSON list of series tickers in the order to pull them")
+    ap.add_argument("--top", type=int, default=0, help="with --series-file: only the first N series")
     ap.add_argument("--since", default="2024-12-01T00:00:00Z")
     ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--rate", type=float, default=4.0)
+    ap.add_argument("--rate", type=float, default=3.0)
     a = ap.parse_args()
 
     api = KalshiPublic(rate=a.rate)
@@ -155,10 +157,17 @@ async def main() -> None:
             series = a.series
         else:
             series = [s["ticker"] for s in json.load(open(META / "series_sports.json"))["series"]]
-        series = sorted(set(series), key=lambda s: (priority(s), s))
-        jobs = [(s, t) for t in a.tiers for s in series]
-        # interleave so priority-0 series of both tiers come first
-        jobs.sort(key=lambda j: (priority(j[0]), j[1], j[0]))
+        if a.series_file:
+            # an explicit order (for example by traded dollars): keep it, both tiers back to back
+            order = json.load(open(a.series_file))
+            known = set(series)
+            series = [s for s in order if s in known][: a.top or None]
+            jobs = [(s, t) for s in series for t in a.tiers]
+        else:
+            series = sorted(set(series), key=lambda s: (priority(s), s))
+            jobs = [(s, t) for t in a.tiers for s in series]
+            # interleave so priority-0 series of both tiers come first
+            jobs.sort(key=lambda j: (priority(j[0]), j[1], j[0]))
         q: asyncio.Queue = asyncio.Queue()
         for j in jobs:
             q.put_nowait(j)
@@ -178,7 +187,7 @@ async def main() -> None:
                 done["n"] += 1
                 if n > 0:
                     done["rows"] += n
-                if n > 5000 or done["n"] % 250 == 0:
+                if n > 5000 or done["n"] % 25 == 0:
                     el = time.time() - done["t0"]
                     log(f"{done['n']}/{len(jobs)} jobs, {done['rows']} markets, {api.n_requests} req "
                         f"({api.n_throttled} throttled, rate {api.limiter.rate:.1f}/s), {el/60:.1f} min; last {t}/{s}={n}")

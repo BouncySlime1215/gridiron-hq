@@ -17,15 +17,22 @@ BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
 
 class RateLimiter:
-    """Token bucket with multiplicative back-off on throttling."""
+    """Shared pacing with additive increase / multiplicative decrease.
 
-    def __init__(self, rate: float = 4.0, min_rate: float = 1.0, max_rate: float = 5.0):
+    The public limit is not published, so the pace is found by probing: creep up
+    while requests succeed, cut by 15% on a 429. A burst of 429s arriving together
+    counts as one cut (at most one per second), otherwise four workers hitting the
+    limit at once would collapse the rate to the floor.
+    """
+
+    def __init__(self, rate: float = 3.0, min_rate: float = 1.5, max_rate: float = 4.5):
         self.rate = rate
         self.min_rate = min_rate
         self.max_rate = max_rate
         self._next = time.monotonic()
         self._lock = asyncio.Lock()
         self._ok_streak = 0
+        self._last_cut = 0.0
 
     async def wait(self) -> None:
         async with self._lock:
@@ -38,18 +45,21 @@ class RateLimiter:
             await asyncio.sleep(delay)
 
     def throttled(self) -> None:
-        self.rate = max(self.min_rate, self.rate * 0.7)
+        now = time.monotonic()
+        if now - self._last_cut >= 1.0:
+            self.rate = max(self.min_rate, self.rate * 0.85)
+            self._last_cut = now
         self._ok_streak = 0
 
     def ok(self) -> None:
         self._ok_streak += 1
-        if self._ok_streak >= 200:
-            self.rate = min(self.max_rate, self.rate * 1.05)
+        if self._ok_streak >= 25:
+            self.rate = min(self.max_rate, self.rate + 0.05)
             self._ok_streak = 0
 
 
 class KalshiPublic:
-    def __init__(self, rate: float = 4.0, max_rate: float = 5.0, timeout: float = 60.0):
+    def __init__(self, rate: float = 3.0, max_rate: float = 4.5, timeout: float = 60.0):
         self.limiter = RateLimiter(rate=rate, max_rate=max_rate)
         self.client = httpx.AsyncClient(
             timeout=timeout,

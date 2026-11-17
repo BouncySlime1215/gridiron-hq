@@ -99,7 +99,8 @@ async def scan(a) -> None:
         maker_series = {s["ticker"] for s in sd.get("series", []) if s.get("fee_type") == "quadratic_with_maker_fees"}
         games = await fetch_games(api, now, a.lead)
         markets = await fetch_markets(api, games, maker_series)
-        tickets = live.longshot_tickets(games, markets, now=now, bankroll=a.bankroll, risk_per_position=a.risk, lead_minutes=a.lead)
+        tickets = live.longshot_tickets(games, markets, now=now, bankroll=a.bankroll, risk_per_position=a.risk, lead_minutes=a.lead,
+                                        include_in_game=a.include_in_game)
         seen = {(r["ticker"], r["expires"]) for r in read_jsonl(LEDGER)}
         fresh = []
         LEDGER.parent.mkdir(exist_ok=True)
@@ -154,15 +155,18 @@ async def grade(a) -> None:
         merged = keep + [r for r in graded_now if (r["ticker"], r["expires"]) not in final_keys]
         GRADED.write_text("".join(json.dumps(r) + "\n" for r in merged))
         fin = [r for r in merged if r.get("final")]
-        ft = [r for r in fin if r["filled_through"]]
-        fo = [r for r in fin if r["filled_touch"]]
         print(f"{iso(now)}  tickets past their window: {len(merged)}  settled: {len(fin)}  awaiting settlement: {len(merged) - len(fin)}")
-        for label, xs, key in (("filled if traded through (pessimistic)", ft, "pnl_through"), ("filled if touched (optimistic)", fo, "pnl_touch")):
-            staked = sum(r["max_loss"] for r in xs)
-            pnl = sum(r[key] for r in xs)
-            wins = sum(1 for r in xs if r[key] > 0)
-            print(f"  {label}: {len(xs)} positions, {wins} won, staked ${staked:.2f}, profit ${pnl:+.2f}"
-                  + (f" ({100 * pnl / staked:+.2f}%)" if staked else ""))
+        for phase in ("pre", "in-game"):
+            sub = [r for r in fin if r.get("phase_at_placement", "pre" if r["mins_to_start"] > 0 else "in-game") == phase]
+            print(f"  placed {phase}: {len(sub)} settled tickets")
+            for label, fkey, key in (("filled if traded through (pessimistic)", "filled_through", "pnl_through"),
+                                     ("filled if touched (optimistic)", "filled_touch", "pnl_touch")):
+                xs = [r for r in sub if r[fkey]]
+                staked = sum(r["max_loss"] for r in xs)
+                pnl = sum(r[key] for r in xs)
+                wins = sum(1 for r in xs if r[key] > 0)
+                print(f"    {label}: {len(xs)} positions, {wins} won, staked ${staked:.2f}, profit ${pnl:+.2f}"
+                      + (f" ({100 * pnl / staked:+.2f}%)" if staked else ""))
     finally:
         await api.aclose()
 
@@ -174,6 +178,7 @@ def main() -> None:
     s.add_argument("--bankroll", type=float, default=1000.0)
     s.add_argument("--risk", type=float, default=0.01, help="share of bankroll at risk per position")
     s.add_argument("--lead", type=int, default=60, help="minutes before the scheduled start to begin")
+    s.add_argument("--include-in-game", action="store_true", help="also ticket games already under way (the form that lost on the holdout)")
     sub.add_parser("grade")
     a = ap.parse_args()
     asyncio.run(scan(a) if a.cmd == "scan" else grade(a))

@@ -25,13 +25,18 @@ def _num(x):
 
 
 def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, bankroll: float,
-                     risk_per_position: float = 0.01, lead_minutes: int = 60) -> list[dict]:
+                     risk_per_position: float = 0.01, lead_minutes: int = 60, include_in_game: bool = False,
+                     max_spread: float = 0.03) -> list[dict]:
     """One buy-NO ticket per qualifying game.
 
     games:   {id, title, start (aware datetime), event_ticker, sport, status}
     markets: {ticker, event_ticker, series, status, yes_ask, yes_bid, volume, maker_rate, ...}
-    A game qualifies from `lead_minutes` before its scheduled start until the rule's
-    window closes. When several markets of a game qualify, the most traded one is used.
+    A game qualifies from `lead_minutes` before its scheduled start until the start:
+    one order, placed before the game and left to rest until 45 minutes in. That is the
+    form that was positive on train, validation and the holdout (S11). Writing new
+    tickets once a game is under way (`include_in_game=True`) is the A2 form, which lost
+    on the holdout; it is kept only so that form can be tracked separately.
+    When several markets of a game qualify, the most traded one is used.
     """
     spec = rules.EARLY_LONGSHOT_OFFER
     by_event: dict[str, list[dict]] = {}
@@ -46,12 +51,14 @@ def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, b
         mins_to_start = (g["start"] - now).total_seconds() / 60.0
         if mins_to_start > lead_minutes or -mins_to_start >= spec["max_mins_in"]:
             continue
+        if mins_to_start <= 0 and not include_in_game:
+            continue
         best = None
         for m in by_event.get(g["event_ticker"], []):
             ask, bid = _num(m.get("yes_ask")), _num(m.get("yes_bid"))
             if str(m.get("status") or "").lower() not in OPEN_STATUSES or ask is None or bid is None:
                 continue
-            if not (0.0 < bid < ask < 1.0):
+            if not (0.0 < bid < ask < 1.0) or ask - bid > max_spread + 1e-9:
                 continue
             offer = math.ceil(round(ask * 1000) / 10.0 - 1e-9) / 100.0
             no_price = round(1.0 - offer, 4)
@@ -73,5 +80,6 @@ def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, b
             "maker_fee": fees.taker_fee(contracts, no_price, rate=maker_rate) if maker_rate > 0 else 0.0,
             "start": g["start"], "expires": g["start"] + dt.timedelta(minutes=spec["max_mins_in"]),
             "mins_to_start": round(mins_to_start, 1), "volume": _num(m.get("volume")),
+            "phase_at_placement": "pre" if mins_to_start > 0 else "in-game",
         })
     return out

@@ -88,6 +88,12 @@ def test_fractional_order_off_the_dollar_grid_is_fx_and_integer_is_in():
     assert po.kind.tolist() == ["FX", "IN", "FX"]
 
 
+def test_dust_order_near_zero_dollars_is_not_a_dollar_order():
+    # 0.01 contracts at 50c costs half a cent: within the tolerance of $0, which is not a dollar amount
+    con = make_con([("a", T, 0.01, 50, 50, "yes", ts(12, 0))])
+    assert orders(con).kind.tolist() == ["FX"]
+
+
 def test_integer_order_is_never_retail_dollar_even_on_a_round_total():
     # 100 contracts at 20c = 20.00 + fee 1.12 = 21.12; craft a round one: rate 0 series
     con = make_con([("a", "KXFREE-1-A", 20, 50, 50, "yes", ts(12, 0))], fee_rows=(("KXFREE", 0.0),))

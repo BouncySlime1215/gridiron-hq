@@ -98,3 +98,40 @@ def test_maker_fee_is_shown_when_the_series_charges_one():
     t = tickets([game()], [market(maker_rate=0.0175)])[0]
     assert t["maker_fee"] > 0
     assert tickets([game()], [market()])[0]["maker_fee"] == 0.0
+
+
+# --- the forward ledger: one order per market, however often the scanner sees it ---------------
+
+def led(ticker="KXA-1-X", placed="2026-11-17T19:00:00Z", expires="2026-11-17T20:15:00Z", limit=0.93, **kw):
+    base = {"ticker": ticker, "placed_at": placed, "start": "2026-11-17T19:30:00Z", "expires": expires, "limit_price": limit,
+            "yes_offer": round(1 - limit, 2), "contracts": 10.75, "max_loss": 10.0, "max_gain": 0.75, "maker_fee": 0.0, "mins_to_start": 30.0}
+    base.update(kw)
+    return base
+
+
+def test_ledger_keeps_one_order_per_market_at_its_first_price():
+    rows = [led(limit=0.93), led(placed="2026-11-17T19:10:00Z", limit=0.92)]      # the scanner saw it again at a new quote
+    out = live.collapse_ledger(rows)
+    assert len(out) == 1
+    assert out[0]["placed_at"] == "2026-11-17T19:00:00Z" and out[0]["limit_price"] == 0.93     # the resting order is not re-priced
+
+
+def test_ledger_follows_a_start_time_that_slips():
+    # a tennis match scheduled for 19:30 actually goes on at 20:00: the order must rest until 45 minutes after the real start
+    rows = [led(expires="2026-11-17T20:15:00Z"), led(placed="2026-11-17T19:20:00Z", expires="2026-11-17T20:45:00Z", start="2026-11-17T20:00:00Z")]
+    out = live.collapse_ledger(rows)
+    assert len(out) == 1 and out[0]["expires"] == "2026-11-17T20:45:00Z" and out[0]["start"] == "2026-11-17T20:00:00Z"
+    assert out[0]["placed_at"] == "2026-11-17T19:00:00Z"
+    assert out[0]["times_seen"] == 2
+
+
+def test_ledger_does_not_extend_an_order_after_its_window_has_closed():
+    # a later row that was written after the first window had already shut is a new sighting of a dead order, not an extension
+    rows = [led(expires="2026-11-17T20:15:00Z"), led(placed="2026-11-17T20:30:00Z", expires="2026-11-17T21:15:00Z")]
+    out = live.collapse_ledger(rows)
+    assert len(out) == 1 and out[0]["expires"] == "2026-11-17T20:15:00Z"
+
+
+def test_ledger_keeps_markets_apart_and_in_first_seen_order():
+    rows = [led("KXB-2-Y", placed="2026-11-17T18:00:00Z"), led("KXA-1-X"), led("KXB-2-Y", placed="2026-11-17T18:10:00Z")]
+    assert [r["ticker"] for r in live.collapse_ledger(rows)] == ["KXB-2-Y", "KXA-1-X"]

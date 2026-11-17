@@ -38,6 +38,25 @@ import build_dataset  # noqa: E402
 DATA = ROOT / "data"
 
 
+_JOIN = ("""    with j as (
+        select b.*, m.y, g.t_start, g.milestone_id, f.family, f.sport_hint, f.taker_rate,
+               case when b.bucket < g.t_start then 'pre' else 'live' end as phase,
+               strftime(g.t_start, '%Y-%m') as ym,
+               case when g.t_start < timestamptz '__VS__' then 'train'
+                    when g.t_start < timestamptz '__HS__' then 'validation'
+                    when g.t_start < timestamptz '__FS__' then 'holdout'
+                    else 'forward' end as split,
+               sp.sport
+        from read_parquet('{bar_file}') b
+        join ev g on g.event_ticker = array_to_string(list_slice(string_split(b.ticker, '-'), 1, 2), '-')
+        join mk m using (ticker)
+        join fam f on f.series = b.series
+        join sports sp on sp.milestone_type = g.milestone_type
+    )
+""".replace("__VS__", guard.VALIDATION_START.isoformat())
+         .replace("__HS__", guard.HOLDOUT_START.isoformat()).replace("__FS__", guard.FORWARD_START.isoformat()))
+
+
 def day_sql(bar_file: str, where_split: str) -> str:
     parts = []
     for kind in tape.KINDS:
@@ -53,24 +72,24 @@ def day_sql(bar_file: str, where_split: str) -> str:
                        sum(c_{tag} * {win}) as payout, sum(taker_rate * c_{tag} * vwap * (1 - vwap)) as fee
                 from j where c_{tag} > 0 group by all""")
     union = "\nunion all\n".join(parts)
-    return f"""
-    with j as (
-        select b.*, m.y, g.t_start, f.family, f.sport_hint, f.taker_rate,
-               case when b.bucket < g.t_start then 'pre' else 'live' end as phase,
-               strftime(g.t_start, '%Y-%m') as ym,
-               case when g.t_start < timestamptz '{guard.VALIDATION_START.isoformat()}' then 'train'
-                    when g.t_start < timestamptz '{guard.HOLDOUT_START.isoformat()}' then 'validation'
-                    when g.t_start < timestamptz '{guard.FORWARD_START.isoformat()}' then 'holdout'
-                    else 'forward' end as split,
-               sp.sport
-        from read_parquet('{bar_file}') b
-        join ev g on g.event_ticker = array_to_string(list_slice(string_split(b.ticker, '-'), 1, 2), '-')
-        join mk m using (ticker)
-        join fam f on f.series = b.series
-        join sports sp on sp.milestone_type = g.milestone_type
-    )
-    select * from ({union}) where {where_split}
-    """
+    return _JOIN.format(bar_file=bar_file) + f"select * from ({union}) where {where_split}"
+
+
+def game_sql(bar_file: str, where_split: str) -> str:
+    """Per game, phase and flow kind: taker dollars, payout and fee (for game-clustered inference)."""
+    parts = []
+    for kind in tape.KINDS:
+        c_yes = " + ".join(f"c_{kind}{z}_yes" for z in tape.SIZES)
+        c_no = " + ".join(f"c_{kind}{z}_no" for z in tape.SIZES)
+        d_all = " + ".join(f"d_{kind}{z}_{sd}" for z in tape.SIZES for sd in tape.SIDES)
+        parts.append(f"""
+        select split, milestone_id, any_value(sport) as sport, phase, '{kind}' as kind,
+               sum({d_all}) as dollars,
+               sum(({c_yes}) * y + ({c_no}) * (1 - y)) as payout,
+               sum(taker_rate * (({c_yes}) + ({c_no})) * vwap * (1 - vwap)) as fee
+        from j group by split, milestone_id, phase""")
+    union = "\nunion all\n".join(parts)
+    return _JOIN.format(bar_file=bar_file) + f"select * from ({union}) where dollars > 0 and {where_split}"
 
 
 def process(args) -> "object":
@@ -91,7 +110,7 @@ def process(args) -> "object":
     con.execute("create temp table sports(milestone_type varchar, sport varchar)")
     con.executemany("insert into sports values (?, ?)", [(t, taxonomy.sport_of(t)) for t in types])
     where = "split in (" + ",".join(f"'{s}'" for s in splits) + ")"
-    return con.execute(day_sql(bar_file, where)).df()
+    return con.execute(day_sql(bar_file, where)).df(), con.execute(game_sql(bar_file, where)).df()
 
 
 def run(splits: tuple[str, ...], out: Path, workers: int = 3) -> None:
@@ -100,11 +119,13 @@ def run(splits: tuple[str, ...], out: Path, workers: int = 3) -> None:
     files = sorted((DATA / "bars").glob("*.parquet"))
     jobs = [(str(f), splits, f.stem.replace("_", "-")) for f in files]
     t0 = time.time()
-    frames = []
+    frames, games = [], []
     with mp.Pool(workers) as pool:
-        for i, df in enumerate(pool.imap_unordered(process, jobs), 1):
+        for i, (df, gdf) in enumerate(pool.imap_unordered(process, jobs), 1):
             if len(df):
                 frames.append(df)
+            if len(gdf):
+                games.append(gdf)
             if i % 50 == 0:
                 print(time.strftime("%H:%M:%S"), f"{i}/{len(jobs)} days, {(time.time()-t0)/60:.1f} min", flush=True)
     allf = pd.concat(frames, ignore_index=True)
@@ -112,7 +133,10 @@ def run(splits: tuple[str, ...], out: Path, workers: int = 3) -> None:
     agg = allf.groupby(keys, as_index=False)[["orders", "contracts", "dollars", "payout", "fee"]].sum()
     out.parent.mkdir(parents=True, exist_ok=True)
     agg.to_parquet(out, compression="zstd")
-    print("wrote", out, len(agg), "rows; taker dollars", round(agg.dollars.sum() / 1e9, 2), "bn", flush=True)
+    g = pd.concat(games, ignore_index=True)
+    g = g.groupby(["split", "milestone_id", "sport", "phase", "kind"], as_index=False)[["dollars", "payout", "fee"]].sum()
+    g.to_parquet(out.with_name(out.stem + "_games.parquet"), compression="zstd")
+    print("wrote", out, len(agg), "rows; taker dollars", round(agg.dollars.sum() / 1e9, 2), "bn;", len(g), "game rows", flush=True)
 
 
 if __name__ == "__main__":

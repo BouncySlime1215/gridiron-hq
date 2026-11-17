@@ -74,17 +74,22 @@ python scripts/hist_extract.py                  # 14 months of trades in rewarde
 - **History, step A** (`results/history_step_a.json`): 365,290 paid windows, $25.8M.
   Reward was 1.84% of the dollars traded inside them; $13.2M went to windows where
   under $1,000 traded, $3.6M of that to windows with no trade at all.
-- **History, step B, partial** (`results/history_step_b.partial.json`; settlement known for 54.5%
-  of the dollars traded in windows, the busiest markets first). Marked to settlement,
-  makers made +2.05% of traded dollars on their fills [+1.35, +2.87] before rewards.
-  By what the maker paid per contract: over 90c +1.12% [+0.73, +1.49]; 50-90c +3.71%
-  [+1.44, +5.77]; 25-50c +0.15% [-2.57, +2.99]; 10-25c -9.52% [-24.41, +5.16] (one event,
-  KXLAYOFFSYINFO-26, is -$2.1M of it); 10c and under +4.05% [-13.03, +24.75].
-  So fills on the expensive side were reliably profitable and fills on the cheap side
-  were a coin flip with wide swings. The cheap side is where reward per dollar is highest.
+- **History, step B** (`results/history_step_b.json`; settlement known for 80% of the dollars
+  traded in windows, 60,000 busiest markets). Marked to settlement, makers made +1.27% of traded
+  dollars on their fills [+0.71, +1.91] before $11.6M of rewards. It is not even:
+  - by what the maker paid per contract: over 90c +1.03% [+0.72, +1.31]; 50-90c +2.73%
+    [+0.94, +4.38]; 25-50c -0.45% [-2.49, +1.74]; 10-25c -8.45% [-19.43, +1.93]; 10c and
+    under -4.35% [-15.53, +9.84];
+  - by how busy the window was: under $1k traded -0.40% [-1.29, +0.47]; $1k-$10k **-0.58%
+    [-0.80, -0.37]**, where fills took back 35 cents of each reward dollar; $10k-$100k +0.72%;
+    over $100k +3.73%.
+  Fills on the expensive side were reliably profitable. Fills on the cheap side, where reward
+  per dollar is highest, lost money on the point estimate and are not distinguishable from zero.
+  (With 54% coverage the cheap side read +4%; it moved to -4% as smaller markets came in.)
 - **Track B, first pair** (`results/track_b.json`): of 3,994 side-markets where $50 at the
   reference price earned at least 1% a day at 21:03 UTC (mean 4.7% a day), the same orders
   left untouched were earning 4.6% a day 98 minutes later; 82% were still above 1%, 10% had
   dropped out of the qualifying levels. One pair, one evening. Fills in between are not counted yet.
-- **Not done:** fills for Track B (the archive lags a day or two); maker-fee handling by series;
-  the rest of the settlement results (20,200 of 60,000 pulled).
+- **Not done:** fills for Track B. Kalshi's ticker-filtered trades endpoint stopped answering after
+  about 150 requests tonight, so those fills wait for the daily archive (a day or two behind).
+  Maker-fee handling by series.

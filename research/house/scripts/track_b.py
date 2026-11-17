@@ -85,11 +85,17 @@ for fa, fb in zip(keyframes, keyframes[1:]):
                     except ValueError:
                         pass
                     gone = "" if y1 > 0 else "order no longer counts"
-            rows.append(dict(ticker=ticker, side=side, price=price, y0=y0, y1=y1, y1r=y1r, gone=gone,
+            mid_b = None
+            if ticker in B and B[ticker][1] and B[ticker][2]:      # YES midpoint at the later pass, for marking fills
+                mid_b = (max(p for p, _ in B[ticker][1]) + 10_000 - max(p for p, _ in B[ticker][2])) / 2 / 10_000
+            rows.append(dict(ticker=ticker, side=side, price=price, contracts=contracts, ts_a=ts_a,
+                             ts_b=B[ticker][0] if ticker in B else np.nan, mid_b=mid_b, y0=y0, y1=y1, y1r=y1r, gone=gone,
                              hours=(B[ticker][0] - ts_a) / 3600 if ticker in B else np.nan, age_h=(ts_a - prog.start) / 3600))
     df = pd.DataFrame(rows)
     if df.empty:
         continue
+    (D / "track_b").mkdir(exist_ok=True)
+    df.to_parquet(D / "track_b" / f"{fa.parent.name}_{fa.stem}__{fb.parent.name}_{fb.stem}.parquet")
     hours = float(df.hours.median())
     out = dict(first=fa.stem, second=fb.stem, hours_between=round(hours, 2), side_markets=len(df),
                entry_yield_mean=float(df.y0.mean()), entry_yield_median=float(df.y0.median()),

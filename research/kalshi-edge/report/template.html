@@ -83,7 +83,7 @@ th { font: 500 0.72rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: 
 td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 td.id { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
 #score { min-width: 700px; } #score td:nth-child(2) { min-width: 250px; }
-#flowprice { min-width: 560px; } #s11sport { min-width: 480px; }
+#flowprice { min-width: 620px; } #s11sport { min-width: 480px; }
 tr.money td { background: color-mix(in srgb, var(--surface) 70%, transparent); }
 .chip { display: inline-flex; align-items: center; gap: 6px; font: 500 0.8rem/1 var(--mono); white-space: nowrap; }
 .chip .ico { width: 16px; height: 16px; font-size: 10px; margin: 0; }
@@ -180,10 +180,10 @@ footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--rule);
     <h2>Order size tells you who is trading.</h2>
     <p class="lede">The public tape carries no names. It does carry sizes. Apps let people buy in dollars, so a "Buy $10" order at 50c prints as 19.32 contracts, which cost $9.9981 with the fee. An order that lands on a whole dollar like that is a retail dollar-buy. An order for a round number of contracts is something else.</p>
     <figure id="fig-kinds"></figure>
-    <h3>And it shows up in the next minute's price</h3>
-    <p class="lede">For every in-game minute, take each group's net buying as a share of that minute's dollars, then look at where the price went. Integer orders are followed by the price moving their way. Retail dollar-buys are followed by it moving against them.</p>
+    <h3>It shows up in the next minute's price too, more weakly than I first said</h3>
+    <p class="lede">For every in-game minute, take each group's net buying as a share of that minute's dollars, then see where the quote midpoint is a minute later. Integer orders are followed by the price moving their way. Retail dollar-buys are followed by about a third as much, or nothing.</p>
     <div class="scroll"><table id="flowprice"></table></div>
-    <p class="note">Prices between 15c and 85c, minutes with at least $200 traded, games from 20 April 2026. One unit means the group was 100% of that minute's dollars, all on one side. Standard errors are clustered by game. This is too small to beat the taker fee, which is about 1.75c at 50c. It is the kind of signal a resting order can use.</p>
+    <p class="note"><b>Corrected.</b> The first version of this table used each minute's average trade price and showed retail buying followed by a fall of 0.3c. That was bid-ask bounce: buying prints at the offer, so the average is high in a minute of buying and looks lower the minute after. The last row keeps that version so the difference is visible. On midpoints the integer effect is a third of what I first reported and the retail effect is not negative. Prices between 15c and 85c, minutes with at least $200 traded and a quote within 3c on both sides, games from 20 April 2026. One unit means the group was the whole minute, all one way. Standard errors are clustered by game. None of this clears the taker fee, which is about 1.75c at 50c.</p>
   </section>
 
   <section id="money">
@@ -443,18 +443,15 @@ footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--rule);
         .concat([["Integer minus retail"].concat(PERIODS.map(function (p) { return pct(D.kinds[p[0]].gap).replace("%", " pts"); })).concat([pct(D.kinds.holdout.lo).replace("%", "") + " to " + pct(D.kinds.holdout.hi).replace("%", " pts")])]), 1);
   }
 
-  /* ---------- flow predicts price (a table: nine headline numbers, not a chart) ---------- */
+  /* ---------- flow predicts price (a table: a handful of headline numbers, not a chart) ---------- */
   (function () {
-    var rows = [["Integer-count orders", "in"], ["Retail dollar-buys", "rb"], ["Other fractional orders", "fx"]].map(function (r) {
-      var out = [r[0]];
-      PERIODS.forEach(function (p) {
-        var c = D.flow_price[p[0]][r[1] + "_1"];
-        out.push((c.coef_cents < 0 ? "−" : "+") + Math.abs(c.coef_cents).toFixed(2) + "c  (t " + (c.t < 0 ? "−" : "") + Math.abs(c.t).toFixed(0) + ")");
-      });
-      return out;
+    function cell(c) { return (c.coef_cents < 0 ? "−" : "+") + Math.abs(c.coef_cents).toFixed(2) + "c  (t " + (c.t < 0 ? "−" : "") + Math.abs(c.t).toFixed(1) + ")"; }
+    var rows = [["Integer-count orders", "in_s"], ["Retail dollar-buys", "rb_s"], ["Other fractional orders", "fx_s"]].map(function (r) {
+      return [r[0]].concat(PERIODS.map(function (p) { return cell(D.flow_price[p[0]].mid[r[1]]); }));
     });
-    rows.push(["Minutes in the regression"].concat(PERIODS.map(function (p) { return num(D.flow_price[p[0]].minutes); })));
-    table(document.getElementById("flowprice"), ["Net buying by", "Train: next minute", "Validation", "Holdout"], rows, 1);
+    rows.push(["Minutes in the regression"].concat(PERIODS.map(function (p) { return num(D.flow_price[p[0]].mid.minutes); })));
+    rows.push(["Retail dollar-buys, on average trade price (the first, wrong version)"].concat(PERIODS.map(function (p) { return cell(D.flow_price[p[0]].avg_price.rb_s); })));
+    table(document.getElementById("flowprice"), ["Net buying by", "Train: midpoint a minute later", "Validation", "Holdout period"], rows, 1);
   })();
 
   /* ---------- where the money goes ---------- */

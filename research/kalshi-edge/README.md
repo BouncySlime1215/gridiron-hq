@@ -19,9 +19,16 @@ row 1).
 
 What held: the public tape can be split into retail dollar-buys and
 integer-count orders without any trader identity, and in-game the two earn
-very different returns (A1, Holm p = 0.0006). Integer flow is followed by the
-price moving its way (+1.0c next minute, t = 62 on the holdout); retail flow by
-the price moving against it (−0.3c, t = −24).
+very different returns (A1, Holm p = 0.0006). Integer flow is also followed by
+the quote midpoint moving its way, about +0.3c a minute later per unit of flow
+(t between 9 and 21 in each period); retail dollar-buying by a third of that or
+nothing.
+
+**Correction, same day.** The first write-up said integer flow was followed by
++1.0c and retail flow by −0.3c. Those came from comparing average trade prices,
+which carry bid-ask bounce. On midpoints the integer effect is a third of that
+and the retail effect is not negative (`results/s13_midpoint.json`,
+`tests/test_flowprice.py`). A1 is unaffected.
 
 What is only a lead: S11 was positive in all three periods and in 18 of 19
 months, 3,209 positions pooled at +2.05% [1.22, 2.87]. It was a declared
@@ -35,7 +42,7 @@ cd research/kalshi-edge
 uv venv .venv --python 3.13 && source .venv/bin/activate
 uv pip install numpy pandas scipy scikit-learn lightgbm pyarrow "httpx[http2]" aiohttp duckdb matplotlib statsmodels tqdm pytest pytz
 
-python -m pytest tests -q                 # 158 tests, about 5 seconds, no network
+python -m pytest tests -q                 # 163 tests, about 5 seconds, no network
 python scripts/scan_live.py scan --lead 20   # paper tickets for games starting in the next 20 minutes -> forward/ledger.jsonl
 python scripts/scan_live.py grade         # fills and results for tickets whose window closed
 ```
@@ -75,6 +82,7 @@ python scripts/run_holdout.py --split holdout    # writes a ledger row every tim
 | `kalshi_edge/ingame.py` | in-game fills: marketable orders and resting orders |
 | `kalshi_edge/backtest.py`, `strategy.py` | fee, limit, fill and settlement arithmetic |
 | `kalshi_edge/rules.py` | the frozen in-game rules and the before-kickoff offer, one code path for every split |
+| `kalshi_edge/flowprice.py` | does a group's net buying predict the next minute's midpoint |
 | `kalshi_edge/guard.py` | the holdout cannot be read without a ledger row |
 | `kalshi_edge/live.py` | live quotes → order tickets (no network, no orders) |
 | `docs/tdd/2026-11-17-kalshi-edge.tdd.md` (repo root) | RED/GREEN commits and mutation tallies |

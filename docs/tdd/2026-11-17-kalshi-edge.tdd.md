@@ -48,8 +48,9 @@ whole suite.
 | live tickets before the start only | `efdd966f` | `e9ce3f13` | 144 |
 | forward ledger: one order per market | `7bc84c8c` | `ab03d71f` | 154 |
 | the before-kickoff offer (S11) as a library rule | `2b306c4d` | `a8fd1a83` | 158 |
+| flow-to-price on quote midpoints | `9291b1c6` | `503d5496` | 163 |
 
-Final suite: 158 tests, 158 pass, about 5 seconds, no network.
+Final suite: 163 tests, 163 pass, about 5 seconds, no network.
 
 **Not RED/GREEN, said plainly:**
 
@@ -66,8 +67,9 @@ Final suite: 158 tests, 158 pass, about 5 seconds, no network.
   recorded positions, orders posted and return exactly, for both fill variants, so the
   holdout figure (same logic, same inputs) was left as recorded and the holdout was not
   read again.
-- `flow_price_regression` in `scripts/run_holdout.py` (S13) and the download /
-  orchestration scripts are untested.
+- `flow_price_regression` in `scripts/run_holdout.py` (S13 as registered) and the
+  download / orchestration scripts are untested. S13 as registered turned out to be
+  measured wrongly (section 4, third item); its replacement, `flowprice.fit`, is tested.
 
 ## 3. Mutations
 
@@ -87,8 +89,9 @@ A survivor is either closed with a new test or shown to be equivalent code.
 | `rules.py` in-game rules | 9 / 9 | |
 | `rules.py` before-kickoff offer | 14 / 14 | |
 | `live.py` tickets | 13 / 13 | |
+| `flowprice.py` | 5 / 5 | first pass 4 / 5: clustering of the standard errors was not shown; closed by `test_standard_errors_are_clustered_by_game` |
 
-## 4. Two bugs the tests exist because of
+## 4. Three mistakes the tests exist because of
 
 - **Single-precision prices.** An exploratory maker test stored prices as 32-bit floats.
   `float32(0.94)` is `0.9399999976`, which compares as *below* a 0.94 bid, so "touched"
@@ -101,6 +104,16 @@ A survivor is either closed with a new test or shown to be equivalent code.
   the game, and made every in-game rule look like it lost between 1% and 19%. The tape was
   re-read into one-minute bars that keep the *first* print per side
   (`tape.minute_bars_sql`), and `test_the_decision_minute_is_never_the_fill` pins the rule.
+
+- **Bid-ask bounce read as information.** S13 regressed the change in each minute's
+  average trade price on signed flow and found retail buying followed by a 0.3c fall
+  (t = −24). Buying prints at the offer and selling at the bid, so a minute of net buying
+  has a high average and the next minute looks lower with no information involved. On
+  quote midpoints the retail coefficient is +0.02c to +0.12c and the integer coefficient
+  is +0.3c, not +1.0c. The claim was published in the report and the README before it was
+  caught; both now carry the correction. `test_bounce_alone_makes_average_trade_prices_look_like_reversal`
+  reproduces the artefact on simulated data with no informed group at all, and
+  `test_midpoints_report_nothing_when_there_is_nothing` pins the measure that replaced it.
 
 ## 5. How do we know?
 

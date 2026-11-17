@@ -261,3 +261,29 @@ change on signed flow share by class (integer positive, retail negative).
   chosen (price bands, time windows, flow filters, a bid-for-the-favourite
   rule that lost under back-of-queue fills). They are in the session's commit
   history and the report lists them. A2 is the one carried to the holdout.
+
+---
+
+# Erratum — 2026-11-17, after the holdout
+
+**S13 was measured wrongly, and one claim made from it is withdrawn.** Amendment 1
+registered S13 as "next-minute price change on signed flow share by class
+(integer positive, retail negative)", and the holdout run computed it on each
+minute's average trade price: integer +0.99c (t 62), retail −0.30c (t −24).
+
+An average trade price sits near the offer in a minute of net buying and near
+the bid in a minute of net selling, so that comparison makes any net buying
+look like it was followed by a fall. On quote midpoints, same minutes, same
+controls (`scripts/flow_price.py`, `results/s13_midpoint.json`, ledger row 3,
+prices and flow only):
+
+| | train | validation | holdout period |
+|---|---|---|---|
+| integer-count orders | +0.32c (t 21.1) | +0.30c (t 8.7) | +0.29c (t 10.8) |
+| retail dollar-buys | +0.12c (t 6.3) | +0.02c (t 0.7) | +0.09c (t 4.1) |
+| other fractional orders | +0.08c (t 5.4) | +0.16c (t 6.3) | +0.14c (t 7.0) |
+
+What stands: integer flow predicts the next minute's midpoint about three times
+as strongly as retail flow. What is withdrawn: that retail buying is followed
+by the price moving against it. A1 is not affected; it compares what each
+group paid with what it was paid at settlement.

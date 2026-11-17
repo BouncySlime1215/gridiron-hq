@@ -75,10 +75,9 @@ def main() -> None:
                  "gap": R[s]["A1"]["gap"], "lo": R[s]["A1"]["lo"], "hi": R[s]["A1"]["hi"], "p": R[s]["A1"]["p_one_sided"],
                  "games": R[s]["A1"]["games"], "dollars_IN": R[s]["A1"]["dollars_IN"], "dollars_RB": R[s]["A1"]["dollars_RB"],
                  "dollars_FX": R[s]["A1_in_vs_fx"]["dollars_FX"]} for s in R}
-    flow_price = {s: {k: R[s]["S13_flow_predicts_price"][h][c] for k, (h, c) in
-                      {"in_1": ("d1", "in_s"), "rb_1": ("d1", "rb_s"), "fx_1": ("d1", "fx_s"), "in_5": ("d5", "in_s"), "rb_5": ("d5", "rb_s"),
-                       "fx_5": ("d5", "fx_s")}.items()} | {"minutes": R[s]["S13_flow_predicts_price"]["minutes"],
-                                                            "games": R[s]["S13_flow_predicts_price"]["games"]} for s in R}
+    # flow -> next-minute price, on quote midpoints (the registered average-price version is kept beside it)
+    s13 = json.load(open(ROOT / "results" / "s13_midpoint.json"))
+    flow_price = {s: {"mid": s13[s]["d_mid"], "mid5": s13[s]["d_mid5"], "avg_price": s13[s]["d_vwap"]} for s in R}
 
     # ---- rules across periods
     def pick(r):

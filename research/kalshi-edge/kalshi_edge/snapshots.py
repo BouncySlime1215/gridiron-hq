@@ -15,6 +15,12 @@ of the bar the quote was last seen in, so they are upper bounds: a quote reporte
 Entry bars are not features. They hold the prices at which real takers traded in
 the ten minutes after the decision; the backtest uses them to decide whether a
 limit order placed at t0 would have been filled, and at what price.
+
+The w_* columns describe the whole pre-game window after the decision (every full
+bar from t0 to the start): the highest and lowest fill price, the last price before
+the start (the closing line), and taker dollars by side. They are outcomes of the
+decision, never inputs to it: a resting order at price a was traded through if
+w_high > a (for an offer) or w_low < a (for a bid).
 """
 from __future__ import annotations
 
@@ -66,6 +72,16 @@ def snapshot_sql(bars: str, starts: str, h_minutes: int, lookback_days: int = 7)
         for side in SIDES:
             d = " + ".join(_sum_cols("d", kind, SIZES, side) for kind in ("RB", "FX", "IN"))
             cols.append(f"coalesce(sum({d}) filter (where {cond}), 0) as e{i}_usd_{side}")
+    # the whole pre-game window after the decision: every full bar from t0 to the start
+    win = f"(bucket >= e1_bucket and bucket + interval '{b} minutes' <= t_start)"
+    cols.append(f"count(*) filter (where {win}) as w_bars")
+    cols.append(f"max(px_high) filter (where {win}) as w_high")
+    cols.append(f"min(px_low) filter (where {win}) as w_low")
+    cols.append(f"arg_max(px_close, bucket) filter (where {win}) as w_close")
+    for side in SIDES:
+        d = " + ".join(_sum_cols("d", kind, SIZES, side) for kind in ("RB", "FX", "IN"))
+        cols.append(f"coalesce(sum({d}) filter (where {win}), 0) as w_usd_{side}")
+    cols.append(f"coalesce(sum({_sum_cols('d', 'RB', 'SMLX', 'yes')}) filter (where {win}), 0) as w_usd_rb_yes")
     extra = ",\n           ".join(cols)
 
     return f"""

@@ -135,3 +135,13 @@ def test_summary_reports_return_on_stake_with_a_game_clustered_interval():
     assert s["roi"] == pytest.approx(b.pnl.sum() / b.cost.sum())
     assert s["lo"] < s["roi"] < s["hi"]
     assert s["staked"] == pytest.approx(b.cost.sum())
+
+
+def test_summary_interval_is_clustered_by_game_not_by_bet():
+    # 40 games, 10 bets each, every bet in a game sharing its result: the honest interval is the 40-game one
+    rows = [row(ticker=f"KX{i}-1-X", event_ticker=f"KX{i}-1", milestone_id=f"g{i % 40}", y=float((i % 40) % 2)) for i in range(400)]
+    b = sim(rows, [0.70] * 400)
+    s = strategy.summarize(b, n_boot=2000)
+    from kalshi_edge import stats
+    per_bet = stats.cluster_bootstrap_ratio(b.pnl.to_numpy(), b.cost.to_numpy(), np.arange(len(b)), n_boot=2000, seed=0)
+    assert (s["hi"] - s["lo"]) > 2.5 * (per_bet.hi - per_bet.lo)

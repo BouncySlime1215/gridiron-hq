@@ -83,3 +83,24 @@ def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, b
             "phase_at_placement": "pre" if mins_to_start > 0 else "in-game",
         })
     return out
+
+
+def collapse_ledger(rows: list[dict]) -> list[dict]:
+    """One order per market from an append-only ledger, in first-seen order.
+
+    The scanner may see the same market many times. The order it stands for is placed
+    once: it keeps its first price and its first placement time. If the scheduled start
+    slips while the order is still resting, a later row moves the start and the
+    good-until time; a row written after the window had already closed changes nothing.
+    Timestamps are ISO-8601 UTC strings of one format, so they compare as text.
+    """
+    out: dict[str, dict] = {}
+    for r in rows:
+        cur = out.get(r["ticker"])
+        if cur is None:
+            out[r["ticker"]] = dict(r, times_seen=1)
+            continue
+        cur["times_seen"] += 1
+        if r["placed_at"] <= cur["expires"] and r["expires"] != cur["expires"]:
+            cur["expires"], cur["start"] = r["expires"], r["start"]
+    return list(out.values())

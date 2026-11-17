@@ -101,16 +101,18 @@ async def scan(a) -> None:
         markets = await fetch_markets(api, games, maker_series)
         tickets = live.longshot_tickets(games, markets, now=now, bankroll=a.bankroll, risk_per_position=a.risk, lead_minutes=a.lead,
                                         include_in_game=a.include_in_game)
-        seen = {(r["ticker"], r["expires"]) for r in read_jsonl(LEDGER)}
+        known = {r["ticker"]: r for r in live.collapse_ledger(read_jsonl(LEDGER))}
         fresh = []
         LEDGER.parent.mkdir(exist_ok=True)
         with LEDGER.open("a") as f:
             for t in tickets:
                 row = dict(t, placed_at=iso(now), start=iso(t["start"]), expires=iso(t["expires"]), mode="paper")
-                if (row["ticker"], row["expires"]) in seen:
-                    continue
-                f.write(json.dumps(row) + "\n")
-                fresh.append(row)
+                old = known.get(row["ticker"])
+                if old is not None and (old["expires"] == row["expires"] or iso(now) > old["expires"]):
+                    continue        # already resting with the same window, or its window has closed
+                f.write(json.dumps(row) + "\n")        # a new order, or the same order with a start time that moved
+                if old is None:
+                    fresh.append(row)
         print(f"{iso(now)}  games in window: {len({g['id'] for g in games})}  winner markets quoted: {len(markets)}  "
               f"tickets: {len(tickets)} ({len(fresh)} new)  requests: {api.n_requests} ({api.n_throttled} throttled)")
         for t in sorted(tickets, key=lambda t: t["start"]):
@@ -125,8 +127,8 @@ async def grade(a) -> None:
     api = KalshiPublic(rate=2.0, max_rate=3.0)
     try:
         now = dt.datetime.now(UTC)
-        done = {(r["ticker"], r["expires"]) for r in read_jsonl(GRADED) if r.get("final")}
-        rows = [r for r in read_jsonl(LEDGER) if (r["ticker"], r["expires"]) not in done and parse(r["expires"]) <= now]
+        done = {r["ticker"] for r in read_jsonl(GRADED) if r.get("final")}
+        rows = [r for r in live.collapse_ledger(read_jsonl(LEDGER)) if r["ticker"] not in done and parse(r["expires"]) <= now]
         graded_now = []
         for r in rows:
             lo, hi = int(parse(r["placed_at"]).timestamp()), int(parse(r["expires"]).timestamp())
@@ -151,8 +153,8 @@ async def grade(a) -> None:
                 out["pnl_touch"] = out["pnl_if_filled"] if touch else 0.0
             graded_now.append(out)
         keep = [r for r in read_jsonl(GRADED) if r.get("final")]
-        final_keys = {(r["ticker"], r["expires"]) for r in keep}
-        merged = keep + [r for r in graded_now if (r["ticker"], r["expires"]) not in final_keys]
+        final_keys = {r["ticker"] for r in keep}
+        merged = keep + [r for r in graded_now if r["ticker"] not in final_keys]
         GRADED.write_text("".join(json.dumps(r) + "\n" for r in merged))
         fin = [r for r in merged if r.get("final")]
         print(f"{iso(now)}  tickets past their window: {len(merged)}  settled: {len(fin)}  awaiting settlement: {len(merged) - len(fin)}")

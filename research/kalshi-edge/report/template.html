@@ -1,0 +1,591 @@
+<title>Who Pays Whom</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column that opens on a settlement slip (the verdict), then five flat sections;
+   only charts and tickets get a surface of their own. */
+:root {
+  --paper: #f2f5f6;  --surface: #fcfcfb;  --ink: #0d1215;  --ink-2: #485157;  --muted: #7d8488;
+  --rule: #d5dbde;   --rule-soft: #e4e8ea; --axis: #c3c2b7; --grid: #e1e0d9;
+  --accent: #2a78d6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --neg: #e34948; --pos: #2a78d6;
+  --good: #0ca30c; --bad: #d03b3b; --warn: #b77a00;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e1214; --surface: #1a1a19; --ink: #eef0ee; --ink-2: #bcc2c1; --muted: #878d8c;
+    --rule: #2c3336;  --rule-soft: #22282a; --axis: #383835; --grid: #2c2c2a;
+    --accent: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neg: #e66767; --pos: #3987e5;
+    --good: #0ca30c; --bad: #e66767; --warn: #fab219;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e1214; --surface: #1a1a19; --ink: #eef0ee; --ink-2: #bcc2c1; --muted: #878d8c;
+  --rule: #2c3336;  --rule-soft: #22282a; --axis: #383835; --grid: #2c2c2a;
+  --accent: #3987e5;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neg: #e66767; --pos: #3987e5;
+  --good: #0ca30c; --bad: #e66767; --warn: #fab219;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.55 var(--body); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 920px; margin: 0 auto; padding-block: 28px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: -0.005em; }
+h1 { font-size: clamp(2.3rem, 7vw, 3.5rem); line-height: 1.02; }
+h2 { font-size: clamp(1.45rem, 4vw, 1.9rem); line-height: 1.12; }
+h3 { font-size: 1.08rem; line-height: 1.25; }
+p { margin: 0; max-width: 66ch; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+.eyebrow { font: 500 0.74rem/1.2 var(--mono); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+section { display: flex; flex-direction: column; gap: 18px; padding-block: 34px 0; }
+section > .lede { color: var(--ink-2); }
+.small { font-size: 0.875rem; color: var(--ink-2); }
+.note { font-size: 0.84rem; color: var(--muted); max-width: 72ch; }
+
+/* masthead */
+.mast { display: flex; flex-direction: column; gap: 12px; padding-bottom: 22px; border-bottom: 1px solid var(--rule); }
+.mast .dek { font-size: 1.1rem; color: var(--ink-2); max-width: 60ch; }
+
+/* the slip */
+.slip { background: var(--surface); border: 1px solid var(--rule); margin-top: 22px; }
+.slip > div { padding: 16px 18px; }
+.slip .rows { display: flex; flex-direction: column; gap: 12px; }
+.verdict { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; }
+.verdict b { font-weight: 600; }
+.ico { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font: 600 13px/1 var(--mono); color: #fff; flex: none; margin-top: 2px; }
+.ico.bad { background: var(--bad); } .ico.good { background: var(--good); } .ico.warn { background: var(--warn); color: #0b0b0b; }
+.next { border-top: 1px dashed var(--rule); display: flex; flex-direction: column; gap: 8px; }
+.cmd { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cmd code { background: var(--paper); border: 1px solid var(--rule); padding: 7px 10px; font-size: 0.86rem; overflow-wrap: anywhere; min-width: 0; }
+button.copy, button.toggle { font: 500 0.78rem/1 var(--mono); color: var(--ink-2); background: transparent; border: 1px solid var(--rule); padding: 7px 10px; cursor: pointer; border-radius: 3px; }
+button.copy:hover, button.toggle:hover { color: var(--ink); border-color: var(--muted); }
+
+/* stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 22px; }
+.tile { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .v { font: 600 1.75rem/1.1 var(--body); letter-spacing: -0.01em; }
+.tile .l { font-size: 0.84rem; color: var(--ink-2); }
+
+/* tables */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+th { font: 500 0.72rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-bottom-color: var(--rule); white-space: nowrap; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.id { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+#score { min-width: 700px; } #score td:nth-child(2) { min-width: 250px; }
+#flowprice { min-width: 560px; } #s11sport { min-width: 480px; }
+tr.money td { background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 500 0.8rem/1 var(--mono); white-space: nowrap; }
+.chip .ico { width: 16px; height: 16px; font-size: 10px; margin: 0; }
+
+/* figures */
+figure { margin: 0; background: var(--surface); border: 1px solid var(--rule); padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+figure .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+figure .head > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+figure .sub { font-size: 0.85rem; color: var(--ink-2); max-width: 70ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; flex: none; }
+.sw.line { height: 3px; width: 16px; border-radius: 2px; }
+.plot { width: 100%; min-width: 0; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: var(--body); fill: var(--ink-2); font-size: 12px; }
+svg text.tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg text.val { fill: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+svg text.grp { fill: var(--ink); font-weight: 600; font-size: 12.5px; }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .base { stroke: var(--axis); stroke-width: 1; }
+svg .f1 { fill: var(--s1); } svg .f2 { fill: var(--s2); } svg .f3 { fill: var(--s3); } svg .fneg { fill: var(--neg); } svg .fpos { fill: var(--pos); }
+svg .l1 { stroke: var(--s1); } svg .l2 { stroke: var(--s2); }
+svg .ring { stroke: var(--surface); stroke-width: 2; }
+svg .hit { fill: transparent; cursor: default; }
+svg .hit:focus-visible { outline: 2px solid var(--accent); }
+svg .mark { transition: opacity .12s; }
+svg .dim .mark { opacity: 0.45; } svg .dim .mark.on { opacity: 1; }
+.bg1 { background: var(--s1); } .bg2 { background: var(--s2); } .bg3 { background: var(--s3); } .bgneg { background: var(--neg); } .bgpos { background: var(--pos); } .bgmuted { background: var(--muted); }
+.seg { display: flex; gap: 2px; height: 28px; }
+.seg > div { border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font: 600 0.8rem/1 var(--body); color: #fff; white-space: nowrap; overflow: hidden; min-width: 0; }
+#tip { position: fixed; z-index: 30; pointer-events: none; background: var(--ink); color: var(--paper); padding: 8px 10px; border-radius: 4px; font-size: 0.8rem; line-height: 1.35; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.22); }
+#tip b { display: block; font: 600 0.95rem/1.2 var(--mono); }
+#tip span { display: block; opacity: 0.85; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.two > * { min-width: 0; }
+
+/* tickets */
+.tickets { display: flex; flex-direction: column; border: 1px solid var(--rule); background: var(--surface); }
+.ticket { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) auto; gap: 4px 14px; padding: 10px 14px; border-bottom: 1px dashed var(--rule); align-items: baseline; }
+.ticket:last-child { border-bottom: 0; }
+.ticket .order { font: 600 0.92rem/1.3 var(--mono); white-space: nowrap; }
+.ticket .game { min-width: 0; overflow-wrap: anywhere; }
+.ticket .game small { display: block; color: var(--muted); font: 400 0.76rem/1.3 var(--mono); overflow-wrap: anywhere; }
+.ticket .state { font: 500 0.78rem/1.3 var(--mono); color: var(--ink-2); text-align: right; white-space: nowrap; }
+@media (max-width: 620px) { .ticket { grid-template-columns: 1fr; } .ticket .state { text-align: left; } }
+ol.todo { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
+ol.todo li::marker { font-family: var(--mono); color: var(--muted); }
+pre.block { margin: 0; background: var(--surface); border: 1px solid var(--rule); padding: 12px 14px; overflow-x: auto; font: 0.84rem/1.5 var(--mono); }
+footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 0.82rem; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { svg .mark { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <span class="eyebrow">Kalshi sports · every public trade · <span id="span-dates"></span></span>
+    <h1>Who pays whom</h1>
+    <p class="dek">I went looking for a betting model that makes money. This is what the tape says instead, tested on games the rules had never seen.</p>
+  </header>
+
+  <div class="slip">
+    <div class="rows">
+      <div class="verdict"><span class="ico bad" aria-hidden="true">✕</span><p><b>No rule here is proven to make money.</b> Both money tests that were written down in advance failed on the holdout games.</p></div>
+      <div class="verdict"><span class="ico good" aria-hidden="true">✓</span><p><b>One measurement held up.</b> Order size alone sorts the tape into retail money and informed money, and in-game the two earn very different returns.</p></div>
+      <div class="verdict"><span class="ico warn" aria-hidden="true">?</span><p><b>One lead is still standing.</b> A single resting order placed before kickoff was positive in all three test periods. It was a side test, so it is unproven, and it is being paper-traded now.</p></div>
+    </div>
+    <div class="next">
+      <span class="eyebrow">Do this next</span>
+      <div class="cmd"><code id="cmd-grade">cd research/kalshi-edge &amp;&amp; source .venv/bin/activate &amp;&amp; python scripts/scan_live.py grade</code><button class="copy" data-copy="cmd-grade" type="button">Copy</button></div>
+      <p class="small">Run it tomorrow morning. It settles tonight's paper tickets against the real tape and prints the tally. <span id="fwd-line"></span></p>
+    </div>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section id="tests">
+    <span class="eyebrow">The tests, as written down beforehand</span>
+    <h2>Two of six passed. Neither was a money test.</h2>
+    <p class="lede">Six claims were fixed in the repository before any result from 1 October onward was read. They were then run once on those games. The correction for running six tests at once is Holm's.</p>
+    <div class="scroll"><table id="score"></table></div>
+    <p class="note" id="score-note"></p>
+  </section>
+
+  <section id="rules">
+    <span class="eyebrow">Why the holdout mattered</span>
+    <h2>The rule that looked best failed. A plainer one did not.</h2>
+    <p class="lede">Both rules sell the heavy underdog to people buying it as a lottery ticket. The first re-posts its offer every minute once the game is under way. The second places one order before kickoff and leaves it. Fills are the pessimistic kind: the order only counts as filled when the market trades straight through it.</p>
+    <figure id="fig-rules"></figure>
+    <p class="note" id="rules-note"></p>
+  </section>
+
+  <section id="fingerprint">
+    <span class="eyebrow">The measurement that held</span>
+    <h2>Order size tells you who is trading.</h2>
+    <p class="lede">The public tape carries no names. It does carry sizes. Apps let people buy in dollars, so a "Buy $10" order at 50c prints as 19.32 contracts, which cost $9.9981 with the fee. An order that lands on a whole dollar like that is a retail dollar-buy. An order for a round number of contracts is something else.</p>
+    <figure id="fig-kinds"></figure>
+    <h3>And it shows up in the next minute's price</h3>
+    <p class="lede">For every in-game minute, take each group's net buying as a share of that minute's dollars, then look at where the price went. Integer orders are followed by the price moving their way. Retail dollar-buys are followed by it moving against them.</p>
+    <div class="scroll"><table id="flowprice"></table></div>
+    <p class="note">Prices between 15c and 85c, minutes with at least $200 traded, games from 20 April 2026. One unit means the group was 100% of that minute's dollars, all on one side. Standard errors are clustered by game. This is too small to beat the taker fee, which is about 1.75c at 50c. It is the kind of signal a resting order can use.</p>
+  </section>
+
+  <section id="money">
+    <span class="eyebrow">Where the money goes</span>
+    <h2>Takers lose about <span id="h-netloss"></span> of what they stake. Most of it is the fee.</h2>
+    <p class="lede">Every fill has a taker and a maker, and what the taker loses before fees is exactly what the maker gains. Adding up every settled sports fill gives the whole split.</p>
+    <figure id="fig-split"></figure>
+    <figure id="fig-bins"></figure>
+    <p class="note" id="bins-note"></p>
+  </section>
+
+  <section id="lead">
+    <span class="eyebrow">The lead, and tonight's paper orders</span>
+    <h2>One order before kickoff.</h2>
+    <p class="lede">In a game-winner market, when the underdog's YES is offered between 3c and 10c ten minutes before the start, join that offer and leave it until 45 minutes in. Selling YES at 6c is the same position as buying NO at 94c. It wins about 95 times in 100 and loses the whole stake the other five.</p>
+    <figure id="fig-months"></figure>
+    <div class="scroll"><table id="s11sport"></table></div>
+    <p class="note" id="lead-note"></p>
+    <h3>What the scanner has written since it started</h3>
+    <p class="small" id="tickets-sub"></p>
+    <div class="tickets" id="tickets"></div>
+  </section>
+
+  <section id="next">
+    <span class="eyebrow">If you want to take it further</span>
+    <h2>What I would do, in order</h2>
+    <ol class="todo">
+      <li><b>Grade the paper ledger for two weeks.</b> The scanner writes tickets; <code>grade</code> settles them. The backtest filled about 13 positions a day in October and November, so two weeks is roughly 180. Until then the lead is a backtest.</li>
+      <li><b>Find out what the queue does to you.</b> Place twenty of these by hand at one contract each, about $19 at risk in total. The only thing the tape cannot show is whether a real order at the back of the line gets filled before the price leaves.</li>
+      <li><b>Leave the in-game version alone.</b> It lost 1.6% on the holdout, worst in esports and table tennis, where a game is nearly over within the rule's 45-minute window.</li>
+      <li><b>Do not pay the taker fee to chase any of this.</b> Every marketable-order rule tested came out at zero or worse after fees.</li>
+    </ol>
+  </section>
+
+  <section id="method">
+    <span class="eyebrow">How it was built, and what it cannot tell you</span>
+    <h2>Method and limits</h2>
+    <div class="stack small" id="method-body"></div>
+    <pre class="block" id="repro"></pre>
+  </section>
+
+  <footer>
+    <span id="foot-1"></span>
+    <span>Code, pre-registration, ledger and results: <code>research/kalshi-edge/</code> on branch <code>claude/sports-betting-profit-model-ne9d64</code>. Nothing in this study places an order.</span>
+  </footer>
+</div>
+<div id="tip" hidden></div>
+<script type="application/json" id="data">__DATA__</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("data").textContent);
+  var NS = "http://www.w3.org/2000/svg";
+  var PERIODS = [["train", "Train"], ["validation", "Validation"], ["holdout", "Holdout"]];
+  var PERIOD_SPAN = { train: "to 31 Aug 2026", validation: "Sep 2026", holdout: "1 Oct to 15 Nov 2026" };
+
+  function h(tag, props) {
+    var e = document.createElement(tag), i, k;
+    props = props || {};
+    for (k in props) {
+      if (k === "text") e.textContent = props[k];
+      else if (k === "class") e.className = props[k];
+      else e.setAttribute(k, props[k]);
+    }
+    for (i = 2; i < arguments.length; i++) if (arguments[i] != null) e.appendChild(typeof arguments[i] === "string" ? document.createTextNode(arguments[i]) : arguments[i]);
+    return e;
+  }
+  function s(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag), k;
+    for (k in attrs) { if (k === "text") e.textContent = attrs[k]; else e.setAttribute(k, attrs[k]); }
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function pct(x, d) { if (x == null || isNaN(x)) return "n/a"; d = d == null ? 2 : d; return (x < 0 ? "−" : "+") + Math.abs(100 * x).toFixed(d) + "%"; }
+  function pct0(x, d) { return Math.abs(100 * x).toFixed(d == null ? 1 : d) + "%"; }
+  function usd(x) {
+    var a = Math.abs(x);
+    if (a >= 1e9) return "$" + (a / 1e9).toFixed(a >= 1e10 ? 1 : 2) + "bn";
+    if (a >= 1e6) return "$" + (a / 1e6).toFixed(a >= 1e8 ? 0 : 1) + "M";
+    return "$" + a.toFixed(2);
+  }
+  function num(x) { return Math.round(x).toLocaleString("en-US"); }
+  function pval(p) { if (p == null) return "no test"; return p < 0.001 ? "< 0.001" : p.toFixed(3); }
+
+  /* tooltip: one element, shown on hover and on keyboard focus */
+  var tip = document.getElementById("tip");
+  function showTip(lines, x, y) {
+    tip.textContent = "";
+    lines.forEach(function (l, i) { tip.appendChild(h(i === 0 ? "b" : "span", { text: l })); });
+    tip.hidden = false;
+    var r = tip.getBoundingClientRect(), W = document.documentElement.clientWidth;
+    tip.style.left = Math.max(8, Math.min(W - r.width - 8, x + 14)) + "px";
+    tip.style.top = Math.max(8, y - r.height - 12) + "px";
+  }
+  function hideTip() { tip.hidden = true; }
+  function bindTip(node, lines, group) {
+    node.setAttribute("tabindex", "0");
+    node.setAttribute("role", "img");
+    node.setAttribute("aria-label", lines.join(". "));
+    function on(ev) {
+      var p = ev.touches ? ev.touches[0] : ev, x = p.clientX, y = p.clientY;
+      if (x == null) { var b = node.getBoundingClientRect(); x = b.left + b.width / 2; y = b.top; }
+      showTip(lines, x, y);
+      if (group) { group.root.classList.add("dim"); group.mark.classList.add("on"); }
+    }
+    function off() { hideTip(); if (group) { group.root.classList.remove("dim"); group.mark.classList.remove("on"); } }
+    node.addEventListener("pointermove", on); node.addEventListener("pointerleave", off);
+    node.addEventListener("focus", on); node.addEventListener("blur", off);
+  }
+
+  /* figure shell: title, subtitle, legend, plot, table twin behind a toggle */
+  function figureShell(fig, title, sub, legend) {
+    fig.textContent = "";
+    var btn = h("button", { class: "toggle", type: "button", "aria-pressed": "false", text: "Table" });
+    fig.appendChild(h("div", { class: "head" }, h("div", {}, h("h3", { text: title }), h("span", { class: "sub", text: sub })), btn));
+    if (legend && legend.length) {
+      var lg = h("div", { class: "legend" });
+      legend.forEach(function (l) { lg.appendChild(h("span", {}, h("i", { class: "sw " + l[0] }), l[1])); });
+      fig.appendChild(lg);
+    }
+    var plot = h("div", { class: "plot" }), tbl = h("div", { class: "scroll" });
+    tbl.hidden = true;
+    fig.appendChild(plot); fig.appendChild(tbl);
+    btn.addEventListener("click", function () {
+      var show = tbl.hidden;
+      tbl.hidden = !show; plot.hidden = show;
+      btn.setAttribute("aria-pressed", String(show)); btn.textContent = show ? "Chart" : "Table";
+    });
+    return { plot: plot, table: tbl };
+  }
+  function table(target, head, rows, numericFrom) {
+    var t = target.tagName === "TABLE" ? target : h("table"), tr = h("tr");
+    t.textContent = "";
+    head.forEach(function (c, i) { tr.appendChild(h("th", { class: i >= numericFrom ? "n" : "", text: c })); });
+    t.appendChild(h("thead", {}, tr));
+    var tb = h("tbody");
+    rows.forEach(function (r) {
+      var row = h("tr");
+      r.forEach(function (c, i) { row.appendChild(c instanceof Node ? h("td", { class: i >= numericFrom ? "n" : "" }, c) : h("td", { class: i >= numericFrom ? "n" : "", text: c })); });
+      tb.appendChild(row);
+    });
+    t.appendChild(tb);
+    if (t !== target) target.appendChild(t);
+    return t;
+  }
+  function chip(ok, label) { return h("span", { class: "chip" }, h("span", { class: "ico " + (ok ? "good" : "bad"), "aria-hidden": "true", text: ok ? "✓" : "✕" }), label); }
+  function ticks(lo, hi, step) { var out = [], v = Math.ceil(lo / step - 1e-9) * step; for (; v <= hi + 1e-9; v += step) out.push(Math.round(v * 1e6) / 1e6); return out; }
+  function barPath(x, w, y0, y1) {       /* rounded at the data end, square at the baseline */
+    var r = Math.min(4, w / 2, Math.abs(y1 - y0)), up = y1 < y0, d = up ? 1 : -1;
+    return "M" + x + "," + y0 + "V" + (y1 + d * r) + "Q" + x + "," + y1 + " " + (x + r) + "," + y1 + "H" + (x + w - r) +
+           "Q" + (x + w) + "," + y1 + " " + (x + w) + "," + (y1 + d * r) + "V" + y0 + "Z";
+  }
+
+  /* ---------- text driven by the data ---------- */
+  var S = D.scale, W = D.who;
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function day(d) { return +d.slice(8) + " " + MON[+d.slice(5, 7) - 1] + " " + d.slice(0, 4); }
+  document.getElementById("span-dates").textContent = day(S.first_day) + " to " + day(S.last_day);
+  document.getElementById("h-netloss").textContent = pct0(-W.all.net, 1);
+  var tiles = [
+    [usd(W.all.dollars), "of taker orders with a settled result, across " + num(S.games_in_game) + " games"],
+    [pct(W.all.net, 1), "takers' return after fees"],
+    [usd(W.all.fees), "in taker fees (estimated at each series' rate), against " + usd(W.all.maker_gain) + " kept by makers"],
+    [pct(D.kinds.holdout.gap, 1).replace("%", " pts"), "integer orders over retail dollar-buys, in-game, before fees, on the holdout"],
+  ];
+  var tl = document.getElementById("tiles");
+  tiles.forEach(function (t) { tl.appendChild(h("div", { class: "tile" }, h("span", { class: "v", text: t[0] }), h("span", { class: "l", text: t[1] }))); });
+
+  /* ---------- scorecard ---------- */
+  table(document.getElementById("score"), ["", "Claim", "Validation", "Holdout", "p", "p (Holm)", "Verdict"],
+    D.score.map(function (r) {
+      return [h("span", { class: "mono", text: r.id }), r.claim + (r.money ? "" : ""), r.validation, r.holdout, pval(r.p), r.p_holm == null ? "–" : pval(r.p_holm), chip(r.passed, r.passed ? "pass" : "fail")];
+    }), 4);
+  var sc = document.getElementById("score");
+  Array.prototype.forEach.call(sc.querySelectorAll("tbody tr"), function (tr, i) { tr.firstChild.className = "id"; if (D.score[i].money) tr.className = "money"; });
+  document.getElementById("score-note").textContent =
+    "P4 and A2 are the money tests. P1 passing is weaker than it looks: the same slope was " + D.score[0].validation.replace("slope ", "") +
+    " on validation and under 1 on train. Holdout: " + num(D.coverage.holdout.pregame_games) + " games pre-game, " + num(D.coverage.holdout.ingame_games) +
+    " in-game. Frozen model sha256 " + D.frozen.sha256.slice(0, 12) + "…, run " + D.frozen.holdout_run_utc + " UTC.";
+
+  /* ---------- rules across periods (dot and interval) ---------- */
+  function drawRules() {
+    var fig = document.getElementById("fig-rules");
+    var sh = figureShell(fig, "Return per position, by period", "Profit over capital at risk. Bars are 95% intervals from resampling games.",
+      [["line bg2", "Offer re-posted each minute in-game (A2, the registered test)"], ["line bg1", "One offer before kickoff (S11, a side test)"]]);
+    var rows = [];
+    PERIODS.forEach(function (p) { var r = D.rules.A2[p[0]]; rows.push({ g: 0, k: "A2", cls: "2", label: p[1], r: r }); });
+    PERIODS.forEach(function (p) { var r = D.rules.S11[p[0]]; rows.push({ g: 1, k: "S11", cls: "1", label: p[1], r: r }); });
+    rows.push({ g: 1, k: "S11", cls: "1", label: "All three", r: D.rules.S11.pooled, pooled: true });
+    var Wd = Math.max(300, sh.plot.clientWidth), left = 86, right = 64, rowH = 26, gapG = 30, top = 22;
+    var H = top + rows.length * rowH + gapG + 30;
+    var svg = s("svg", { viewBox: "0 0 " + Wd + " " + H, role: "group", "aria-label": "Return per position by rule and period" }, sh.plot);
+    var lo = -0.03, hi = 0.045, x = function (v) { return left + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (Wd - left - right); };
+    ticks(lo, hi, Wd < 520 ? 0.02 : 0.01).forEach(function (t) {
+      s("line", { class: t === 0 ? "base" : "grid", x1: x(t), x2: x(t), y1: top - 6, y2: H - 26 }, svg);
+      s("text", { class: "tick", x: x(t), y: H - 10, "text-anchor": "middle", text: (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(100 * t).toFixed(0) + "%" }, svg);
+    });
+    var y = top;
+    rows.forEach(function (row, i) {
+      if (i > 0 && rows[i - 1].g !== row.g) y += gapG;
+      if (i === 0 || rows[i - 1].g !== row.g)
+        s("text", { class: "grp", x: 0, y: y - 6, text: row.k === "A2" ? "Re-posted each minute in-game" : "One offer before kickoff" }, svg);
+      var cy = y + rowH / 2 + 4, g = s("g", { class: "mark" }, svg), r = row.r;
+      s("text", { x: 0, y: cy + 4, text: row.label, "font-weight": row.pooled ? 600 : 400 }, g);
+      s("line", { class: "l" + row.cls, x1: x(r.lo), x2: x(r.hi), y1: cy, y2: cy, "stroke-width": row.pooled ? 3 : 2, "stroke-linecap": "round" }, g);
+      s("circle", { class: "f" + row.cls + " ring", cx: x(r.roi), cy: cy, r: row.pooled ? 6 : 5 }, g);
+      s("text", { class: "val", x: Wd - right + 8, y: cy + 4, text: pct(r.roi) }, g);
+      var hit = s("rect", { class: "hit", x: left - 6, y: y + 2, width: Wd - left - right + 12, height: rowH }, svg);
+      bindTip(hit, [pct(r.roi) + " per position", (row.k === "A2" ? "Re-posted in-game" : "One offer before kickoff") + ", " + row.label.toLowerCase(),
+        "95% interval " + pct(r.lo) + " to " + pct(r.hi), num(r.positions) + " positions, " + pct0(r.win_rate, 1) + " won at an average price of " + Math.round(100 * r.avg_price) + "c"], { root: svg, mark: g });
+      y += rowH;
+    });
+    table(sh.table, ["Rule", "Period", "Positions", "Won", "Return", "95% interval"],
+      rows.map(function (row) { var r = row.r; return [row.k === "A2" ? "Re-posted each minute in-game (A2)" : "One offer before kickoff (S11)", row.label, num(r.positions), pct0(r.win_rate, 1), pct(r.roi), pct(r.lo) + " to " + pct(r.hi)]; }), 2);
+  }
+  var a2 = D.rules.A2, es = D.rules.A2_by_sport_holdout.esports, tt = D.rules.A2_by_sport_holdout.table_tennis;
+  document.getElementById("rules-note").textContent =
+    "The in-game rule went from " + pct(a2.train.roi) + " and " + pct(a2.validation.roi) + " to " + pct(a2.holdout.roi) + " on " + num(a2.holdout.positions) +
+    " holdout positions. " + (es ? "Esports alone was " + pct(es.roi, 1) + " on " + num(es.positions) + " positions" : "") +
+    (tt ? " and table tennis " + pct(tt.roi, 1) + " on " + num(tt.positions) : "") +
+    ". Those sports barely existed in the earlier data. With front-of-queue fills instead, the in-game rule was " + pct(D.rules.A2_touch.holdout.roi) +
+    " on the holdout, still not positive. The before-kickoff rule was declared as a side test before the holdout was opened, so its holdout result (p = " +
+    pval(D.rules.S11.holdout.p_one_sided) + ") is a lead and not a pass.";
+
+  /* ---------- fingerprint: return before fees by order type ---------- */
+  function drawKinds() {
+    var fig = document.getElementById("fig-kinds");
+    var sh = figureShell(fig, "In-game return before fees, by order type", "Settled profit over dollars paid, on games that have retail dollar-buy flow.",
+      PERIODS.map(function (p, i) { return ["bg" + (i + 1), p[1] + " (" + PERIOD_SPAN[p[0]] + ")"]; }));
+    var kinds = ["IN", "FX", "RB"], Wd = Math.max(300, sh.plot.clientWidth), left = 44, right = 8, top = 16, H = 250, bottom = 46;
+    var svg = s("svg", { viewBox: "0 0 " + Wd + " " + H, role: "group", "aria-label": "In-game return before fees by order type and period" }, sh.plot);
+    var lo = -0.03, hi = 0.02, yv = function (v) { return top + (hi - v) / (hi - lo) * (H - top - bottom); };
+    ticks(lo, hi, 0.01).forEach(function (t) {
+      s("line", { class: t === 0 ? "base" : "grid", x1: left, x2: Wd - right, y1: yv(t), y2: yv(t) }, svg);
+      s("text", { class: "tick", x: left - 6, y: yv(t) + 4, "text-anchor": "end", text: (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(100 * t).toFixed(0) + "%" }, svg);
+    });
+    var band = (Wd - left - right) / kinds.length, bw = Math.min(24, (band - 40) / 3 - 2);
+    kinds.forEach(function (k, gi) {
+      var cx = left + band * (gi + 0.5), x0 = cx - (3 * bw + 4) / 2;
+      PERIODS.forEach(function (p, pi) {
+        var v = D.kinds[p[0]][k], bx = x0 + pi * (bw + 2), g = s("g", { class: "mark" }, svg);
+        s("path", { class: "f" + (pi + 1), d: barPath(bx, bw, yv(0), yv(v)) }, g);
+        if (p[0] === "holdout") s("text", { class: "val", x: bx + bw / 2, y: v >= 0 ? yv(v) - 6 : yv(v) + 15, "text-anchor": "middle", text: pct(v, 1) }, g);
+        var hit = s("rect", { class: "hit", x: bx - 1, y: top, width: bw + 2, height: H - top - bottom }, svg);
+        bindTip(hit, [pct(v) + " before fees", D.kind_names[k] + ", " + p[1].toLowerCase(), usd(D.kinds[p[0]]["dollars_" + k]) + " of taker orders"], { root: svg, mark: g });
+      });
+      var words = D.kind_names[k].split(" "), half = Math.ceil(words.length / 2);
+      if (band < 150) {
+        s("text", { class: "grp", x: cx, y: H - 26, "text-anchor": "middle", text: words.slice(0, half).join(" ") }, svg);
+        s("text", { class: "grp", x: cx, y: H - 11, "text-anchor": "middle", text: words.slice(half).join(" ") }, svg);
+      } else s("text", { class: "grp", x: cx, y: H - 20, "text-anchor": "middle", text: D.kind_names[k] }, svg);
+    });
+    table(sh.table, ["Order type"].concat(PERIODS.map(function (p) { return p[1]; })).concat(["Holdout dollars"]),
+      kinds.map(function (k) { return [D.kind_names[k]].concat(PERIODS.map(function (p) { return pct(D.kinds[p[0]][k]); })).concat([usd(D.kinds.holdout["dollars_" + k])]); })
+        .concat([["Integer minus retail"].concat(PERIODS.map(function (p) { return pct(D.kinds[p[0]].gap).replace("%", " pts"); })).concat([pct(D.kinds.holdout.lo).replace("%", "") + " to " + pct(D.kinds.holdout.hi).replace("%", " pts")])]), 1);
+  }
+
+  /* ---------- flow predicts price (a table: nine headline numbers, not a chart) ---------- */
+  (function () {
+    var rows = [["Integer-count orders", "in"], ["Retail dollar-buys", "rb"], ["Other fractional orders", "fx"]].map(function (r) {
+      var out = [r[0]];
+      PERIODS.forEach(function (p) {
+        var c = D.flow_price[p[0]][r[1] + "_1"];
+        out.push((c.coef_cents < 0 ? "−" : "+") + Math.abs(c.coef_cents).toFixed(2) + "c  (t " + (c.t < 0 ? "−" : "") + Math.abs(c.t).toFixed(0) + ")");
+      });
+      return out;
+    });
+    rows.push(["Minutes in the regression"].concat(PERIODS.map(function (p) { return num(D.flow_price[p[0]].minutes); })));
+    table(document.getElementById("flowprice"), ["Net buying by", "Train: next minute", "Validation", "Holdout"], rows, 1);
+  })();
+
+  /* ---------- where the money goes ---------- */
+  function drawSplit() {
+    var fig = document.getElementById("fig-split"), a = W.all, feeShare = a.fees / a.taker_net_loss;
+    var sh = figureShell(fig, "Where takers' " + usd(a.taker_net_loss) + " went", "On " + usd(a.dollars) + " of taker orders. Fees are estimated at each series' published taker rate.",
+      [["bg2", "Exchange fees"], ["bg1", "Makers"]]);
+    var seg = h("div", { class: "seg", role: "img", "aria-label": "Exchange fees " + pct0(feeShare, 0) + ", makers " + pct0(1 - feeShare, 0) });
+    var f = h("div", { class: "bg2", style: "flex:" + feeShare.toFixed(4), text: pct0(feeShare, 0) + "  ·  " + usd(a.fees) });
+    var m = h("div", { class: "bg1", style: "flex:" + (1 - feeShare).toFixed(4), text: pct0(1 - feeShare, 0) + "  ·  " + usd(a.maker_gain) });
+    seg.appendChild(f); seg.appendChild(m); sh.plot.appendChild(seg);
+    table(sh.table, ["", "Taker dollars", "Before fees", "Fee", "After fees", "To makers", "Fees"],
+      [["All", a], ["In-game", W.live], ["Pre-game", W.pre]].map(function (r) { var x = r[1]; return [r[0], usd(x.dollars), pct(x.pre_fee), pct0(x.fee, 2), pct(x.net), usd(x.maker_gain), usd(x.fees)]; }), 1);
+  }
+  function drawBins() {
+    var fig = document.getElementById("fig-bins"), B = D.price_bins;
+    var sh = figureShell(fig, "Takers' return after fees, by the price they paid", "In-game orders only. The price is that of the side bought, so 5c is a longshot and 95c a heavy favourite.",
+      [["bgneg", "Lost money"], ["bgpos", "Made money"]]);
+    var Wd = Math.max(300, sh.plot.clientWidth), left = 44, right = 8, top = 18, H = 280, bottom = 34;
+    var svg = s("svg", { viewBox: "0 0 " + Wd + " " + H, role: "group", "aria-label": "Taker return after fees by price paid" }, sh.plot);
+    var lo = -0.55, hi = 0.05, yv = function (v) { return top + (hi - v) / (hi - lo) * (H - top - bottom); };
+    ticks(-0.5, 0, 0.1).forEach(function (t) {
+      s("line", { class: t === 0 ? "base" : "grid", x1: left, x2: Wd - right, y1: yv(t), y2: yv(t) }, svg);
+      s("text", { class: "tick", x: left - 6, y: yv(t) + 4, "text-anchor": "end", text: (t < 0 ? "−" : "") + Math.abs(100 * t).toFixed(0) + "%" }, svg);
+    });
+    var band = (Wd - left - right) / B.length, bw = Math.min(24, band - 6);
+    B.forEach(function (b, i) {
+      var bx = left + band * i + (band - bw) / 2, g = s("g", { class: "mark" }, svg), v = b.net;
+      var yEnd = Math.abs(yv(v) - yv(0)) < 2 ? yv(0) + (v >= 0 ? -2 : 2) : yv(v);
+      s("path", { class: v >= 0 ? "fpos" : "fneg", d: barPath(bx, bw, yv(0), yEnd) }, g);
+      if (i === 0 || i === B.length - 1) s("text", { class: "val", x: bx + bw / 2, y: v >= 0 ? yEnd - 6 : yEnd + 15, "text-anchor": i === 0 ? "start" : "end", dx: i === 0 ? -bw / 2 : bw / 2, text: pct(v, 1) }, g);
+      if (Wd >= 560 || i % 2 === 0) s("text", { class: "tick", x: bx + bw / 2, y: H - 12, "text-anchor": "middle", text: b.bin }, svg);
+      var hit = s("rect", { class: "hit", x: left + band * i, y: top, width: band, height: H - top - bottom }, svg);
+      bindTip(hit, [pct(v, 2) + " after fees", "Bought at " + b.bin, pct(b.pre_fee) + " before fees, fee " + pct0(b.fee, 2), usd(b.dollars) + " of taker orders"], { root: svg, mark: g });
+    });
+    table(sh.table, ["Price paid", "Taker dollars", "Before fees", "Fee", "After fees", "Makers' gain"],
+      B.map(function (b) { return [b.bin, usd(b.dollars), pct(b.pre_fee), pct0(b.fee, 2), pct(b.net), (b.maker_gain < 0 ? "−" : "") + usd(b.maker_gain)]; }), 1);
+  }
+  (function () {
+    var B = D.price_bins, f = function (n) { var b = B.filter(function (x) { return x.bin === n; })[0]; return pct(b.net); };
+    var low = B.slice(0, 3).reduce(function (a, b) { return a + b.maker_gain; }, 0);
+    document.getElementById("bins-note").textContent =
+      "The bars above 65c are too short to read at this scale: 65–80c " + f("65–80c") + ", 80–90c " + f("80–90c") + ", 90–95c " + f("90–95c") + ", 95c+ " + f("95c+") +
+      ". Those are averages over every taker, including bots that react within a second. A rule that buys favourites at the next minute's first price came out at " +
+      pct(D.rules.S8.holdout.roi) + " on the holdout (" + num(D.rules.S8.holdout.positions) + " positions). Makers made " + usd(low) +
+      " from orders bought under 20c. Their whole in-game gain was " + usd(W.live.maker_gain) + ", so on everything priced above 20c they lost a little.";
+  })();
+
+  /* ---------- the lead ---------- */
+  function drawMonths() {
+    var fig = document.getElementById("fig-months"), M = D.s11_months.filter(function (m) { return m.positions >= 30; });
+    var P = D.rules.S11.pooled;
+    var sh = figureShell(fig, "One offer before kickoff: return per position, by month",
+      num(P.positions) + " positions in all. " + pct0(P.win_rate, 1) + " won at an average price of " + (100 * P.avg_price).toFixed(1) + "c. Pooled return " + pct(P.roi) + " (95% interval " + pct(P.lo) + " to " + pct(P.hi) + ").",
+      PERIODS.map(function (p, i) { return ["bg" + (i + 1), p[1]]; }));
+    var Wd = Math.max(300, sh.plot.clientWidth), left = 44, right = 8, top = 16, H = 240, bottom = 34;
+    var svg = s("svg", { viewBox: "0 0 " + Wd + " " + H, role: "group", "aria-label": "Monthly return of the before-kickoff offer" }, sh.plot);
+    var lo = -0.04, hi = 0.08, yv = function (v) { return top + (hi - v) / (hi - lo) * (H - top - bottom); };
+    ticks(lo, hi, 0.02).forEach(function (t) {
+      s("line", { class: t === 0 ? "base" : "grid", x1: left, x2: Wd - right, y1: yv(t), y2: yv(t) }, svg);
+      s("text", { class: "tick", x: left - 6, y: yv(t) + 4, "text-anchor": "end", text: (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(100 * t).toFixed(0) + "%" }, svg);
+    });
+    var band = (Wd - left - right) / M.length, bw = Math.min(24, band - 4), names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    M.forEach(function (m, i) {
+      var bx = left + band * i + (band - bw) / 2, g = s("g", { class: "mark" }, svg), cls = { train: 1, validation: 2, holdout: 3 }[m.split] || 1;
+      s("path", { class: "f" + cls, d: barPath(bx, bw, yv(0), yv(m.roi)) }, g);
+      var mo = names[+m.month.slice(5) - 1], lab = mo + " ’" + m.month.slice(2, 4);
+      if (i % (Wd < 560 ? 3 : 2) === 0) s("text", { class: "tick", x: bx + bw / 2, y: H - 12, "text-anchor": "middle", text: lab }, svg);
+      var hit = s("rect", { class: "hit", x: left + band * i, y: top, width: band, height: H - top - bottom }, svg);
+      bindTip(hit, [pct(m.roi) + " per position", lab + " (" + m.split + ")", num(m.positions) + " positions, " + pct0(m.win_rate, 1) + " won"], { root: svg, mark: g });
+    });
+    table(sh.table, ["Month", "Period", "Positions", "Won", "Return"],
+      D.s11_months.map(function (m) { return [m.month, m.split, num(m.positions), pct0(m.win_rate, 1), pct(m.roi)]; }), 2);
+  }
+  table(document.getElementById("s11sport"), ["Sport, all periods", "Positions", "Won", "Return", "95% interval"],
+    D.s11_by_sport.map(function (r) { return [r.sport.replace("_", " "), num(r.positions), pct0(r.win_rate, 1), pct(r.roi), pct(r.lo) + " to " + pct(r.hi)]; }), 1);
+  (function () {
+    var pos = D.s11_months.filter(function (m) { return m.positions >= 30 && m.roi > 0; }).length, all = D.s11_months.filter(function (m) { return m.positions >= 30; }).length;
+    var S11 = D.rules.S11;
+    document.getElementById("lead-note").textContent =
+      "Positive in " + pos + " of " + all + " months with at least 30 positions. By period: train " + pct(S11.train.roi) + " (" + num(S11.train.positions) + "), validation " +
+      pct(S11.validation.roi) + " (" + num(S11.validation.positions) + "), holdout " + pct(S11.holdout.roi) + " (" + num(S11.holdout.positions) +
+      "). The pooled figure mixes the period the rule was found on with the two it was checked on, so read it as a summary, not a test. With front-of-queue fills the holdout figure is " +
+      pct(D.rules.S11_touch.holdout.roi) + ". About three in four posted orders were traded through. A loss costs the whole stake, so twenty wins are needed to pay for one.";
+  })();
+  (function () {
+    var F = D.forward, box = document.getElementById("tickets"), pre = F.tickets.filter(function (t) { return t.phase === "pre"; });
+    var th = F.pre_through, line = F.n_pre + " paper tickets written before a start, " + F.pre_settled + " settled.";
+    if (th.positions) line += " Filled and settled under the pessimistic rule: " + th.positions + ", " + th.won + " won, " + (th.pnl < 0 ? "−" : "+") + usd(th.pnl) + " on " + usd(th.staked) + " staked.";
+    document.getElementById("fwd-line").textContent = "So far: " + line;
+    document.getElementById("tickets-sub").textContent = line + " Sized at 1% of a $1,000 paper bankroll. Page built " + D.generated_utc + " UTC; the table below is a snapshot.";
+    pre.slice(-14).reverse().forEach(function (t) {
+      var state = !t.final ? (t.filled_through == null ? "window open" : (t.filled_through ? "filled, unsettled" : "not filled yet")) :
+        (t.filled_through ? ((t.pnl_through > 0 ? "won +" : "lost −") + usd(t.pnl_through)) : "never filled");
+      box.appendChild(h("div", { class: "ticket" },
+        h("span", { class: "order", text: "BUY NO " + t.contracts.toFixed(2) + " @ " + Math.round(100 * t.limit_price) + "c" }),
+        h("span", { class: "game" }, h("span", { text: t.game || "" }), h("small", { text: t.ticker + " · good until " + t.expires.slice(11, 16) + "Z" })),
+        h("span", { class: "state", text: state })));
+    });
+    if (!pre.length) box.appendChild(h("div", { class: "ticket" }, h("span", { class: "game", text: "No tickets yet. Run the scanner to write the first ones." })));
+  })();
+
+  /* ---------- method ---------- */
+  (function () {
+    var m = document.getElementById("method-body"), add = function (t) { m.appendChild(h("p", { text: t })); };
+    add("Data: " + num(S.fills_all) + " public fills over " + num(S.tape_days) + " days, of which " + num(S.fills_sports) + " were in sports markets (" + usd(S.sports_taker_dollars_all) +
+        " of taker orders). Fills sharing a microsecond and a side were rebuilt into " + num(S.orders_sports) + " taker orders. Results for " + num(S.settled_markets) +
+        " settled markets and start times for 204,700 games came from Kalshi's public API.");
+    add("Order types: a fractional contract count whose cost plus fee lands within 1.1c of a whole dollar is a retail dollar-buy. Other fractional counts are mostly people selling positions they opened in dollars. Integer counts are apps that size in contracts, and API traders. Fractional contracts only exist from the week of 13 April 2026, so anything about order types uses games from 20 April on.");
+    add("Fills: a marketable order decided at the end of one minute is filled at the next minute's first print on its side, if that print is at or under its limit. A resting order is filled only when the market trades through its price. Both rules are pinned by tests; an early version that used five-minute bars made every in-game rule look far worse than it was and was thrown out.");
+    add("What this cannot tell you: where a real order would sit in the queue, what the exchange changes next, or whether one good year carries over. The tape is a third-party archive, the fees are each series' current schedule, and start times are the scheduled ones.");
+    document.getElementById("repro").textContent =
+      "cd research/kalshi-edge && source .venv/bin/activate\n" +
+      "python -m pytest tests -q                        # 150 tests, no network\n" +
+      "python scripts/scan_live.py scan                 # write tonight's paper tickets\n" +
+      "python scripts/scan_live.py grade                # settle the ones whose window closed\n" +
+      "python scripts/run_holdout.py --split validation # every table on this page, on September\n" +
+      "cat HOLDOUT-LEDGER.md                            # every look at the holdout, numbered";
+    document.getElementById("foot-1").textContent = "Built " + D.generated_utc + " UTC from results/*.json. Holdout: games starting 1 October to 15 November 2026, read once for the tests above and once more for a labelled post-hoc look.";
+  })();
+
+  /* ---------- copy button ---------- */
+  Array.prototype.forEach.call(document.querySelectorAll("button.copy"), function (b) {
+    b.addEventListener("click", function () {
+      var src = document.getElementById(b.getAttribute("data-copy")), text = src.textContent;
+      function sel() { var r = document.createRange(); r.selectNodeContents(src); var se = window.getSelection(); se.removeAllRanges(); se.addRange(r); }
+      try { navigator.clipboard.writeText(text).then(function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1400); }, sel); } catch (e) { sel(); }
+    });
+  });
+
+  function drawAll() { drawRules(); drawKinds(); drawSplit(); drawBins(); drawMonths(); }
+  drawAll();
+  var rt; window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(drawAll, 150); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
+})();
+</script>

@@ -16,6 +16,24 @@ what is actually wired into the running app.
 
 ---
 
+## 2026-11-17 — Kalshi, every sport: who is on the other side (pre-registered, one holdout look)
+
+Standalone study under [research/kalshi-edge/](../research/kalshi-edge/README.md). Raw evidence:
+`research/kalshi-edge/results/{train,validation,holdout}.json`, `PREREGISTRATION.md`,
+`HOLDOUT-LEDGER.md`, [docs/tdd/2026-11-17-kalshi-edge.tdd.md](tdd/2026-11-17-kalshi-edge.tdd.md).
+Data: the whole public Kalshi tape (2.04bn fills, $69bn of sports taker orders with a settled
+result), not NFL only. Holdout: games starting 2026-10-01 to 2026-11-15.
+
+| Test | Verdict |
+|---|---|
+| Pre-game taker model: recalibration, flow terms, boosted trees vs the market's own price | **No.** None beat the mid price on validation; the frozen fallback placed 6 holdout bets and lost all 6. |
+| Buy heavy favourites in-game with a marketable order, filled at the next minute's first print | **No edge after fees**: +0.26% / −0.26% / −0.02% across train / validation / holdout. |
+| Rest an offer on the longshot each minute early in a game (the registered money test, A2) | **Failed out of sample.** +0.70% train, +1.16% validation, **−1.60% holdout** [−2.35, −0.85]. Do not ship. |
+| Order size separates informed from uninformed flow (A1) | **Yes, replicated.** In-game, integer-count orders out-earn retail dollar-buys by 2.6 / 3.2 / 3.3 points before fees (Holm p = 0.0006 on the holdout). Integer flow is followed by a +1.0c move next minute (t = 62), retail by −0.3c (t = −24). A measurement, not a trade: it does not clear the taker fee. |
+| One resting offer on a 3c–10c underdog, set ten minutes before the start (S11) | **A lead, not a pass.** +2.2% / +1.0% / +2.1% per position across the three periods, positive in 14 of 15 months, but it was a declared secondary and its fills are simulated. Being paper-traded (`forward/`). |
+| Pre-game favourite–longshot slope above 1 (P1) | Passed on the holdout (1.036) but was 0.997 and 1.000 on train and validation. Treat as unstable. |
+| Who pays whom | Takers lost 3.5% of stake after fees; about two thirds of that was the exchange fee, one third went to makers. |
+
 ## 2026-09-16 — the opener/model-lab sweep (one day, ~20 preregistered tests)
 
 Raw evidence: `docs/evidence/2026-09-16/{model-lab,opener-lab,opener-clv,opener-clv-v15,opener-clv-v15t,opener-repair}/`

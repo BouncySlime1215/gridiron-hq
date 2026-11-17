@@ -35,8 +35,8 @@ cd research/kalshi-edge
 uv venv .venv --python 3.13 && source .venv/bin/activate
 uv pip install numpy pandas scipy scikit-learn lightgbm pyarrow "httpx[http2]" aiohttp duckdb matplotlib statsmodels tqdm pytest pytz
 
-python -m pytest tests -q                 # 150 tests, about 6 seconds, no network
-python scripts/scan_live.py scan          # tonight's paper tickets -> forward/ledger.jsonl
+python -m pytest tests -q                 # 158 tests, about 5 seconds, no network
+python scripts/scan_live.py scan --lead 20   # paper tickets for games starting in the next 20 minutes -> forward/ledger.jsonl
 python scripts/scan_live.py grade         # fills and results for tickets whose window closed
 ```
 
@@ -74,7 +74,7 @@ python scripts/run_holdout.py --split holdout    # writes a ledger row every tim
 | `kalshi_edge/snapshots.py` | what was knowable h minutes before a start |
 | `kalshi_edge/ingame.py` | in-game fills: marketable orders and resting orders |
 | `kalshi_edge/backtest.py`, `strategy.py` | fee, limit, fill and settlement arithmetic |
-| `kalshi_edge/rules.py` | the two frozen rules, one code path for every split and for live |
+| `kalshi_edge/rules.py` | the frozen in-game rules and the before-kickoff offer, one code path for every split |
 | `kalshi_edge/guard.py` | the holdout cannot be read without a ledger row |
 | `kalshi_edge/live.py` | live quotes → order tickets (no network, no orders) |
 | `docs/tdd/2026-11-17-kalshi-edge.tdd.md` (repo root) | RED/GREEN commits and mutation tallies |
@@ -100,4 +100,7 @@ flow), from a tape that carries no identities.
 - Scheduled start times, not actual ones.
 - One year of an exchange that grew about twentyfold while it was being
   measured.
+- The live scanner reads the order book's best bid and offer. The backtest used the
+  last traded prices, which need recent trades on both sides. The forward ledger will
+  show whether that difference matters.
 - Nothing here places an order.

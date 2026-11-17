@@ -46,8 +46,10 @@ whole suite.
 | frozen rules | `9fa9d3ef` | `b471faeb` | 135 |
 | live order tickets | `21ed876e` | `47e609cb` | 142 |
 | live tickets before the start only | `efdd966f` | `e9ce3f13` | 144 |
+| forward ledger: one order per market | `7bc84c8c` | `ab03d71f` | 154 |
+| the before-kickoff offer (S11) as a library rule | `2b306c4d` | `a8fd1a83` | 158 |
 
-Final suite: 150 tests, 150 pass, about 6 seconds, no network.
+Final suite: 158 tests, 158 pass, about 5 seconds, no network.
 
 **Not RED/GREEN, said plainly:**
 
@@ -58,11 +60,14 @@ Final suite: 150 tests, 150 pass, about 6 seconds, no network.
   the holdout numbers were not re-run.
 - `kalshi_edge/hypotheses.py` (P1–P3) has no test of its own; it is two thin calls into
   the tested `stats.logit_fit`.
-- `static_offer` and `flow_price_regression` in `scripts/run_holdout.py` (S11, S13) and
-  the download / orchestration scripts are untested. **S11, the one positive lead, comes
-  from untested code.** Its fill arithmetic was written twice, once in exploration and
-  once in the runner, and the two agree on validation (329 fills, +0.58%), which is a
-  cross-check and not a test.
+- **S11, the one positive lead, was computed by an untested helper when the holdout was
+  run.** It has since been moved into `rules.static_longshot_offer` with tests written
+  first (`2b306c4d` → `a8fd1a83`). On train and validation the tested rule returns the
+  recorded positions, orders posted and return exactly, for both fill variants, so the
+  holdout figure (same logic, same inputs) was left as recorded and the holdout was not
+  read again.
+- `flow_price_regression` in `scripts/run_holdout.py` (S13) and the download /
+  orchestration scripts are untested.
 
 ## 3. Mutations
 
@@ -79,8 +84,9 @@ A survivor is either closed with a new test or shown to be equivalent code.
 | `tape.py` minute bars | 8 / 8 | |
 | `ingame.py` marketable orders | 12 / 13 | 1 equivalent (a NaN quote already fails the band comparison) |
 | `ingame.py` resting orders | 12 / 12 | |
-| `rules.py` | 9 / 9 | |
-| `live.py` | 13 / 13 | |
+| `rules.py` in-game rules | 9 / 9 | |
+| `rules.py` before-kickoff offer | 14 / 14 | |
+| `live.py` tickets | 13 / 13 | |
 
 ## 4. Two bugs the tests exist because of
 

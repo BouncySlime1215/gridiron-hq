@@ -58,3 +58,20 @@ def test_fit_reports_sample_size_and_clusters_by_game():
     assert f["minutes"] == 4000 and f["games"] == d.milestone_id.nunique()
     with pytest.raises(ValueError):
         flowprice.fit(d.iloc[:50], "d_mid")
+
+
+def test_standard_errors_are_clustered_by_game():
+    # 200 games of 50 minutes. Flow and the price move are both set per game, so 10,000 rows carry 200 games of information.
+    rng = np.random.default_rng(4)
+    g = np.repeat(np.arange(200), 50)
+    per_game_flow, per_game_move = rng.uniform(-0.4, 0.4, 200), rng.normal(0, 0.01, 200)
+    d = pd.DataFrame({"milestone_id": g, "in_s": per_game_flow[g], "rb_s": rng.uniform(-0.4, 0.4, 10000), "fx_s": rng.uniform(-0.4, 0.4, 10000),
+                      "dm1": rng.normal(0, 0.004, 10000), "d_mid": per_game_move[g] + rng.normal(0, 0.0005, 10000)})
+    f = flowprice.fit(d, "d_mid")
+    X = np.column_stack([np.ones(len(d)), d[["in_s", "rb_s", "fx_s", "dm1"]].to_numpy()])
+    y = d.d_mid.to_numpy() * 100
+    beta = np.linalg.lstsq(X, y, rcond=None)[0]
+    resid = y - X @ beta
+    naive_se = np.sqrt(resid @ resid / (len(y) - X.shape[1]) * np.linalg.inv(X.T @ X)[1, 1])
+    assert f["in_s"]["coef_cents"] == pytest.approx(beta[1])
+    assert f["in_s"]["se"] > 4 * naive_se            # treating minutes as independent would overstate the evidence about sevenfold

@@ -9,3 +9,4 @@ been opened.
 |---|---|---|---|---|---|
 | 1 | 2026-11-17 19:12:20 | fb396483f28e1aabe8ec64e60783d99020216611e73c4eb1756b17afc3167908 | scripts/run_holdout.py | primary P1-P4, A1-A2 and all secondaries | results/holdout.json |
 | 2 | 2026-11-17 19:22:00 | fb396483f28e1aabe8ec64e60783d99020216611e73c4eb1756b17afc3167908 | inline diagnostic (session) | POST-HOC, not confirmatory: why A2 lost - A2 positions by sport and week; S11 static offer by sport; pooled S11 across splits | printed in session, summarised in the report |
+| 3 | 2026-11-17 19:58:00 | fb396483f28e1aabe8ec64e60783d99020216611e73c4eb1756b17afc3167908 | scripts/flow_price.py | POST-HOC CORRECTION, prices and flow only (no outcome read): S13 re-measured on quote midpoints because the registered average-price measure is biased by bid-ask bounce | results/s13_midpoint.json |

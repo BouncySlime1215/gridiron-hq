@@ -2,6 +2,7 @@
 """Evaluate the frozen model and rules on one split.
 
     python scripts/run_holdout.py --split validation      dry run, same code path, no guard
+    python scripts/run_holdout.py --split train           the same tables on the discovery set (in-sample)
     python scripts/run_holdout.py --split holdout         THE look: needs frozen/model.json, writes a ledger row
 
 Writes results/<split>.json. Primary tests: P1-P4 (PREREGISTRATION.md section 6) and
@@ -81,32 +82,25 @@ def ingame_calibration(ig: pd.DataFrame) -> dict:
     return out
 
 
-def static_offer(h10: pd.DataFrame, lo: float = 0.03, hi: float = 0.10, minutes: int = 45, fill: str = "through") -> pd.DataFrame:
-    """S11: one resting offer on the underdog set 10 minutes before the start and left until `minutes` in."""
+def static_offer(h10: pd.DataFrame, fill: str = "through") -> pd.DataFrame:
+    """S11: one resting offer set ten minutes before the start and left until 45 minutes in.
+
+    This wrapper only looks up how high each market traded early in the game; the rule
+    itself is kalshi_edge.rules.static_longshot_offer.
+    """
     import duckdb
 
-    d = h10[(h10.family == "winner") & (~h10.period)]
-    ok = (d.ask0_age_min <= 30) & (d.bid0_age_min <= 30) & ((d.ask0 - d.bid0).between(0, 0.10)) & d.ask0.between(lo - 1e-9, hi + 1e-9)
-    d = d[ok].copy()
-    if len(d) == 0:
-        return d
-    tick = duckdb.connect()
-    tick.execute("set threads=3")
-    lo_t, hi_t = d.t_start.min(), d.t_start.max()
-    highs = tick.execute(f"""select ticker, max(px_high) filter (where mins_in < {minutes}) as hi_in
-                             from read_parquet('{DATA}/ingame_min/*.parquet')
-                             where t_start >= timestamptz '{lo_t.isoformat()}' and t_start <= timestamptz '{hi_t.isoformat()}'
-                             group by ticker""").df()
-    d = d.merge(highs, on="ticker", how="left")
-    offer = np.ceil(np.rint(d.ask0.to_numpy() * 1000) / 10.0 - 1e-9) / 100.0
-    top = np.fmax(d.w_high.fillna(-1).to_numpy(), d.hi_in.fillna(-1).to_numpy())
-    hit = np.rint(top * 1000) > np.rint(offer * 1000) if fill == "through" else np.rint(top * 1000) >= np.rint(offer * 1000)
-    e = d[hit].copy()
-    e["side"], e["price"] = "no", 1.0 - offer[hit]
-    e = e.sort_values("usd", ascending=False).groupby("milestone_id").head(1)
-    out = ingame.settle(e, rate_col="maker_rate")
-    out.attrs["posted"] = int(len(d))
-    return out
+    if len(h10) == 0:
+        return rules.static_longshot_offer(h10.assign(hi_in=np.nan), fill=fill)
+    con = duckdb.connect()
+    con.execute("set threads=3")
+    lo_t, hi_t = h10.t_start.min(), h10.t_start.max()
+    minutes = rules.STATIC_LONGSHOT_OFFER["minutes"]
+    highs = con.execute(f"""select ticker, max(px_high) filter (where mins_in < {minutes}) as hi_in
+                            from read_parquet('{DATA}/ingame_min/*.parquet')
+                            where t_start >= timestamptz '{lo_t.isoformat()}' and t_start <= timestamptz '{hi_t.isoformat()}'
+                            group by ticker""").df()
+    return rules.static_longshot_offer(h10.merge(highs, on="ticker", how="left"), fill=fill)
 
 
 def flow_price_regression(lo: str, hi: str) -> dict:
@@ -233,7 +227,7 @@ def evaluate(split: str, token=None) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", required=True, choices=["validation", "holdout"])
+    ap.add_argument("--split", required=True, choices=["train", "validation", "holdout"])
     a = ap.parse_args()
     token = None
     out = ROOT / "results" / f"{a.split}.json"

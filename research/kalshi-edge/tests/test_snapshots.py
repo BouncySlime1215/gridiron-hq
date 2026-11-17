@@ -174,3 +174,46 @@ def test_entry_bar_that_would_run_past_the_start_is_dropped_at_a_short_horizon()
     s = snap(rows, h=5, starts=((T, start),)).iloc[0]
     assert s.p_last == pytest.approx(0.40)
     assert s.e1_ask != s.e1_ask    # NaN: the only candidate entry bar includes in-game trading
+
+
+# --- the pre-game window after the decision: what a resting order could have met ---------------
+
+def wbar(bucket, close, high, low, **kw):
+    r = bar(bucket, close=close, **kw)
+    r["px_high"], r["px_low"] = high, low
+    return r
+
+
+def test_window_extremes_cover_every_full_bar_between_the_decision_and_the_start():
+    rows = [wbar(at(75), 0.50, 0.99, 0.01),                         # before t0 (h=60): a feature, not the window
+            wbar(at(60), 0.50, 0.53, 0.49), wbar(at(30), 0.52, 0.56, 0.51), wbar(at(5), 0.47, 0.50, 0.44),
+            wbar(at(0), 0.90, 0.95, 0.05)]                          # in-game: never
+    s = snap(rows, h=60).iloc[0]
+    assert s.w_high == pytest.approx(0.56) and s.w_low == pytest.approx(0.44)
+    assert s.w_close == pytest.approx(0.47)                         # last pre-game price: the closing line
+    assert s.w_bars == 3
+
+
+def test_window_excludes_a_bar_that_straddles_the_decision_or_the_start():
+    start = dt.datetime(2026, 11, 16, 19, 7, tzinfo=UTC)            # h=10 -> t0 = 18:57
+    rows = [wbar(dt.datetime(2026, 11, 16, 18, 50, tzinfo=UTC), 0.40, 0.40, 0.40),
+            wbar(dt.datetime(2026, 11, 16, 18, 55, tzinfo=UTC), 0.99, 0.99, 0.01),     # straddles t0
+            wbar(dt.datetime(2026, 11, 16, 19, 0, tzinfo=UTC), 0.45, 0.46, 0.44),      # the only full pre-game bar
+            wbar(dt.datetime(2026, 11, 16, 19, 5, tzinfo=UTC), 0.80, 0.97, 0.03)]      # straddles the start
+    s = snap(rows, starts=((T, start),)).iloc[0]
+    assert (s.w_high, s.w_low, s.w_close, s.w_bars) == (pytest.approx(0.46), pytest.approx(0.44), pytest.approx(0.45), 1)
+
+
+def test_window_is_empty_when_nothing_trades_after_the_decision():
+    s = snap([bar(at(15), close=0.5)]).iloc[0]
+    assert s.w_bars == 0
+    assert s.w_high != s.w_high and s.w_low != s.w_low and s.w_close != s.w_close
+
+
+def test_window_flow_is_split_by_taker_side_and_counts_retail_dollar_buys():
+    rows = [bar(at(15)),
+            bar(at(10), d_RBS_yes=40.0, d_INL_yes=300.0, d_FXS_no=7.0),
+            bar(at(5), d_RBM_yes=60.0, d_INS_no=20.0)]
+    s = snap(rows).iloc[0]
+    assert s.w_usd_yes == pytest.approx(400.0) and s.w_usd_no == pytest.approx(27.0)
+    assert s.w_usd_rb_yes == pytest.approx(100.0)

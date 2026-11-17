@@ -106,6 +106,17 @@ def main() -> None:
             c = stats.cluster_bootstrap_ratio(g.pnl.to_numpy(), g.cost.to_numpy(), g.milestone_id.to_numpy(), n_boot=4000, seed=0)
             by_sport.append({"sport": sp, "positions": int(len(g)), "win_rate": float((g.pnl > 0).mean()), "roi": c.point, "lo": c.lo, "hi": c.hi})
     by_sport.sort(key=lambda r: -r["positions"])
+    # what the backtest paid in dollars at $100 a position, from the first month with real volume
+    rec = s11[s11.month >= "2025-11"].assign(day=lambda x: x.t_start.dt.strftime("%Y-%m-%d"))
+    daily = rec.groupby("day").agg(n=("pnl", "size"), pnl=("pnl", "sum"))
+    cum = daily.pnl.cumsum()
+    monthly = rec.groupby("month").pnl.sum()
+    oos = rec[rec.split.isin(["validation", "holdout"])]
+    s11_money = {"from": "2025-11", "days": int(len(daily)), "positions": int(len(rec)), "pnl": float(rec.pnl.sum()),
+                 "months": int(len(monthly)), "months_up": int((monthly > 0).sum()), "best_month": float(monthly.max()), "worst_month": float(monthly.min()),
+                 "median_per_day": float(daily.n.median()), "max_per_day": int(daily.n.max()), "losing_days": float((daily.pnl < 0).mean()),
+                 "worst_day": float(daily.pnl.min()), "max_drawdown": float((cum - cum.cummax()).min()),
+                 "oos_positions": int(len(oos)), "oos_pnl": float(oos.pnl.sum()), "oos_roi": float(oos.pnl.sum() / oos.cost.sum())}
 
     # ---- scorecard
     def fmt_p(p):
@@ -158,7 +169,7 @@ def main() -> None:
                "pre_through": tally(pre, "filled_through", "pnl_through"), "pre_touch": tally(pre, "filled_touch", "pnl_touch")}
 
     out = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"), "scale": scale, "who": who, "price_bins": price_bins,
-           "kinds": kinds, "kind_names": KIND_NAMES, "flow_price": flow_price, "rules": rules, "s11_months": months, "s11_by_sport": by_sport,
+           "kinds": kinds, "kind_names": KIND_NAMES, "flow_price": flow_price, "rules": rules, "s11_months": months, "s11_by_sport": by_sport, "s11_money": s11_money,
            "score": score, "forward": forward,
            "calibration": {s: R[s]["S12_ingame_calibration"] for s in R},
            "coverage": {s: R[s]["coverage"] for s in R},

@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-11-17 19:46",
+ "generated_utc": "2026-11-17 19:52",
  "scale": {
   "tape_days": 684,
   "fills_all": 2042300424,
@@ -841,6 +841,24 @@
    "hi": 0.03690360282428548
   }
  ],
+ "s11_money": {
+  "from": "2025-11",
+  "days": 379,
+  "positions": 3107,
+  "pnl": 6261.560000000009,
+  "months": 13,
+  "months_up": 13,
+  "best_month": 933.6003000000009,
+  "worst_month": 47.374300000000645,
+  "median_per_day": 7.0,
+  "max_per_day": 29,
+  "losing_days": 0.2928759894459103,
+  "worst_day": -259.75759999999997,
+  "max_drawdown": -463.33890000000065,
+  "oos_positions": 972,
+  "oos_pnl": 1637.949500000003,
+  "oos_roi": 0.016851938055415377
+ },
  "score": [
   {
    "id": "P1",
@@ -919,10 +937,10 @@
     "phase": "in-game",
     "filled_through": false,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.0,
+    "pnl_touch": 0.87
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1012,8 +1030,8 @@
     "expires": "2026-11-17T19:45:00Z",
     "start": "2026-11-17T19:00:00Z",
     "phase": "in-game",
-    "filled_through": null,
-    "filled_touch": null,
+    "filled_through": true,
+    "filled_touch": true,
     "result": null,
     "final": false,
     "pnl_through": null,
@@ -1031,8 +1049,8 @@
     "expires": "2026-11-17T19:45:00Z",
     "start": "2026-11-17T19:00:00Z",
     "phase": "in-game",
-    "filled_through": null,
-    "filled_touch": null,
+    "filled_through": false,
+    "filled_touch": true,
     "result": null,
     "final": false,
     "pnl_through": null,
@@ -1050,8 +1068,8 @@
     "expires": "2026-11-17T19:45:00Z",
     "start": "2026-11-17T19:00:00Z",
     "phase": "in-game",
-    "filled_through": null,
-    "filled_touch": null,
+    "filled_through": true,
+    "filled_touch": true,
     "result": null,
     "final": false,
     "pnl_through": null,
@@ -1069,12 +1087,12 @@
     "expires": "2026-11-17T19:45:00Z",
     "start": "2026-11-17T19:00:00Z",
     "phase": "in-game",
-    "filled_through": null,
-    "filled_touch": null,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "filled_through": false,
+    "filled_touch": true,
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.0,
+    "pnl_touch": 0.53
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1183,8 +1201,8 @@
     "expires": "2026-11-17T19:45:00Z",
     "start": "2026-11-17T19:00:00Z",
     "phase": "in-game",
-    "filled_through": null,
-    "filled_touch": null,
+    "filled_through": true,
+    "filled_touch": true,
     "result": null,
     "final": false,
     "pnl_through": null,

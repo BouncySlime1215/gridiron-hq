@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-11-17 19:58",
+ "generated_utc": "2026-11-17 22:32",
  "scale": {
   "tape_days": 684,
   "fills_all": 2042300424,
@@ -1069,10 +1069,10 @@
     "phase": "in-game",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.99,
+    "pnl_touch": 0.99
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1107,10 +1107,10 @@
     "phase": "in-game",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.53,
+    "pnl_touch": 0.53
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1126,10 +1126,10 @@
     "phase": "in-game",
     "filled_through": false,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.0,
+    "pnl_touch": 0.31
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1145,10 +1145,10 @@
     "phase": "in-game",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.85,
+    "pnl_touch": 0.85
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1178,15 +1178,15 @@
     "contracts": 10.75,
     "max_loss": 10.0,
     "max_gain": 0.75,
-    "expires": "2026-11-17T20:55:00Z",
-    "start": "2026-11-17T20:10:00Z",
+    "expires": "2026-11-17T21:45:00Z",
+    "start": "2026-11-17T21:00:00Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "filled_through": true,
+    "filled_touch": true,
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.75,
+    "pnl_touch": 0.75
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1200,12 +1200,12 @@
     "expires": "2026-11-17T20:15:00Z",
     "start": "2026-11-17T19:30:00Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "filled_through": true,
+    "filled_touch": true,
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.99,
+    "pnl_touch": 0.99
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1219,8 +1219,8 @@
     "expires": "2026-11-17T20:15:00Z",
     "start": "2026-11-17T19:30:00Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
+    "filled_through": true,
+    "filled_touch": true,
     "result": null,
     "final": false,
     "pnl_through": null,
@@ -1238,12 +1238,12 @@
     "expires": "2026-11-17T20:15:00Z",
     "start": "2026-11-17T19:30:00Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "filled_through": true,
+    "filled_touch": true,
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.31,
+    "pnl_touch": 0.31
    },
    {
     "placed_at": "2026-11-17T19:04:44Z",
@@ -1257,12 +1257,12 @@
     "expires": "2026-11-17T20:45:00Z",
     "start": "2026-11-17T20:00:00Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "filled_through": false,
+    "filled_touch": true,
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.0,
+    "pnl_touch": 0.31
    },
    {
     "placed_at": "2026-11-17T19:05:27Z",
@@ -1278,10 +1278,10 @@
     "phase": "in-game",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "yes",
+    "final": true,
+    "pnl_through": -10.0,
+    "pnl_touch": -10.0
    },
    {
     "placed_at": "2026-11-17T19:28:52Z",
@@ -1295,8 +1295,8 @@
     "expires": "2026-11-17T21:10:19Z",
     "start": "2026-11-17T20:25:19Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
+    "filled_through": true,
+    "filled_touch": true,
     "result": null,
     "final": false,
     "pnl_through": null,
@@ -1311,8 +1311,84 @@
     "contracts": 10.52,
     "max_loss": 9.99,
     "max_gain": 0.53,
-    "expires": "2026-11-17T21:15:00Z",
-    "start": "2026-11-17T20:30:00Z",
+    "expires": "2026-11-17T22:06:19Z",
+    "start": "2026-11-17T21:21:19Z",
+    "phase": "pre",
+    "filled_through": true,
+    "filled_touch": true,
+    "result": null,
+    "final": false,
+    "pnl_through": null,
+    "pnl_touch": null
+   },
+   {
+    "placed_at": "2026-11-17T20:45:12Z",
+    "game": "Dinev vs Bianchi",
+    "sport": "tennis",
+    "ticker": "KXITFMATCH-26NOV17DINBIA-BIA",
+    "limit_price": 0.91,
+    "contracts": 10.98,
+    "max_loss": 9.99,
+    "max_gain": 0.99,
+    "expires": "2026-11-17T22:02:20Z",
+    "start": "2026-11-17T21:17:20Z",
+    "phase": "pre",
+    "filled_through": true,
+    "filled_touch": true,
+    "result": null,
+    "final": false,
+    "pnl_through": null,
+    "pnl_touch": null
+   },
+   {
+    "placed_at": "2026-11-17T20:45:12Z",
+    "game": "Chora Bayon vs Alujas",
+    "sport": "tennis",
+    "ticker": "KXITFMATCH-26NOV17CHOALU-CHO",
+    "limit_price": 0.95,
+    "contracts": 10.52,
+    "max_loss": 9.99,
+    "max_gain": 0.53,
+    "expires": "2026-11-17T22:02:20Z",
+    "start": "2026-11-17T21:17:20Z",
+    "phase": "pre",
+    "filled_through": true,
+    "filled_touch": true,
+    "result": null,
+    "final": false,
+    "pnl_through": null,
+    "pnl_touch": null
+   },
+   {
+    "placed_at": "2026-11-17T21:10:50Z",
+    "game": "Florida at Notre Dame",
+    "sport": "basketball",
+    "ticker": "KXNCAAMBGAME-26NOV17FLAND-ND",
+    "limit_price": 0.91,
+    "contracts": 10.98,
+    "max_loss": 9.99,
+    "max_gain": 0.99,
+    "expires": "2026-11-17T22:15:00Z",
+    "start": "2026-11-17T21:30:00Z",
+    "phase": "pre",
+    "filled_through": true,
+    "filled_touch": true,
+    "result": null,
+    "final": false,
+    "pnl_through": null,
+    "pnl_touch": null
+   },
+   {
+    "placed_at": "2026-11-17T22:31:29Z",
+    "game": "Milavsky vs Melnic",
+    "sport": "tennis",
+    "ticker": "KXATPCHALLENGERMATCH-26NOV17MILMEL-MEL",
+    "limit_price": 0.95,
+    "contracts": 10.52,
+    "max_loss": 9.99,
+    "max_gain": 0.53,
+    "expires": "2026-11-17T23:35:00Z",
+    "start": "2026-11-17T22:50:00Z",
     "phase": "pre",
     "filled_through": null,
     "filled_touch": null,
@@ -1322,20 +1398,20 @@
     "pnl_touch": null
    }
   ],
-  "n_pre": 7,
+  "n_pre": 11,
   "n_in_game": 10,
-  "pre_settled": 0,
+  "pre_settled": 4,
   "pre_through": {
-   "positions": 0,
-   "won": 0,
-   "staked": 0,
-   "pnl": 0
+   "positions": 3,
+   "won": 3,
+   "staked": 29.98,
+   "pnl": 2.05
   },
   "pre_touch": {
-   "positions": 0,
-   "won": 0,
-   "staked": 0,
-   "pnl": 0
+   "positions": 4,
+   "won": 4,
+   "staked": 39.97,
+   "pnl": 2.36
   }
  },
  "calibration": {

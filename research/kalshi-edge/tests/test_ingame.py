@@ -88,3 +88,69 @@ def test_the_decision_minute_is_never_the_fill():
     # the decision minute printed 0.90 but the next minute opens at 0.97: the order (limit 0.90) must not fill at 0.90
     e = ingame.taker_entries(pd.DataFrame([row(ask_last=0.90, nx_ask_first=0.97)]), side="yes")
     assert len(e) == 0
+
+
+# --- resting (maker) orders in-game ---------------------------------------------------------------
+
+def mrow(minute=10, **kw):
+    base = row(minute, nx_low=0.94, nx_high=0.95, maker_rate=0.0)
+    base.update(kw)
+    return base
+
+
+def test_bid_for_the_favourite_fills_only_when_the_next_minute_trades_through_it():
+    # bid 0.94 rests for the next minute
+    assert len(ingame.maker_entries(pd.DataFrame([mrow(nx_low=0.94)]), kind="bid_favourite")) == 0      # touched, not through
+    e = ingame.maker_entries(pd.DataFrame([mrow(nx_low=0.93)]), kind="bid_favourite")
+    assert len(e) == 1 and e.side.iloc[0] == "yes" and e.price.iloc[0] == pytest.approx(0.94)            # bought at the bid, not at 0.93
+    assert len(ingame.maker_entries(pd.DataFrame([mrow(nx_low=0.94)]), kind="bid_favourite", fill="touch")) == 1
+
+
+def test_touch_and_through_are_exact_on_the_tick_grid_even_with_single_precision_prices():
+    r = mrow(nx_low=float(np.float32(0.94)))      # 0.9399999976..., a tick-equal price that is "less than" 0.94 in floating point
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="bid_favourite")) == 0
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="bid_favourite", fill="touch")) == 1
+    r = mrow(ask_last=0.06, bid_last=0.05, nx_high=float(np.float32(0.06)), nx_low=0.05)
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="offer_longshot")) == 0
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="offer_longshot", fill="touch")) == 1
+
+
+def test_offer_of_the_longshot_is_a_long_no_position_at_one_minus_the_offer():
+    r = mrow(ask_last=0.06, bid_last=0.05, nx_high=0.08, nx_low=0.05, y=0.0)
+    e = ingame.maker_entries(pd.DataFrame([r]), kind="offer_longshot")
+    assert len(e) == 1 and e.side.iloc[0] == "no"
+    assert e.price.iloc[0] == pytest.approx(0.94)        # sold YES at 0.06 = bought NO at 0.94
+    s = ingame.settle(e, rate_col="maker_rate")
+    assert s.pnl.iloc[0] == pytest.approx(bt.settle("no", 0.94, 0.0, 0.0, 100.0).pnl)
+    assert s.fee.iloc[0] == 0.0
+
+
+def test_offset_moves_the_resting_price_away_from_the_market():
+    r = mrow(nx_low=0.92)
+    e = ingame.maker_entries(pd.DataFrame([r]), kind="bid_favourite", offset=0.01)       # bid 0.93, low 0.92: through
+    assert len(e) == 1 and e.price.iloc[0] == pytest.approx(0.93)
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="bid_favourite", offset=0.02)) == 0   # bid 0.92: only touched
+    r = mrow(ask_last=0.06, bid_last=0.05, nx_high=0.09)
+    e = ingame.maker_entries(pd.DataFrame([r]), kind="offer_longshot", offset=0.02)      # offer 0.08, high 0.09: through
+    assert len(e) == 1 and e.price.iloc[0] == pytest.approx(0.92)
+
+
+def test_maker_band_applies_to_the_price_of_the_side_held_and_the_gap_rule_holds():
+    rows = [mrow(minute=1, bid_last=0.85, nx_low=0.80), mrow(minute=2, bid_last=0.94, nx_low=0.90),
+            mrow(minute=3, bid_last=0.94, nx_low=0.90, nx_gap_min=5)]
+    e = ingame.maker_entries(pd.DataFrame(rows), kind="bid_favourite", lo=0.90, hi=0.99)
+    assert e.mins_in.tolist() == [2]
+
+
+def test_maker_fee_is_charged_from_its_own_column():
+    r = mrow(nx_low=0.90, maker_rate=0.0175)
+    s = ingame.settle(ingame.maker_entries(pd.DataFrame([r]), kind="bid_favourite"), rate_col="maker_rate")
+    ref = bt.settle("yes", 0.94, 1.0, 0.0175, 100.0)
+    assert s.fee.iloc[0] == pytest.approx(ref.fee) and s.fee.iloc[0] > 0 and s.pnl.iloc[0] == pytest.approx(ref.pnl)
+
+
+def test_unknown_maker_kind_or_fill_rule_raises():
+    with pytest.raises(ValueError):
+        ingame.maker_entries(pd.DataFrame([mrow()]), kind="both_sides")
+    with pytest.raises(ValueError):
+        ingame.maker_entries(pd.DataFrame([mrow()]), kind="bid_favourite", fill="maybe")

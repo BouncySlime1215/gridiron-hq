@@ -164,3 +164,96 @@ A validation or train result is never reported as evidence of profit.
 - One year of a market that grew about twentyfold while fees, products and
   participants changed. A fitted bias can be competed away.
 - Rules, fees, limits and legality are the venue's and the regulators' to change.
+
+---
+
+# Amendment 1 — 2026-11-17, before the holdout is opened
+
+Written after discovery on train and one pass over validation. No outcome for a
+game starting on or after 2026-10-01 has been read by any analysis: the holdout
+ledger is empty at the commit that adds this amendment.
+
+## A. What train and validation showed
+
+- **Pre-game, nothing beats the market's own price.** Calibration slope 0.99 on
+  both sets. Recalibration (M1), flow terms (M2) and boosted trees (M3) all had
+  worse validation log loss than the mid price. P1–P4 are expected to fail and
+  are run anyway, unchanged.
+- **Takers lose everywhere, to the fee more than to makers.** On $49.6bn of
+  taker dollars with results, takers lost about 0.8% before fees in-game and
+  2.0% pre-game, then 2.3–3.0% in fees.
+- **The fingerprint separates flow.** In-game, integer-count takers made
+  +0.43% before fees and retail dollar-buys lost 1.41% (train; gap 1.84 points,
+  game-cluster interval 0.97 to 2.51). Validation: 3.22 points.
+- **Favourite–longshot bias exists in-game at the extremes** (contracts under
+  5c win about 0.7c less often than priced), but a marketable order filled at
+  the next minute's first print earns about zero after fees.
+- **A resting offer on the longshot early in a game was positive** even with
+  back-of-queue fills: +0.72% per position on train, +1.16% on validation.
+
+## B. P4 as frozen
+
+No rung cleared validation, so by section 8 the frozen strategy is M1 at
+τ = 1c. Coefficients are in `frozen/model.json`.
+
+## C. Two hypotheses added to the primary family
+
+The Holm family becomes P1, P2, P3, P4, A1, A2 (six tests, family-wise 0.05).
+
+**A1 — the fingerprint is real.** Over holdout games that have retail
+dollar-buy flow, the in-game taker return before fees of integer-count orders
+exceeds that of retail dollar-buy orders. Each return is settled profit over
+dollars paid, summed over games. One-sided, 10,000 bootstrap draws of games.
+
+**A2 — the early longshot offer.** `kalshi_edge.rules.early_longshot_offer`,
+whose constants are fixed in that file:
+
+- game-winner markets tied to a milestone, 0/1 results only;
+- at the end of each minute in the first 45 minutes after the scheduled start,
+  rest an offer for the next traded minute (at most 2 minutes away) at the last
+  YES-taker price, moved up to a whole cent;
+- only when the NO side of that offer costs between 90c and 97c;
+- **filled only if the next minute trades above the offer** (the back-of-queue
+  assumption), at the offer price; the position is NO at one minus the offer;
+- one position per game, the earliest fill; $100 of capital per position;
+- maker fee of 1.75% × p(1 − p) on series that charge makers, rounded up to the
+  cent; none elsewhere.
+
+Claim: profit over capital is positive. One-sided, 10,000 bootstrap draws of
+games. The front-of-queue version (filled on a touch) is reported beside it as
+the optimistic bound and is not the test.
+
+## D. Secondary, added
+
+S8 favourite-carry taker rule (expected about zero). S9 A2 with touch fills and
+with every fill kept. S10 A2 split by whether integer orders were net buying
+the longshot in the previous five minutes. S11 a single offer set ten minutes
+before the start and left until minute 45 (the version a person can place by
+hand). S12 in-game price against outcome at the extremes. S13 next-minute price
+change on signed flow share by class (integer positive, retail negative).
+
+## E. What counts, restated
+
+- **A2 passing Holm with a positive lower bound** is evidence that a resting
+  order has had an edge under pessimistic fills. It is not evidence of what a
+  particular account will be filled at: queue position on a live book is not
+  observable on a public tape, and only real orders can settle it.
+- **A1 passing** establishes the measurement, not a trade.
+- P1–P4 failing is the expected result and is reported as a result.
+
+## F. Departures from the original text, declared
+
+- Section 5's reference price needs both quotes within 30 minutes. That left
+  141k of 544k train markets; the rest are illiquid ladder rungs and props.
+  Nothing was done to widen it.
+- Results were pulled series by series in order of traded dollars measured on
+  2026-07-22 to 2026-11-15. Series that only traded earlier (the 2026 World
+  Cup, the 2025–26 NBA playoff series markets and others, 17.6% of pre-game
+  dollars, all in train) were pulled late. Holdout-period series were not
+  affected by that ordering.
+- `features.py` and its tests were committed together rather than as a
+  failing-test commit followed by a fix.
+- Train-only exploration ran several in-game and maker variants before A2 was
+  chosen (price bands, time windows, flow filters, a bid-for-the-favourite
+  rule that lost under back-of-queue fills). They are in the session's commit
+  history and the report lists them. A2 is the one carried to the holdout.

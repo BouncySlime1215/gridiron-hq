@@ -113,10 +113,11 @@ def process(args) -> "object":
     return con.execute(day_sql(bar_file, where)).df(), con.execute(game_sql(bar_file, where)).df()
 
 
-def run(splits: tuple[str, ...], out: Path, workers: int = 3) -> None:
+def run(splits: tuple[str, ...], out: Path, workers: int = 3, files_from: str | None = None) -> None:
+    """`files_from` (a bar file stem such as 2026_09_20) skips older days that cannot hold the requested split."""
     import pandas as pd
 
-    files = sorted((DATA / "bars").glob("*.parquet"))
+    files = sorted(f for f in (DATA / "bars").glob("*.parquet") if files_from is None or f.stem >= files_from)
     jobs = [(str(f), splits, f.stem.replace("_", "-")) for f in files]
     t0 = time.time()
     frames, games = [], []

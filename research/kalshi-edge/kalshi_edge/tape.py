@@ -115,3 +115,45 @@ def bars_sql(source: str, fee_table: str, bucket_minutes: int = BUCKET_MINUTES) 
     from ({parent_orders_sql(source, fee_table)})
     group by ticker, time_bucket(interval '{bucket_minutes} minutes', created_time)
     """
+
+
+def minute_bars_sql(source: str, fee_table: str, series: list[str] | None = None) -> str:
+    """SQL for one-minute bars that keep the FIRST and LAST taker print on each side.
+
+    This is the in-game execution clock. An order sent at the end of minute m meets,
+    at the earliest, the first print of minute m + 1; ask_first / bid_first of that
+    minute are therefore the nearest thing on a public tape to "the quote a few seconds
+    later". A 5-minute bar's last print cannot play that role: using it conditions the
+    fill on five more minutes of the game.
+
+    Flow is collapsed to dollars by kind and side, plus integer orders of $250 and up
+    (usd_inl_*). `series`, if given, restricts the output to those series tickers.
+    """
+    where = ""
+    if series is not None:
+        quoted = ", ".join("'" + s.replace("'", "''") + "'" for s in series)
+        where = f"where series in ({quoted})"
+    flow = []
+    for kind, name in (("RB", "rb"), ("FX", "fx"), ("IN", "in")):
+        for side in SIDES:
+            flow.append(f"coalesce(sum(cost) filter (where kind = '{kind}' and taker_side = '{side}'), 0) as usd_{name}_{side}")
+    for side in SIDES:
+        flow.append(f"coalesce(sum(cost) filter (where kind = 'IN' and size in ('L', 'X') and taker_side = '{side}'), 0) as usd_inl_{side}")
+    flow_sql = ",\n           ".join(flow)
+    return f"""
+    select ticker, any_value(series) as series,
+           time_bucket(interval '1 minute', created_time) as bucket,
+           count(*) as n_orders, sum(cnt) as contracts, sum(cost) as dollars,
+           max(yes_px_max) as px_high, min(yes_px_min) as px_low,
+           sum(cnt * yes_px) / sum(cnt) as vwap,
+           arg_min(yes_px, created_time) filter (where taker_side = 'yes') as ask_first,
+           arg_max(yes_px, created_time) filter (where taker_side = 'yes') as ask_last,
+           arg_min(yes_px, created_time) filter (where taker_side = 'no') as bid_first,
+           arg_max(yes_px, created_time) filter (where taker_side = 'no') as bid_last,
+           epoch(min(created_time) filter (where taker_side = 'yes')) - epoch(time_bucket(interval '1 minute', min(created_time))) as ask_first_sec,
+           epoch(min(created_time) filter (where taker_side = 'no')) - epoch(time_bucket(interval '1 minute', min(created_time))) as bid_first_sec,
+           {flow_sql}
+    from ({parent_orders_sql(source, fee_table)})
+    {where}
+    group by ticker, time_bucket(interval '1 minute', created_time)
+    """

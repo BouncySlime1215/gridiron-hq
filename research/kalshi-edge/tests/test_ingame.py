@@ -154,3 +154,20 @@ def test_unknown_maker_kind_or_fill_rule_raises():
         ingame.maker_entries(pd.DataFrame([mrow()]), kind="both_sides")
     with pytest.raises(ValueError):
         ingame.maker_entries(pd.DataFrame([mrow()]), kind="bid_favourite", fill="maybe")
+
+
+def test_resting_price_sits_on_a_whole_cent_away_from_the_market():
+    # a taker that swept two levels leaves a volume-weighted "last ask" of 6.1c; nobody can rest an offer there.
+    # The offer goes to the next whole cent above (7c), so it needs a print above 7c to be traded through.
+    r = mrow(ask_last=0.061, bid_last=0.05, nx_high=0.07, nx_low=0.05)
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="offer_longshot")) == 0
+    e = ingame.maker_entries(pd.DataFrame([dict(r, nx_high=0.08)]), kind="offer_longshot")
+    assert len(e) == 1 and e.price.iloc[0] == pytest.approx(0.93)
+    # a bid derived from a 93.9c volume-weighted print rests at 93c, the whole cent below
+    r = mrow(bid_last=0.939, nx_low=0.93)
+    assert len(ingame.maker_entries(pd.DataFrame([r]), kind="bid_favourite")) == 0
+    e = ingame.maker_entries(pd.DataFrame([dict(r, nx_low=0.92)]), kind="bid_favourite")
+    assert len(e) == 1 and e.price.iloc[0] == pytest.approx(0.93)
+    # a price already on the grid does not move
+    e = ingame.maker_entries(pd.DataFrame([mrow(ask_last=0.06, bid_last=0.05, nx_high=0.08)]), kind="offer_longshot")
+    assert e.price.iloc[0] == pytest.approx(0.94)

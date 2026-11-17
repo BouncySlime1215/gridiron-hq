@@ -63,3 +63,27 @@ orders priced to trade, not to be pulled.
   inside the windows; $13.2M of it was paid in windows where under $1,000 traded
   (`results/history_step_a.json`). What fills cost in the busy half needs
   settlement results, being pulled now.
+
+## Amendment 1 — 2026-11-17 22:35 UTC, before any forward data was evaluated
+
+**What changed and why.** The recorder cannot run continuously where it was
+started. The cloud machine powers off about five minutes after a session goes
+quiet and kills every background process (seen at 21:25, 22:04 and 22:26 UTC
+today; the disk survives). Six passes were recorded, 21:03 to 21:25 UTC. The
+window above assumed passes every two minutes for seven days. Nothing about the
+pretend trader, the measures or the pass conditions changes.
+
+**Track A, the gate itself.** Unchanged, but its window is now "the first seven
+full UTC days of continuous recording on a host that stays on", not fixed dates.
+A day counts if no gap between passes exceeds 15 minutes for more than 5% of it.
+No such host exists yet.
+
+**Track B, what can be had meanwhile.** Each scheduled check-in (every four
+hours) records one full pass. From those:
+- persistence: of the side-markets paying a $50 newcomer at least 1% a day at
+  one pass, what the same order, left at the same price, is paying at the next
+  pass, at 24 hours and at 72 hours (`lip.share` on the later book);
+- pessimistic fills of that never-moved order from public trades in between.
+Track B describes a trader who looks once every four hours. It can show the
+idea is dead (rewards gone by the next look, or fills eating them). **It cannot
+pass the gate.**

@@ -7,3 +7,4 @@ been opened.
 
 | # | when (UTC) | commit of frozen model | script | what was computed | result file |
 |---|---|---|---|---|---|
+| 1 | 2026-11-17 19:12:20 | fb396483f28e1aabe8ec64e60783d99020216611e73c4eb1756b17afc3167908 | scripts/run_holdout.py | primary P1-P4, A1-A2 and all secondaries | results/holdout.json |

@@ -53,12 +53,27 @@ def test_band_edges_follow_the_frozen_rule():
     assert len(tickets([game()], [market(ask=0.02, bid=0.01)])) == 0     # NO 0.98
 
 
-def test_time_window_is_shortly_before_the_start_until_45_minutes_in():
+def test_tickets_are_written_before_the_start_only_by_default():
+    # The holdout result: re-offering minute by minute once a game is under way (rule A2) lost money.
+    # The version that held up in every split places ONE order before the start and leaves it.
     assert len(tickets([game(start_in_min=61)], [market()])) == 0                      # too early
     assert len(tickets([game(start_in_min=60)], [market()])) == 1
-    assert len(tickets([game(start_in_min=-44, status="live")], [market()])) == 1      # 44 minutes in
-    assert len(tickets([game(start_in_min=-45, status="live")], [market()])) == 0      # the window has closed
+    assert len(tickets([game(start_in_min=0.5)], [market()])) == 1
+    assert len(tickets([game(start_in_min=-1, status="live")], [market()])) == 0       # already started: no new order
     assert len(tickets([game(start_in_min=30)], [market()], lead_minutes=20)) == 0
+    assert tickets([game(start_in_min=10)], [market()])[0]["phase_at_placement"] == "pre"
+
+
+def test_in_game_tickets_are_an_explicit_opt_in_and_are_labelled():
+    t = tickets([game(start_in_min=-44, status="live")], [market()], include_in_game=True)
+    assert len(t) == 1 and t[0]["phase_at_placement"] == "in-game"
+    assert len(tickets([game(start_in_min=-45, status="live")], [market()], include_in_game=True)) == 0   # the window has closed
+
+
+def test_wide_spread_is_not_a_market_to_join():
+    assert len(tickets([game()], [market(ask=0.06, bid=0.03)])) == 1                   # 3c spread: the default limit
+    assert len(tickets([game()], [market(ask=0.08, bid=0.03)])) == 0                   # 5c: the offer is not a real price
+    assert len(tickets([game()], [market(ask=0.08, bid=0.03)], max_spread=0.05)) == 1
 
 
 def test_one_ticket_per_game_the_most_traded_market():

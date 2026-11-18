@@ -87,3 +87,11 @@ hours) records one full pass. From those:
 Track B describes a trader who looks once every four hours. It can show the
 idea is dead (rewards gone by the next look, or fills eating them). **It cannot
 pass the gate.**
+
+## Amendment 2 — 2026-11-18 05:40 UTC
+
+Track B passes move from every four hours to every eight, to spend less of Nick's
+usage on check-ins. Nothing else changes: same pretend trader, same measures, same
+pass conditions, and Track B still cannot pass the gate. A never-moved order is now
+valued up to eight hours after it was placed, which is a slower trader than before
+and should be read that way.

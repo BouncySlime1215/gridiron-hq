@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-11-17 22:32",
+ "generated_utc": "2026-11-18 05:38",
  "scale": {
   "tape_days": 684,
   "fills_all": 2042300424,
@@ -1316,10 +1316,10 @@
     "phase": "pre",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.53,
+    "pnl_touch": 0.53
    },
    {
     "placed_at": "2026-11-17T20:45:12Z",
@@ -1335,10 +1335,10 @@
     "phase": "pre",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.99,
+    "pnl_touch": 0.99
    },
    {
     "placed_at": "2026-11-17T20:45:12Z",
@@ -1354,10 +1354,10 @@
     "phase": "pre",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.53,
+    "pnl_touch": 0.53
    },
    {
     "placed_at": "2026-11-17T21:10:50Z",
@@ -1373,10 +1373,10 @@
     "phase": "pre",
     "filled_through": true,
     "filled_touch": true,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.97,
+    "pnl_touch": 0.97
    },
    {
     "placed_at": "2026-11-17T22:31:29Z",
@@ -1390,28 +1390,28 @@
     "expires": "2026-11-17T23:35:00Z",
     "start": "2026-11-17T22:50:00Z",
     "phase": "pre",
-    "filled_through": null,
-    "filled_touch": null,
-    "result": null,
-    "final": false,
-    "pnl_through": null,
-    "pnl_touch": null
+    "filled_through": true,
+    "filled_touch": true,
+    "result": "no",
+    "final": true,
+    "pnl_through": 0.53,
+    "pnl_touch": 0.53
    }
   ],
   "n_pre": 11,
   "n_in_game": 10,
-  "pre_settled": 4,
+  "pre_settled": 9,
   "pre_through": {
-   "positions": 3,
-   "won": 3,
-   "staked": 29.98,
-   "pnl": 2.05
+   "positions": 8,
+   "won": 8,
+   "staked": 79.93,
+   "pnl": 5.6
   },
   "pre_touch": {
-   "positions": 4,
-   "won": 4,
-   "staked": 39.97,
-   "pnl": 2.36
+   "positions": 9,
+   "won": 9,
+   "staked": 89.92,
+   "pnl": 5.91
   }
  },
  "calibration": {

@@ -1,0 +1,26 @@
+[
+ {
+  "pair": "2026-11-18_001849__2026-11-18_041900",
+  "as_of": "2026-11-18T04:48:33+00:00",
+  "hours": 3.88,
+  "markets_sampled": 90,
+  "markets_reached": 12,
+  "markets_failed": 4,
+  "orders": 18,
+  "dollars_resting": 900.0,
+  "trades_seen": 55,
+  "markets_with_a_trade": 5,
+  "orders_filled": 4,
+  "dollars_filled": 53.14169999999999,
+  "fill_pnl_at_later_mid": -35.402235714285716,
+  "fill_pnl_at_later_bid": -42.711842857142855,
+  "reward_accrued": 12.51008071777403,
+  "seed": 5,
+  "skip": 0,
+  "net_at_bid": -30.201762139368824,
+  "net_if_every_fill_is_a_total_loss": -40.63161928222596,
+  "reward_pct_per_day": 8.607230913715197,
+  "filled_pct_per_day": 36.56274434724562,
+  "net_at_bid_pct_per_day": -20.77952545624367
+ }
+]

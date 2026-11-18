@@ -1,5 +1,5 @@
 {
- "as_of": "2026-11-18T00:30:36+00:00",
+ "as_of": "2026-11-18T04:28:37+00:00",
  "dollars": 50.0,
  "min_yield": 0.01,
  "pairs": [
@@ -12,7 +12,7 @@
    "entry_yield_median": 0.029555457052091075,
    "later_yield_mean_unmoved": 0.046375497109732024,
    "later_yield_median_unmoved": 0.024263115134691794,
-   "later_yield_mean_reposted": 0.04821347953766393,
+   "later_yield_mean_reposted": 0.05484332586533124,
    "kept_fraction_of_yield": 0.9792551772559884,
    "still_at_least_min": 0.8167250876314471,
    "earning_nothing": 0.09914872308462694,
@@ -29,12 +29,30 @@
    "entry_yield_median": 0.027950804319715906,
    "later_yield_mean_unmoved": 0.04798349198537642,
    "later_yield_median_unmoved": 0.02420304341398908,
-   "later_yield_mean_reposted": 0.04694400252239259,
+   "later_yield_mean_reposted": 0.05420033990704556,
    "kept_fraction_of_yield": 1.006059589834814,
    "still_at_least_min": 0.8248954946586159,
    "earning_nothing": 0.07942405945192754,
    "why_nothing": {
     "order no longer counts": 342
+   }
+  },
+  {
+   "first": "2026-11-18 001849",
+   "second": "2026-11-18 041900",
+   "hours_between": 3.87,
+   "side_markets": 4322,
+   "entry_yield_mean": 0.04971698119988539,
+   "entry_yield_median": 0.028227068376500842,
+   "later_yield_mean_unmoved": 0.04207586833393322,
+   "later_yield_median_unmoved": 0.01817677772625269,
+   "later_yield_mean_reposted": 0.04827852868071211,
+   "kept_fraction_of_yield": 0.8463077869665628,
+   "still_at_least_min": 0.6867191115224434,
+   "earning_nothing": 0.16265617769551133,
+   "why_nothing": {
+    "order no longer counts": 701,
+    "market not in the later pass": 2
    }
   }
  ]

@@ -93,3 +93,33 @@ python scripts/hist_extract.py                  # 14 months of trades in rewarde
 - **Not done:** fills for Track B. Kalshi's ticker-filtered trades endpoint stopped answering after
   about 150 requests tonight, so those fills wait for the daily archive (a day or two behind).
   Maker-fee handling by series.
+
+## Addendum, 2026-11-18 04:50 UTC: the first fills are bad
+
+Four full passes now (21:03, 22:41, 00:18, 04:19 UTC). Reward yield for a $50 newcomer on
+the ~4,300 side-markets paying at least 1% a day held at 98%, 101% and 85% of its entry
+level over gaps of 1.6, 1.7 and 3.9 hours (`results/track_b.json`).
+
+The cost side, from Kalshi's own trades endpoint for random samples of those markets
+between the 00:18 and 04:19 passes (`scripts/track_b_fills.py`, fills assumed first in
+the queue, orders never moved):
+
+| sample | orders | filled | resting | reward | filled $ | fills at later bid | fills at later mid |
+|---|---|---|---|---|---|---|---|
+| 60 markets (not kept per order) | 68 | 3 | $3,400 | $29.59 | $100.11 | not computed | +$51.77 |
+| 90 markets (not kept per order) | 113 | 19 | $5,650 | $43.29 | $501.34 | -$106.95 | -$53.98 |
+| 12 markets (`results/track_b_pool.json`) | 18 | 4 | $900 | $12.51 | $53.14 | -$42.71 | -$35.40 |
+
+In the two samples with the cautious mark, fills lost two to three times what the reward
+paid: net about -7% and -21% a day on the dollars resting. The samples are small, they
+cover one four-hour window, and "first in the queue" overstates how often a newcomer is
+hit. But the direction is the opposite of the reward side, and it is the first cost
+evidence there is. A trader who places these orders and looks again four hours later
+appears to lose. Whether one who re-prices every minute does better is what Track A is
+for, and it has no host yet.
+
+The first two samples were run before the script kept per-order rows, so only their
+totals survive. From now on every fetched trade is cached (`data/trades_cache`) and every
+order is kept (`data/track_b_fills`); `scripts/track_b_pool.py` pools them. Kalshi's
+ticker-filtered trades endpoint refuses after roughly 150 requests per session, which
+caps each check-in at about 100 markets.

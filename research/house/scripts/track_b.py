@@ -2,8 +2,8 @@
 
 For every pair of consecutive full passes (keyframes): take each side-market where $50 at the
 reference price earned at least 1% a day at the first pass, and value the same order, left at
-the same price, against the book at the second pass. Also what re-posting at the new reference
-would earn.   python scripts/track_b.py [--dollars 50] [--min-yield 0.01]
+the same price, against the book at the second pass. Also what the better of staying put or
+re-posting at the new reference would earn.   python scripts/track_b.py [--dollars 50] [--min-yield 0.01]
 """
 import argparse
 import json
@@ -94,15 +94,17 @@ for fa, fb in pairs:
                 if later is not None:
                     try:
                         y1 = newcomer(yes_b, no_b, side, a.dollars, later.per_day, later.target, later.discount, grid, price=price)[0]
-                        y1r = newcomer(yes_b, no_b, side, a.dollars, later.per_day, later.target, later.discount, grid)[0]
+                        y1r = max(y1, newcomer(yes_b, no_b, side, a.dollars, later.per_day, later.target, later.discount, grid)[0])
                     except ValueError:
                         pass
                     gone = "" if y1 > 0 else "order no longer counts"
-            mid_b = None
+            mid_b = bid_b = None
             if ticker in B and B[ticker][1] and B[ticker][2]:      # YES midpoint at the later pass, for marking fills
                 mid_b = (max(p for p, _ in B[ticker][1]) + 10_000 - max(p for p, _ in B[ticker][2])) / 2 / 10_000
+            if ticker in B and B[ticker][1 if side == YES else 2]:  # what the position could be sold for there: the best bid on its own side
+                bid_b = max(p for p, _ in B[ticker][1 if side == YES else 2]) / 10_000
             rows.append(dict(ticker=ticker, side=side, price=price, contracts=contracts, ts_a=ts_a,
-                             ts_b=B[ticker][0] if ticker in B else np.nan, mid_b=mid_b, y0=y0, y1=y1, y1r=y1r, gone=gone,
+                             ts_b=B[ticker][0] if ticker in B else np.nan, mid_b=mid_b, bid_b=bid_b, y0=y0, y1=y1, y1r=y1r, gone=gone,
                              hours=(B[ticker][0] - ts_a) / 3600 if ticker in B else np.nan, age_h=(ts_a - prog.start) / 3600))
     df = pd.DataFrame(rows)
     if df.empty:

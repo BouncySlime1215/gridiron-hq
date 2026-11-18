@@ -1,0 +1,88 @@
+{
+ "as_of": "2026-11-18T04:48:34+00:00",
+ "samples": [
+  "2026-11-18_001849__2026-11-18_041900_s5_k0"
+ ],
+ "rows": [
+  {
+   "label": "all",
+   "orders": 18,
+   "events": 11,
+   "filled_orders": 4,
+   "reward_pct_per_day": 8.607648886650455,
+   "filled_pct_per_day": 36.56451985875786,
+   "fill_pnl_at_bid_pct_of_filled": -80.37349737991607,
+   "fill_pnl_at_mid_pct_of_filled": -66.61856078049013,
+   "net_at_bid_pct_per_day": -20.78053452400719,
+   "net_at_mid_pct_per_day": -15.751107999550536,
+   "net_at_bid_ci": [
+    -99.87665566405573,
+    11.834730607936326
+   ]
+  },
+  {
+   "label": "10c and under",
+   "orders": 10,
+   "events": 8,
+   "filled_orders": 2,
+   "reward_pct_per_day": 11.38832822854419,
+   "filled_pct_per_day": 61.92876974993273,
+   "fill_pnl_at_bid_pct_of_filled": -85.69800195405122,
+   "fill_pnl_at_mid_pct_of_filled": -71.39900354814566,
+   "net_at_bid_pct_per_day": -41.68339008187305,
+   "net_at_mid_pct_per_day": -32.828196282533234,
+   "net_at_bid_ci": [
+    -170.77233062466883,
+    17.455516913782418
+   ]
+  },
+  {
+   "label": "10-25c",
+   "orders": 2,
+   "events": 2,
+   "filled_orders": 0,
+   "reward_pct_per_day": 4.1721079312711495,
+   "filled_pct_per_day": 0.0,
+   "fill_pnl_at_bid_pct_of_filled": null,
+   "fill_pnl_at_mid_pct_of_filled": null,
+   "net_at_bid_pct_per_day": 4.1721079312711495,
+   "net_at_mid_pct_per_day": 4.1721079312711495,
+   "net_at_bid_ci": [
+    2.183002511388763,
+    6.1612133511535365
+   ]
+  },
+  {
+   "label": "25-75c",
+   "orders": 5,
+   "events": 3,
+   "filled_orders": 1,
+   "reward_pct_per_day": 6.318562584487701,
+   "filled_pct_per_day": 3.1773023513925103,
+   "fill_pnl_at_bid_pct_of_filled": 9.433962264150932,
+   "fill_pnl_at_mid_pct_of_filled": 16.037735849056595,
+   "net_at_bid_pct_per_day": 6.61830808933605,
+   "net_at_mid_pct_per_day": 6.828129942729895,
+   "net_at_bid_ci": [
+    2.1541732774553703,
+    13.209791579773263
+   ]
+  },
+  {
+   "label": "over 75c",
+   "orders": 1,
+   "events": 1,
+   "filled_orders": 1,
+   "reward_pct_per_day": 1.114095031721925,
+   "filled_pct_per_day": 22.949577975447827,
+   "fill_pnl_at_bid_pct_of_filled": 1.1494252873563227,
+   "fill_pnl_at_mid_pct_of_filled": 5.172413793103453,
+   "net_at_bid_pct_per_day": 1.3778832843132793,
+   "net_at_mid_pct_per_day": 2.3011421683830204,
+   "net_at_bid_ci": [
+    1.3778832843132793,
+    1.3778832843132793
+   ]
+  }
+ ]
+}

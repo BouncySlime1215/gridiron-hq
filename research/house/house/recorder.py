@@ -95,6 +95,12 @@ class Recorder:
         seen = self.root / "programs.jsonl"
         if seen.exists():
             self.known_program_ids = {json.loads(line)["id"] for line in seen.open() if line.strip()}
+        grids = self.root / "grids.jsonl"
+        if grids.exists():           # a restarted recorder need not ask again for grids it already has
+            for line in grids.open():
+                if line.strip():
+                    r = json.loads(line)
+                    self.grids[r["ticker"]] = Grid.from_market(r["price_ranges"])
 
     # ---- files -------------------------------------------------------------
     def _path(self, kind: str, ts: float, ext: str = "parquet") -> Path:

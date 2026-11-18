@@ -1,11 +1,11 @@
 {
- "as_of": "2026-11-17T22:54:51+00:00",
+ "as_of": "2026-11-18T00:30:36+00:00",
  "dollars": 50.0,
  "min_yield": 0.01,
  "pairs": [
   {
-   "first": "210322",
-   "second": "224154",
+   "first": "2026-11-17 210322",
+   "second": "2026-11-17 224154",
    "hours_between": 1.63,
    "side_markets": 3994,
    "entry_yield_mean": 0.047357928951351304,
@@ -18,6 +18,23 @@
    "earning_nothing": 0.09914872308462694,
    "why_nothing": {
     "order no longer counts": 396
+   }
+  },
+  {
+   "first": "2026-11-17 224154",
+   "second": "2026-11-18 001849",
+   "hours_between": 1.66,
+   "side_markets": 4306,
+   "entry_yield_mean": 0.04769448298112727,
+   "entry_yield_median": 0.027950804319715906,
+   "later_yield_mean_unmoved": 0.04798349198537642,
+   "later_yield_median_unmoved": 0.02420304341398908,
+   "later_yield_mean_reposted": 0.04694400252239259,
+   "kept_fraction_of_yield": 1.006059589834814,
+   "still_at_least_min": 0.8248954946586159,
+   "earning_nothing": 0.07942405945192754,
+   "why_nothing": {
+    "order no longer counts": 342
    }
   }
  ]

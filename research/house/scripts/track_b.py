@@ -58,7 +58,20 @@ files = sorted((D / "books").rglob("*.parquet"))
 keyframes = [f for f in files if pd.read_parquet(f, columns=["ticker"]).ticker.nunique() >= 5000]
 print(len(files), "book files,", len(keyframes), "full passes:", [f.stem for f in keyframes])
 report = []
-for fa, fb in zip(keyframes, keyframes[1:]):
+
+
+def when(f: Path) -> float:
+    return datetime.strptime(f.parent.name + f.stem, "%Y-%m-%d%H%M%S").replace(tzinfo=timezone.utc).timestamp()
+
+
+# each pass against the next one, and against the first pass at least 24 and 72 hours later
+pairs = list(zip(keyframes, keyframes[1:]))
+for hours in (24, 72):
+    for fa in keyframes:
+        later = [f for f in keyframes if when(f) - when(fa) >= hours * 3600]
+        if later and (fa, later[0]) not in pairs:
+            pairs.append((fa, later[0]))
+for fa, fb in pairs:
     A, B = load(fa), load(fb)
     rows = []
     for ticker, (ts_a, yes_a, no_a) in A.items():
@@ -97,7 +110,7 @@ for fa, fb in zip(keyframes, keyframes[1:]):
     (D / "track_b").mkdir(exist_ok=True)
     df.to_parquet(D / "track_b" / f"{fa.parent.name}_{fa.stem}__{fb.parent.name}_{fb.stem}.parquet")
     hours = float(df.hours.median())
-    out = dict(first=fa.stem, second=fb.stem, hours_between=round(hours, 2), side_markets=len(df),
+    out = dict(first=f"{fa.parent.name} {fa.stem}", second=f"{fb.parent.name} {fb.stem}", hours_between=round(hours, 2), side_markets=len(df),
                entry_yield_mean=float(df.y0.mean()), entry_yield_median=float(df.y0.median()),
                later_yield_mean_unmoved=float(df.y1.mean()), later_yield_median_unmoved=float(df.y1.median()),
                later_yield_mean_reposted=float(df.y1r.mean()),

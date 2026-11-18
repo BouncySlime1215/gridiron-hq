@@ -142,7 +142,10 @@ def test_each_markets_price_grid_is_kept_once(tmp_path):
 
 def test_a_restarted_recorder_does_not_ask_again_for_grids_it_has(tmp_path):
     api = FakeApi()
-    Recorder(tmp_path, api, now=clock(), meta_every=10**9).step()
-    asked_before = sum(1 for path, _ in api.calls if path == "/markets")
-    Recorder(tmp_path, api, now=clock(), meta_every=10**9).step()
-    assert asked_before == 1 and sum(1 for path, _ in api.calls if path == "/markets") == 1
+    Recorder(tmp_path, api, now=clock()).step()
+    again = Recorder(tmp_path, api, now=clock())
+    assert again.grids["MKT-A"] == Grid()
+    again.refresh_programs()
+    before = sum(1 for path, _ in api.calls if path == "/markets")
+    again.sweep()
+    assert sum(1 for path, _ in api.calls if path == "/markets") == before

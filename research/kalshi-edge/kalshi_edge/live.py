@@ -26,7 +26,7 @@ def _num(x):
 
 def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, bankroll: float,
                      risk_per_position: float = 0.01, lead_minutes: int = 60, include_in_game: bool = False,
-                     max_spread: float = 0.03) -> list[dict]:
+                     max_spread: float = 0.03, whole_contracts: bool = False) -> list[dict]:
     """One buy-NO ticket per qualifying game.
 
     games:   {id, title, start (aware datetime), event_ticker, sport, status}
@@ -37,6 +37,8 @@ def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, b
     tickets once a game is under way (`include_in_game=True`) is the A2 form, which lost
     on the holdout; it is kept only so that form can be tracked separately.
     When several markets of a game qualify, the most traded one is used.
+    `whole_contracts` rounds the size down to a whole number, for an order typed by hand;
+    a stake too small for one contract yields no ticket.
     """
     spec = rules.EARLY_LONGSHOT_OFFER
     by_event: dict[str, list[dict]] = {}
@@ -71,6 +73,10 @@ def longshot_tickets(games: list[dict], markets: list[dict], now: dt.datetime, b
         m, offer, no_price = best
         stake = bankroll * risk_per_position
         contracts = math.floor(stake / no_price * 100 + 1e-9) / 100
+        if whole_contracts:
+            contracts = float(math.floor(stake / no_price + 1e-9))
+            if contracts < 1:
+                continue
         maker_rate = _num(m.get("maker_rate")) or 0.0
         out.append({
             "ticker": m["ticker"], "event_ticker": g["event_ticker"], "game_id": g["id"], "game": g.get("title"), "sport": g.get("sport"),

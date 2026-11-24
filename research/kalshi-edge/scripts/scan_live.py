@@ -34,6 +34,13 @@ LEDGER = ROOT / "forward" / "ledger.jsonl"
 GRADED = ROOT / "forward" / "graded.jsonl"
 
 
+def use_book(book: str) -> None:
+    """'paper' is the unattended record. 'real' is the list handed to Nick to place by hand; kept apart so neither dilutes the other."""
+    global LEDGER, GRADED
+    if book == "real":
+        LEDGER, GRADED = ROOT / "forward" / "real_ledger.jsonl", ROOT / "forward" / "real_graded.jsonl"
+
+
 def iso(t: dt.datetime) -> str:
     return t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -100,13 +107,21 @@ async def scan(a) -> None:
         games = await fetch_games(api, now, a.lead)
         markets = await fetch_markets(api, games, maker_series)
         tickets = live.longshot_tickets(games, markets, now=now, bankroll=a.bankroll, risk_per_position=a.risk, lead_minutes=a.lead,
-                                        include_in_game=a.include_in_game)
+                                        include_in_game=a.include_in_game, whole_contracts=a.whole)
+        if a.sports:
+            keep = {s.strip().lower() for s in a.sports.split(",")}
+            tickets = [t for t in tickets if str(t.get("sport") or "").lower() in keep]
+        if a.max:                          # a small bankroll cannot carry every game: the earliest starts first
+            tickets = sorted(tickets, key=lambda t: t["start"])[:a.max]
+        if a.dry_run:
+            print(json.dumps([dict(t, start=iso(t["start"]), expires=iso(t["expires"])) for t in sorted(tickets, key=lambda t: t["start"])]))
+            return
         known = {r["ticker"]: r for r in live.collapse_ledger(read_jsonl(LEDGER))}
         fresh = []
         LEDGER.parent.mkdir(exist_ok=True)
         with LEDGER.open("a") as f:
             for t in tickets:
-                row = dict(t, placed_at=iso(now), start=iso(t["start"]), expires=iso(t["expires"]), mode="paper")
+                row = dict(t, placed_at=iso(now), start=iso(t["start"]), expires=iso(t["expires"]), mode="listed for Nick" if a.book == "real" else "paper", sports_filter=a.sports or "all")
                 old = known.get(row["ticker"])
                 if old is not None and (old["expires"] == row["expires"] or iso(now) > old["expires"]):
                     continue        # already resting with the same window, or its window has closed
@@ -181,8 +196,15 @@ def main() -> None:
     s.add_argument("--risk", type=float, default=0.01, help="share of bankroll at risk per position")
     s.add_argument("--lead", type=int, default=60, help="minutes before the scheduled start to begin")
     s.add_argument("--include-in-game", action="store_true", help="also ticket games already under way (the form that lost on the holdout)")
-    sub.add_parser("grade")
+    s.add_argument("--whole", action="store_true", help="whole contracts only, for orders typed by hand")
+    s.add_argument("--dry-run", action="store_true", help="print the tickets as JSON and record nothing")
+    s.add_argument("--sports", default="", help="comma-separated sports to keep, e.g. basketball,soccer,football (default: all)")
+    s.add_argument("--max", type=int, default=0, help="at most this many tickets, earliest starts first (0 = no cap)")
+    g = sub.add_parser("grade")
+    for p in (s, g):
+        p.add_argument("--book", choices=["paper", "real"], default="paper")
     a = ap.parse_args()
+    use_book(a.book)
     asyncio.run(scan(a) if a.cmd == "scan" else grade(a))
 
 

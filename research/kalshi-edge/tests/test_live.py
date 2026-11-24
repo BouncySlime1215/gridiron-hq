@@ -135,3 +135,17 @@ def test_ledger_does_not_extend_an_order_after_its_window_has_closed():
 def test_ledger_keeps_markets_apart_and_in_first_seen_order():
     rows = [led("KXB-2-Y", placed="2026-11-17T18:00:00Z"), led("KXA-1-X"), led("KXB-2-Y", placed="2026-11-17T18:10:00Z")]
     assert [r["ticker"] for r in live.collapse_ledger(rows)] == ["KXB-2-Y", "KXA-1-X"]
+
+
+def test_a_hand_typed_order_is_rounded_down_to_whole_contracts_and_its_risk_recomputed():
+    # $20 at 94c is 21.27 contracts; by hand that is 21, risking $19.74 to win $1.26
+    t = live.longshot_tickets([game()], [market("AAA", 0.06, 0.05)], now=NOW, bankroll=200.0, risk_per_position=0.10, whole_contracts=True)
+    assert t[0]["contracts"] == 21 and t[0]["limit_price"] == 0.94
+    assert t[0]["max_loss"] == pytest.approx(19.74) and t[0]["max_gain"] == pytest.approx(1.26)
+    # without the flag the same stake buys the fractional size
+    f = live.longshot_tickets([game()], [market("AAA", 0.06, 0.05)], now=NOW, bankroll=200.0, risk_per_position=0.10)
+    assert f[0]["contracts"] == pytest.approx(21.27)
+
+
+def test_a_stake_too_small_for_one_whole_contract_writes_no_ticket():
+    assert live.longshot_tickets([game()], [market("AAA", 0.06, 0.05)], now=NOW, bankroll=5.0, risk_per_position=0.10, whole_contracts=True) == []
